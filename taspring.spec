@@ -1,7 +1,7 @@
 %define _unpackaged_files_terminate_build 1
 
-Name: taspring
-Version: 0.79.1
+Name: springrts
+Version: 0.80.2
 Release: alt1
 
 Summary: Total Ahnigilation rewrite
@@ -12,8 +12,7 @@ Url: http://springrts.com/
 Packager: Maxim Ivanov <redbaron@altlinux.org>
 
 BuildRequires: boost-program_options-devel cmake gcc-c++ libSDL-devel 
-#BuildRequires: libXScrnSaver-devel libXau-devel libXcomposite-devel libXcursor-devel libXdmcp-devel libXext-devel libXft-devel libXi-devel libXinerama-devel libXmu-devel libXpm-devel libXrandr-devel libXtst-devel libXv-devel libXxf86misc-devel xorg-xf86vidmodeproto-devel zip libxkbfile-devel
-BuildRequires: libdevil-devel libfreeglut-devel libglew-devel libopenal-devel 
+BuildRequires: libdevil-devel libfreeglut-devel libglew-devel libopenal1-devel 
 BuildRequires: libvorbis-devel  python-devel  
 
 Source0: %name-%version.tar
@@ -46,6 +45,9 @@ cd build
 %_pixmapsdir/*
 
 %changelog
+* Sat Aug 29 2009 Maxim Ivanov <redbaron at altlinux.org> 0.80.2-alt1
+- Update to 0.80.2
+
 * Sun Jun 07 2009 Maxim Ivanov <redbaron at altlinux.org> 0.79.1-alt1
 - Initial build for ALTLinux 
 

@@ -1,7 +1,7 @@
 %define _unpackaged_files_terminate_build 1
 
 Name: springrts
-Version: 0.80.2
+Version: 0.80.4.1
 Release: alt1
 
 Summary: Total Ahnigilation rewrite
@@ -35,6 +35,7 @@ cmake .. \
 %install
 cd build
 %make install DESTDIR=%buildroot
+mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
 
 %files 
 %_gamesbindir/*
@@ -45,6 +46,9 @@ cd build
 %_pixmapsdir/*
 
 %changelog
+* Sat Sep 05 2009 Maxim Ivanov <redbaron at altlinux.org> 0.80.4.1-alt1
+- Update to 0.80.4.1 
+
 * Sat Aug 29 2009 Maxim Ivanov <redbaron at altlinux.org> 0.80.2-alt1
 - Update to 0.80.2
 

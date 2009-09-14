@@ -71,7 +71,7 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
 %files data
 %_gamesdatadir/*
 %_pixmapsdir/*
-%_K4xdg_mime/*
+%_xdgmimedir/packages/*
 %_desktopdir/*
 
 %post data

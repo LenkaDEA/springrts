@@ -15,7 +15,7 @@ Packager: Maxim Ivanov <redbaron@altlinux.org>
 BuildRequires(pre): rpm-build-xdg
 BuildRequires: boost-program_options-devel cmake gcc-c++ libSDL-devel 
 BuildRequires: libdevil-devel libfreeglut-devel libglew-devel libopenal1-devel 
-BuildRequires: libvorbis-devel  python-devel  
+BuildRequires: libvorbis-devel  python-devel libfreetype-devel 
 
 Requires: %name-data = %version-%release
 

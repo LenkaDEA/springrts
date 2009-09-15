@@ -13,9 +13,19 @@ Url: http://springrts.com/
 Packager: Maxim Ivanov <redbaron@altlinux.org>
 
 BuildRequires(pre): rpm-build-xdg
-BuildRequires: boost-program_options-devel cmake gcc-c++ libSDL-devel 
+#BuildRequires: boost-program_options-devel cmake gcc-c++ libSDL-devel 
+
+BuildRequires: cmake java-devel libGL-devel libGLU-devel gcc-c++
+BuildRequires: boost-devel boost-program_options-devel boost-asio-devel boost-signals-devel
+BuildRequires: libICE-devel libSM-devel libX11-devel libXdamage-devel libXfixes-devel libXrender-devel 
+BuildRequires: libXt-devel libfreetype-devel libogg-devel libstdc++-devel 
+BuildRequires: xorg-inputproto-devel xorg-kbproto-devel xorg-xextproto-devel xorg-xf86miscproto-devel 
+BuildRequires: xorg-xineramaproto-devel xorg-xproto-devel zlib-devel
 BuildRequires: libdevil-devel libfreeglut-devel libglew-devel libopenal1-devel 
-BuildRequires: libvorbis-devel  python-devel libfreetype-devel libX11-devel 
+BuildRequires: libvorbis-devel  python-devel libSDL-devel
+
+#BuildRequires: boost-asio-devel boost-program_options-devel boost-signals-devel ccmake gcc-c++ java-devel  libXScrnSaver-devel libXau-devel libXcomposite-devel libXcursor-devel libXdmcp-devel libXext-devel libXft-devel libXi-devel libXinerama-devel libXmu-devel libXpm-devel libXrandr-devel libXtst-devel libXv-devel libXxf86misc-devel libdevil-devel libfreeglut-devel libglew-devel libopenal1-devel libvorbis-devel libxkbfile-devel tzdata xorg-xf86vidmodeproto-devel zip
+
 
 Requires: %name-data = %version-%release
 

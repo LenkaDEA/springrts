@@ -2,7 +2,7 @@
 %def_disable debug
 
 Name: springrts
-Version: 0.80.4.1
+Version: 0.80.5.1
 Release: alt1
 
 Summary: Real time strategy game engine with many mods

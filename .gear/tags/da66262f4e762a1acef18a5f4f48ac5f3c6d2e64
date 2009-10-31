@@ -1,0 +1,6 @@
+object 57e49c6c6c25dbc8ed72170141fb6214a02cdf2d
+type commit
+tag 0.80.5.1
+tagger Karl-Robert Ernst <k-r.ernst@my-mail.ch> 1256327947 +0200
+
+0.80.5.1 patch release

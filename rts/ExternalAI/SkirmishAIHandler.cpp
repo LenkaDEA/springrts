@@ -70,8 +70,14 @@ CSkirmishAIHandler::~CSkirmishAIHandler()
 void CSkirmishAIHandler::LoadFromSetup(const CGameSetup& setup) {
 
 	for (size_t a = 0; a < setup.GetSkirmishAIs().size(); ++a) {
-		AddSkirmishAI(setup.GetSkirmishAIs()[a], a);
-		// TODO: complete the SkirmishAIData before adding
+		SkirmishAIData sai = setup.GetSkirmishAIs()[a];
+
+		// complete the SkirmishAIData before adding
+		if (gameInitialized) {
+			sai.isLuaAI = IsLuaAI(sai);
+		}
+
+		AddSkirmishAI(sai, a);
 	}
 }
 
@@ -94,6 +100,11 @@ void CSkirmishAIHandler::LoadPreGame() {
 	}
 
 	gameInitialized = true;
+
+	// actualize the already added SkirmishAIData's
+	for (id_ai_t::iterator ai = id_ai.begin(); ai != id_ai.end(); ++ai) {
+		ai->second.isLuaAI = IsLuaAI(ai->second);
+	}
 }
 
 bool CSkirmishAIHandler::IsActiveSkirmishAI(const size_t skirmishAIId) const {
@@ -218,7 +229,9 @@ void CSkirmishAIHandler::SetLocalSkirmishAIDieing(const size_t skirmishAIId, con
 	assert(ai != id_ai.end()); // is valid id?
 	assert(CSkirmishAIHandler::IsLocalSkirmishAI(ai->second)); // is local AI?
 
-	eoh->SetSkirmishAIDieing(skirmishAIId);
+	if (!GetSkirmishAI(skirmishAIId)->isLuaAI) {
+		eoh->SetSkirmishAIDieing(skirmishAIId);
+	}
 	id_dieReason[skirmishAIId] = reason;
 
 	net->Send(CBaseNetProtocol::Get().SendAIStateChanged(gu->myPlayerNum, skirmishAIId, SKIRMAISTATE_DIEING));

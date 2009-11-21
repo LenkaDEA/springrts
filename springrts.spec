@@ -28,7 +28,6 @@ BuildRequires: libvorbis-devel  python-devel libSDL-devel
 
 
 Requires: %name-data = %version-%release
-
 Source0: %name-%version.tar
 
 %description
@@ -44,10 +43,17 @@ or user interface.
 Summary: data files for Spring RTS engine
 Group: Games/Strategy
 BuildArch: noarch
-Requires: %name = %version-%release
 
 %description data
 data files for Spring RTS engine
+
+%package dedicated
+Summary: springrts dedicated server
+Group: Games/Strategy
+Requires: %name-data = %version-%release
+
+%description dedicated
+springrts dedicated server
 
 %prep
 %setup 
@@ -62,7 +68,8 @@ cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
 %endif
         -DCMAKE_INSTALL_PREFIX=%_prefix \
-        -DBINDIR=%_gamesbindir
+        -DBINDIR=%_gamesbindir \
+        -DAI_LIBS_DIR=%_libdir/spring
 %make_build
 
 %install
@@ -76,14 +83,18 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
 %endif
 
 %files 
-%_gamesbindir/*
-%_libdir/*
+%_gamesbindir/spring
+%_libdir/spring
 
 %files data
 %_gamesdatadir/*
 %_pixmapsdir/*
 %_xdgmimedir/packages/*
 %_desktopdir/*
+
+%files dedicated
+%_gamesbindir/spring-dedicated
+%_libdir/*.so
 
 %post data
   [ -f %_gamesdatadir/spring/base/otacontent.sdz ] && \
@@ -99,6 +110,10 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
   echo " ===================================================================="
 
 %changelog
+* Sat Oct 31 2009 Maxim Ivanov <redbaron at altlinux.org> 0.80.5.1-alt1
+- Updated to 0.80.5.1
+- Dedicated server packed separately
+
 * Sat Sep 05 2009 Maxim Ivanov <redbaron at altlinux.org> 0.80.4.1-alt1
 - Update to 0.80.4.1
 

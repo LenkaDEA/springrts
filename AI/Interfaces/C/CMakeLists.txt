@@ -46,7 +46,7 @@ macro    (ConfigureNativeSkirmishAI mySourceDirRel_var additionalSources_var add
 
 		# Compile the library
 		add_library(${myTarget} MODULE ${mySources} ${additionalSources})
-		target_link_libraries(${myTarget} ${additionalLibraries})
+		target_link_libraries(${myTarget} ${additionalLibraries} dl)
 		set_target_properties(${myTarget} PROPERTIES COMPILE_FLAGS "${additionalCompileFlags}")
 		set_target_properties(${myTarget} PROPERTIES OUTPUT_NAME   "SkirmishAI")
 

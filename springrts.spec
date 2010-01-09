@@ -15,7 +15,7 @@ Packager: Maxim Ivanov <redbaron@altlinux.org>
 BuildRequires(pre): rpm-build-xdg
 #BuildRequires: boost-program_options-devel cmake gcc-c++ libSDL-devel 
 
-BuildRequires: cmake java-devel libGL-devel libGLU-devel gcc-c++
+BuildRequires: cmake cmake-modules java-devel libGL-devel libGLU-devel gcc-c++
 BuildRequires: boost-devel boost-program_options-devel boost-asio-devel boost-signals-devel
 BuildRequires: libICE-devel libSM-devel libX11-devel libXdamage-devel libXfixes-devel libXrender-devel 
 BuildRequires: libXt-devel libfreetype-devel libogg-devel libstdc++-devel 
@@ -59,21 +59,20 @@ springrts dedicated server
 %setup 
 
 %build
-mkdir build
-pushd build
-cmake .. \
+%cmake \
 %if_enabled debug
         -DCMAKE_BUILD_TYPE=Debug \
 %else
         -DCMAKE_BUILD_TYPE=Release \
 %endif
-        -DCMAKE_INSTALL_PREFIX=%_prefix \
         -DBINDIR=%_gamesbindir \
-        -DAI_LIBS_DIR=%_libdir/spring
+        -DAI_LIBS_DIR=%_libdir/spring \
+        -DAI_DATA_DIR=%_gamesdatadir/spring
+cd BUILD
 %make_build
 
 %install
-cd build
+cd BUILD
 %make install DESTDIR=%buildroot
 mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
 
@@ -112,6 +111,8 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
 %changelog
 * Sat Jan 09 2010 Maxim Ivanov <redbaron at altlinux.org> 0.80.5.2-alt1
 - Updated to 0.80.5.2
+- Corrected buildreq
+- Better arch vs noarch files destribution
 
 * Sat Oct 31 2009 Maxim Ivanov <redbaron at altlinux.org> 0.80.5.1-alt1
 - Updated to 0.80.5.1

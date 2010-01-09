@@ -9,5 +9,5 @@ Exec=spring %f
 Icon=spring
 Terminal=false
 Type=Application
-Categories=Game;StrategyGame;
+Categories=Application;Game;StrategyGame;
 NoDisplay=true

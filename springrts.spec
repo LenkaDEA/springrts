@@ -65,6 +65,7 @@ springrts dedicated server
 %else
         -DCMAKE_BUILD_TYPE=Release \
 %endif
+        -DLIBDIR=%_libdir \
         -DBINDIR=%_gamesbindir \
         -DAI_LIBS_DIR=%_libdir/spring \
         -DAI_DATA_DIR=%_gamesdatadir/spring

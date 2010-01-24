@@ -15,7 +15,7 @@ Packager: Maxim Ivanov <redbaron@altlinux.org>
 BuildRequires(pre): rpm-build-xdg rpm-macros-cmake
 #BuildRequires: boost-program_options-devel cmake gcc-c++ libSDL-devel 
 
-BuildRequires: cmake cmake-modules java-devel libGL-devel libGLU-devel gcc-c++
+BuildRequires: cmake cmake-modules java-devel /proc libGL-devel libGLU-devel gcc-c++
 BuildRequires: boost-devel boost-program_options-devel boost-asio-devel boost-signals-devel
 BuildRequires: libICE-devel libSM-devel libX11-devel libXdamage-devel libXfixes-devel libXrender-devel 
 BuildRequires: libXt-devel libfreetype-devel libogg-devel libstdc++-devel 

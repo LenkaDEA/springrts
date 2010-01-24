@@ -11,6 +11,7 @@
 #include "PreGame.h"
 #include "Game.h"
 #include "GameVersion.h"
+#include "Player.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "FPUCheck.h"
 #include "GameServer.h"
@@ -30,14 +31,11 @@
 #include "FileSystem/FileHandler.h"
 #include "FileSystem/VFSHandler.h"
 #include "Sound/Sound.h"
-#include "Lua/LuaGaia.h"
-#include "Lua/LuaRules.h"
-#include "Lua/LuaParser.h"
-#include "Map/MapParser.h"
+#include "Sound/Music.h"
+#include "Map/MapInfo.h"
 #include "ConfigHandler.h"
 #include "FileSystem/FileSystem.h"
 #include "Rendering/glFont.h"
-#include "Rendering/Textures/TAPalette.h"
 #include "StartScripts/ScriptHandler.h"
 #include "UI/InfoConsole.h"
 #include "aGui/Gui.h"
@@ -46,6 +44,7 @@
 
 CPreGame* pregame = NULL;
 using netcode::RawPacket;
+using std::string;
 
 extern boost::uint8_t* keys;
 extern bool globalQuit;
@@ -164,36 +163,26 @@ void CPreGame::StartServer(const std::string& setupscript)
 	setup->Init(setupscript);
 
 	startupData->SetRandomSeed(static_cast<unsigned>(gu->usRandInt()));
-	if (! setup->mapName.empty())
+	if (!setup->mapName.empty())
 	{
 		// would be better to use MapInfo here, but this doesn't work
 		LoadMap(setup->mapName); // map into VFS
-		MapParser mp(setup->mapName);
-		LuaTable mapRoot = mp.GetRoot();
-		const std::string mapWantedScript = mapRoot.GetString("script",     "");
+		const std::string mapWantedScript(mapInfo->GetStringValue("script"));
 
 		if (!mapWantedScript.empty()) {
 			setup->scriptName = mapWantedScript;
 		}
 	}
-	// here we now the name of the script to use
+	else
+	{
+		throw content_error("No map selected in startscript");
+	}
 
 	CScriptHandler::SelectScript(setup->scriptName);
-	std::string scriptWantedMod;
-	scriptWantedMod = CScriptHandler::Instance().chosenScript->GetModName();
-	if (!scriptWantedMod.empty()) {
-		setup->modName = archiveScanner->ModArchiveToModName(scriptWantedMod);
-	}
 	LoadMod(setup->modName);
 
 	std::string modArchive = archiveScanner->ModNameToModArchive(setup->modName);
 	startupData->SetModChecksum(archiveScanner->GetModChecksum(modArchive));
-
-	std::string mapFromScript = CScriptHandler::Instance().chosenScript->GetMapName();
-	if (!mapFromScript.empty() &&  setup->mapName != mapFromScript) {
-		//TODO unload old map
-		LoadMap(mapFromScript, true);
-	}
 
 	startupData->SetMapChecksum(archiveScanner->GetMapChecksum(setup->mapName));
 	setup->LoadStartPositions();
@@ -221,6 +210,12 @@ void CPreGame::UpdateClientNet()
 	{
 		const unsigned char* inbuf = packet->data;
 		switch (inbuf[0]) {
+			case NETMSG_QUIT: {
+				const std::string message((char*)(inbuf+3));
+				logOutput.Print(message);
+				throw std::runtime_error(message);
+				break;
+			}
 			case NETMSG_GAMEDATA: { // server first sends this to let us know about teams, allyteams etc.
 				GameDataReceived(packet);
 				break;
@@ -231,7 +226,15 @@ void CPreGame::UpdateClientNet()
 
 				const CTeam* team = teamHandler->Team(gu->myTeam);
 				assert(team);
-				LoadStartPicture(team->side);
+				std::string mapStartPic(mapInfo->GetStringValue("Startpic"));
+				if (mapStartPic.empty())
+					RandomStartPicture(team->side);
+				else
+					LoadStartPicture(mapStartPic);
+
+				std::string mapStartMusic(mapInfo->GetStringValue("Startmusic"));
+				if (!mapStartMusic.empty())
+					Channels::BGMusic.Play(mapStartMusic);
 
 				game = new CGame(gameSetup->mapName, modArchive, savefile);
 
@@ -346,25 +349,14 @@ void CPreGame::ReadDataFromDemo(const std::string& demoName)
 	assert(gameServer);
 }
 
-void CPreGame::LoadMap(const std::string& mapName, const bool forceReload)
+void CPreGame::LoadMap(const std::string& mapName)
 {
 	static bool alreadyLoaded = false;
 
-	if (!alreadyLoaded || forceReload)
+	if (!alreadyLoaded)
 	{
-		CFileHandler* f = new CFileHandler("maps/" + mapName);
-		if (!f->FileExists()) {
-			vector<string> ars = archiveScanner->GetArchivesForMap(mapName);
-			if (ars.empty()) {
-				throw content_error("Couldn't find any archives for map '" + mapName + "'.");
-			}
-			for (vector<string>::iterator i = ars.begin(); i != ars.end(); ++i) {
-				if (!vfsHandler->AddArchive(*i, false)) {
-					throw content_error("Couldn't load archive '" + *i + "' for map '" + mapName + "'.");
-				}
-			}
-		}
-		delete f;
+		vfsHandler->AddMapArchiveWithDeps(mapName, false);
+		mapInfo = new CMapInfo(mapName);
 		alreadyLoaded = true;
 	}
 }
@@ -419,7 +411,7 @@ void CPreGame::GameDataReceived(boost::shared_ptr<const netcode::RawPacket> pack
 	LogObject() << "Using map " << gameSetup->mapName << "\n";
 
 	if (net && net->GetDemoRecorder()) {
-		net->GetDemoRecorder()->SetName(gameSetup->mapName);
+		net->GetDemoRecorder()->SetName(gameSetup->mapName, gameSetup->modName);
 		LogObject() << "Recording demo " << net->GetDemoRecorder()->GetName() << "\n";
 	}
 	LoadMap(gameSetup->mapName);

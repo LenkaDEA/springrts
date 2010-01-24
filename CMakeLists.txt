@@ -8,6 +8,7 @@ LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/rts/build/cmake")
 if    (UNIX AND NOT MINGW)
 	set (BINDIR  "bin"                CACHE STRING "Where to install binaries")
 	set (LIBDIR  "lib"                CACHE STRING "Where to install libraries")
+	set (MANDIR  "share/man"          CACHE STRING "Where to install man pages")
 	set (DATADIR "share/games/spring" CACHE STRING "Where to install game content")
 
 	set (APPLICATIONS_DIR "share/applications" CACHE STRING "Where to install desktop files")
@@ -30,13 +31,13 @@ else  (UNIX AND NOT MINGW)
 	add_definitions(-D_WIN32_WINNT=0x500) ## win2k is minimum
 	# some cross-compile fixes
 	set (CMAKE_FIND_ROOT_PATH ${MINGWLIBS} ${CMAKE_FIND_ROOT_PATH})
-	#set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 	set (CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 	set (CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 	set (STABS_DEBUG_SYMBOLS FALSE CACHE BOOL "Use stabs debug symbols (-stabs) instead of the GDB format (-gdb). This probably makes gdb and eg. addr2line work better with windows binaries (depends mainly on the tools version).")
 endif (UNIX AND NOT MINGW)
 
 # In theory, it should be possible to set this to LIBDIR instead
+# (next two are relative to CMAKE_INSTALL_PREFIX)
 set (AI_LIBS_DIR "${DATADIR}"     CACHE STRING "Where to install Skirmish AI libraries")
 set (AI_DATA_DIR "${AI_LIBS_DIR}" CACHE STRING "Where to install Skirmish AI additional files (eg. configuration)")
 set (AI_TYPES    "ALL"            CACHE STRING "Which AI Interfaces (and Skirmish AIs using them) to build [ALL|NATIVE|JAVA|NONE]")
@@ -129,7 +130,7 @@ else   (UNIX)
 endif  (MINGW)
 
 ### Compiler flags and defines based on build type
-INCLUDE(TestCXXAcceptsVisibilityFlag)
+INCLUDE(TestCXXFlags)
 if    (CMAKE_SIZEOF_VOID_P EQUAL 8)
 	message (STATUS "Building Spring for 64bit environment")
 	set (MARCH_FLAG CACHE STRING "CPU optimization (use i686 for generic optimization)")
@@ -147,7 +148,7 @@ else  ($ENV{CXX} MATCHES "icpc")
 	if    (MARCH_FLAG)
 		set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${MARCH_FLAG}")
 	endif (MARCH_FLAG)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse -mfpmath=sse") # SSE1
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SSE_FLAGS}") # SSE1
 	if    (MINGW)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mthreads") # SSE1
 	endif (MINGW)
@@ -165,7 +166,7 @@ endif(SIGNAL_NANS)
 # This should produce a sane ammount of warnings
 set(DEBUG_WARNINGS "-Wall -Wno-sign-compare")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsingle-precision-constant -frounding-math")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mieee-fp -pipe -fno-strict-aliasing ${VISIBILITY_HIDDEN} ${VISIBILITY_INLINES_HIDDEN}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${IEEE_FP_FLAG} -pipe -fno-strict-aliasing ${VISIBILITY_HIDDEN} ${VISIBILITY_INLINES_HIDDEN}")
 add_definitions(-DSTREFLOP_SSE) # would break AI compiling, but is undefined in ./AI/CMakeLists.txt
 if (UNIX)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
@@ -212,6 +213,60 @@ endif (WIN32)
 	
 Add_Subdirectory(tools/unitsync)
 
+# required for man pages (optional) and base files (mandatory)
+FIND_PACKAGE(7zip REQUIRED)
+
+### make and install the man pages
+if    (UNIX AND NOT MINGW)
+	set(AsciiDoc_FIND_QUIETLY TRUE)
+	FIND_PACKAGE(AsciiDoc)
+	set(CREATE_MAN_PAGES)
+	if    (ASCIIDOC_FOUND AND XSLTPROC_FOUND AND DOCBOOK_FOUND)
+		execute_process(
+			COMMAND "${ASCIIDOC_BIN}"
+			RESULT_VARIABLE ASCIIDOC_RESULT
+			ERROR_QUIET
+			OUTPUT_QUIET
+			ERROR_STRIP_TRAILING_WHITESPACE)
+		if    (ASCIIDOC_RESULT EQUAL 0)
+			set(CREATE_MAN_PAGES TRUE)
+		else  (ASCIIDOC_RESULT EQUAL 0)
+			set(CREATE_MAN_PAGES FALSE)
+			message(STATUS "MAN pages will not be generated/installed (utility asciidoc is broken)")
+		endif (ASCIIDOC_RESULT EQUAL 0)
+	else  (ASCIIDOC_FOUND AND XSLTPROC_FOUND AND DOCBOOK_FOUND)
+		set(MISSING_UTILS "")
+		if    (NOT ASCIIDOC_FOUND)
+			set(MISSING_UTILS "${MISSING_UTILS} asciidoc")
+		endif (NOT ASCIIDOC_FOUND)
+		if    (NOT XSLTPROC_FOUND)
+			set(MISSING_UTILS "${MISSING_UTILS} xsltproc")
+		endif (NOT XSLTPROC_FOUND)
+		if    (NOT DOCBOOK_FOUND)
+			set(MISSING_UTILS "${MISSING_UTILS} docbook-xsl")
+		endif (NOT DOCBOOK_FOUND)
+		message(STATUS "MAN pages will not be generated/installed; missing utilit(y|ies):${MISSING_UTILS}")
+	endif (ASCIIDOC_FOUND AND XSLTPROC_FOUND AND DOCBOOK_FOUND)
+
+	if    (CREATE_MAN_PAGES)
+		set(MAN_SOURCE_DIR "${CMAKE_SOURCE_DIR}/Documentation/manpages")
+		set(MAN_BUILD_DIR  "${CMAKE_BINARY_DIR}/manpages")
+		set(MAN_DEST_DIR   "${MANDIR}/man6")
+
+		add_custom_target(manpages ALL
+			COMMAND "${MAN_SOURCE_DIR}/make_manpages.sh"
+				"${MAN_BUILD_DIR}"
+				"${ASCIIDOC_BIN}"
+				"${XSLTPROC_BIN}"
+				"${DOCBOOK_XSL}"
+				"${7ZIP_BIN}"
+			WORKING_DIRECTORY "${MAN_SOURCE_DIR}")
+
+		install(DIRECTORY "${MAN_BUILD_DIR}/" DESTINATION "${MAN_DEST_DIR}" FILES_MATCHING PATTERN REGEX ".*\\.6\\.gz$")
+		message(STATUS "MAN pages will be installed to {INSTALL_PREFIX}/${MAN_DEST_DIR}")
+	endif (CREATE_MAN_PAGES)
+endif (UNIX AND NOT MINGW)
+
 ### make the basefiles (aka sdz's)
 FIND_PACKAGE(7zip REQUIRED)
 file (TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/base" BASE_BUILD_DIR)
@@ -242,11 +297,4 @@ else  (UNIX AND NOT MINGW)
 endif (UNIX AND NOT MINGW)
 
 # additional tools
-
-if    (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/DemoAnalyser)
-	Add_Subdirectory(tools/DemoAnalyser)
-endif (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/DemoAnalyser)
-
-if    (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/DemoDumper)
-	Add_Subdirectory(tools/DemoDumper)
-endif (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/DemoDumper)
+Add_Subdirectory(tools/DemoTool)

@@ -56,7 +56,7 @@ tbz="spring_${version_string}_src.tar.bz2"
 # Windows archives
 # * windows (CRLF) line endings (bugged, see TODO below)
 # * contain everything from the GIT repository
-zip="spring_${version_string}_src.zip"
+#zip="spring_${version_string}_src.zip"
 #seven_zip="spring_${branch}_src.7z"
 
 # This is the list of files/directories that go in the source package.
@@ -74,6 +74,7 @@ include=" \
  $dir/tools/SelectionEditor/ \
  $dir/CMakeLists.txt \
  $dir/tools/unitsync/ \
+ $dir/tools/DemoTool/ \
  $dir/tools/DedicatedServer/"
 
 # On linux, win32 executables are useless.

@@ -46,7 +46,7 @@ macro    (ConfigureNativeSkirmishAI mySourceDirRel_var additionalSources_var add
 
 		# Compile the library
 		add_library(${myTarget} MODULE ${mySources} ${additionalSources})
-		target_link_libraries(${myTarget} ${additionalLibraries} dl)
+		target_link_libraries(${myTarget} ${additionalLibraries})
 		set_target_properties(${myTarget} PROPERTIES COMPILE_FLAGS "${additionalCompileFlags}")
 		set_target_properties(${myTarget} PROPERTIES OUTPUT_NAME   "SkirmishAI")
 
@@ -98,12 +98,6 @@ if    (BUILD_${myName}_AIINTERFACE)
 	SetGlobal(${myName}_AIINTERFACE_TARGET ${myTarget})
 
 	aux_source_directory(${mySourceDir} mySources)
-	list(APPEND mySources ${rts}/System/Platform/SharedLib)
-	if    (UNIX)
-		list (APPEND mySources ${rts}/System/Platform/Linux/SoLib)
-	else  (UNIX)
-		list (APPEND mySources ${rts}/System/Platform/Win/DllLib)
-	endif (UNIX)
 	add_library(${myTarget} MODULE ${mySources} ${ai_common_SRC} ${CUtils_SRC})
 	set_target_properties(${myTarget} PROPERTIES OUTPUT_NAME "AIInterface")
 

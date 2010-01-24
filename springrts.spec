@@ -2,7 +2,7 @@
 %def_disable debug
 
 Name: springrts
-Version: 0.80.5.2
+Version: 0.81.0
 Release: alt1
 
 Summary: Real time strategy game engine with many mods
@@ -109,6 +109,9 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
   echo " ===================================================================="
 
 %changelog
+* Sun Jan 24 2010 Maxim Ivanov <redbaron at altlinux.org> 0.81.0-alt1
+- Bump to 0.81.0
+
 * Sat Jan 09 2010 Maxim Ivanov <redbaron at altlinux.org> 0.80.5.2-alt1
 - Updated to 0.80.5.2
 - Corrected buildreq

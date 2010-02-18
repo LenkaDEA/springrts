@@ -20,6 +20,7 @@ public:
 #include <list>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/condition.hpp>
+#include <boost/function.hpp>
 class ThreadPool
 {
 public:

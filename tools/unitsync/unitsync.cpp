@@ -1698,7 +1698,7 @@ EXPORT(int) GetSkirmishAICount() {
 		skirmishAIDataDirs.clear();
 
 		std::vector<std::string> dataDirs_tmp =
-				filesystem.FindDirsInDirectSubDirs(SKIRMISH_AI_DATA_DIR);
+                               filesystem.FindDirsInDirectSubDirs(SKIRMISH_AI_DATA_DIR);
 
 		// filter out dirs not containing an AIInfo.lua file
 		std::vector<std::string>::const_iterator i;

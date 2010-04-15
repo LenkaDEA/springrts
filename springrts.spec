@@ -3,7 +3,7 @@
 
 Name: springrts
 Version: 0.81.1.3
-Release: alt1
+Release: alt2
 
 Summary: Real time strategy game engine with many mods
 License: GPL2+ or Artistic
@@ -110,6 +110,10 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
   echo " ===================================================================="
 
 %changelog
+* Thu Apr 15 2010 Maxim Ivanov <redbaron at altlinux.org> 0.81.1.3-alt2
+- Fix build with current Boost
+- Fix AI libs search by unitsync library
+
 * Mon Feb 01 2010 Maxim Ivanov <redbaron at altlinux.org> 0.81.1.3-alt1
 - Bump to 0.81.1.3
 

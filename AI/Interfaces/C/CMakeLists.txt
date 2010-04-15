@@ -46,12 +46,13 @@ macro    (ConfigureNativeSkirmishAI mySourceDirRel_var additionalSources_var add
 
 		# Compile the library
 		add_library(${myTarget} MODULE ${mySources} ${additionalSources})
+		FixLibName(${myTarget})
+
 		target_link_libraries(${myTarget} ${additionalLibraries})
 		set_target_properties(${myTarget} PROPERTIES COMPILE_FLAGS "${additionalCompileFlags}")
 		set_target_properties(${myTarget} PROPERTIES OUTPUT_NAME   "SkirmishAI")
 
 		# Install the data files
-                #install(DIRECTORY "${myDir}/data/" DESTINATION "${myInstLibsDir}" FILES_MATCHING PATTERN REGEX "AI(Info|Options)\\.lua$")
 		install(DIRECTORY "${myDir}/data/" DESTINATION "${myInstDataDir}" FILES_MATCHING PATTERN REGEX "AI(Info|Options)\\.lua$")
 		# Install the library
 		install(TARGETS   ${myTarget}      DESTINATION "${myInstLibsDir}")
@@ -99,11 +100,12 @@ if    (BUILD_${myName}_AIINTERFACE)
 
 	aux_source_directory(${mySourceDir} mySources)
 	add_library(${myTarget} MODULE ${mySources} ${ai_common_SRC} ${CUtils_SRC})
+	FixLibName(${myTarget})
+
 	set_target_properties(${myTarget} PROPERTIES OUTPUT_NAME "AIInterface")
 
 	# Install the data files
-	install(DIRECTORY "${myDir}/data/" DESTINATION "${myInstLibsDir}" FILES_MATCHING PATTERN REGEX "InterfaceInfo\\.lua$")
-	install(DIRECTORY "${myDir}/data/" DESTINATION "${myInstDataDir}" FILES_MATCHING PATTERN REGEX "InterfaceInfo\\.lua$" EXCLUDE PATTERN "*")
+	install(DIRECTORY "${myDir}/data/" DESTINATION "${myInstDataDir}" FILES_MATCHING PATTERN REGEX "InterfaceInfo\\.lua$")
 	# Install the library
 	install(TARGETS   ${myTarget}      DESTINATION "${myInstLibsDir}")
 endif (BUILD_${myName}_AIINTERFACE)

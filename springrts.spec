@@ -2,8 +2,8 @@
 %def_disable debug
 
 Name: springrts
-Version: 0.81.1.3
-Release: alt2
+Version: 0.81.2.1
+Release: alt1
 
 Summary: Real time strategy game engine with many mods
 License: GPL2+ or Artistic
@@ -110,6 +110,11 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
   echo " ===================================================================="
 
 %changelog
+* Thu Apr 15 2010 Maxim Ivanov <redbaron at altlinux.org> 0.81.2.1-alt1
+- Bump to 0.81.2.1
+- NTAI removed as it is broken
+- Fix AI load crash
+
 * Thu Apr 15 2010 Maxim Ivanov <redbaron at altlinux.org> 0.81.1.3-alt2
 - Fix build with current Boost
 - Fix AI libs search by unitsync library

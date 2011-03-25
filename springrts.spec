@@ -3,7 +3,7 @@
 
 Name: springrts
 Version: 0.81.2.1
-Release: alt1.1
+Release: alt1.2
 
 Summary: Real time strategy game engine with many mods
 License: GPL2+ or Artistic
@@ -110,6 +110,9 @@ mkdir %buildroot%_gamesdatadir/spring/{mods,maps}
   echo " ===================================================================="
 
 %changelog
+* Fri Mar 25 2011 Eugeny A. Rostovtsev (REAL) <real at altlinux.org> 0.81.2.1-alt1.2
+- Rebuilt with Boost 1.46.1
+
 * Thu Dec 16 2010 Igor Vlasenko <viy@altlinux.ru> 0.81.2.1-alt1.1
 - rebuild with new icu44 and/or boost by request of git.alt administrator
 

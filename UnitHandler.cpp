@@ -80,14 +80,9 @@ void CUnitHandler::IdleUnitUpdate(int frame) {
 		for (std::list<BuilderTracker*>::iterator i = BuilderTrackers.begin(); i != BuilderTrackers.end(); i++) {
 			if ((*i)->idleStartFrame != -2) {
 				// the brand new builders must be filtered still
-				bool ans = VerifyOrder(*i);
+				const bool ans = VerifyOrder(*i);
 				const int builderID = (*i)->builderID;
 				const CCommandQueue* myCommands = ai->cb->GetCurrentUnitCommands(builderID);
-				Command c;
-
-				if (myCommands->size() > 0) {
-					c = myCommands->front();
-				}
 
 				// two sec delay is ok
 				if (((*i)->commandOrderPushFrame + LAG_ACCEPTANCE) < frame) {
@@ -106,6 +101,7 @@ void CUnitHandler::IdleUnitUpdate(int frame) {
 						// the command-queue we fetched above is now invalid,
 						// because it got changed in ClearOrder()
 						myCommands = ai->cb->GetCurrentUnitCommands(builderID);
+
 						if (!myCommands->empty()) {
 							DecodeOrder(*i, true);
 						} else {

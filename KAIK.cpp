@@ -210,7 +210,7 @@ void CKAIK::EnemyFinished(int enemyUnitID) {
 
 
 
-void CKAIK::GotChatMsg(const char* msg, int player) {
+void CKAIK::GotChatMessage(const char* msg, int player) {
 	if (ai->Initialized()) {
 		player = player;
 
@@ -222,6 +222,9 @@ void CKAIK::GotChatMsg(const char* msg, int player) {
 			ai->tm->ToggleVisOverlay();
 		}
 	}
+}
+
+void CKAIK::GotLuaMessage(const char* inData, const char** outData) {
 }
 
 

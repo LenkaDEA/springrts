@@ -34,7 +34,8 @@ class CKAIK: public IGlobalAI {
 		void EnemyCreated(int enemy);
 		void EnemyFinished(int enemy);
 
-		void GotChatMsg(const char* msg, int player);
+		void GotChatMessage(const char* msg, int player);
+		void GotLuaMessage(const char* inData, const char** outData);
 		int HandleEvent(int msg, const void* data);
 
 		void Update();

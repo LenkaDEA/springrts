@@ -73,7 +73,7 @@ CR_REG_METADATA(CEconomyTracker, (
 ));
 
 void EconomyUnitTracker::PostLoad() {
-	unitDef = KAIKStateExt->GetAi()->cb->GetUnitDef(economyUnitId);
+	unitDef = KAIKStateExt->GetAI()->cb->GetUnitDef(economyUnitId);
 }
 
 CEconomyTracker::CEconomyTracker(AIClasses* aic) {

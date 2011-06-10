@@ -47,7 +47,7 @@ CDGunController::CDGunController(AIClasses* aic) {
 }
 
 void CDGunController::PostLoad() {
-	ai = KAIKStateExt->GetAi();
+	ai = KAIKStateExt->GetAI();
 }
 
 
@@ -275,7 +275,7 @@ bool CDGunController::IsBusy(void) const {
 
 
 void CDGunControllerHandler::PostLoad() {
-	ai = KAIKStateExt->GetAi();
+	ai = KAIKStateExt->GetAI();
 }
 
 bool CDGunControllerHandler::AddController(int unitID) {

@@ -293,7 +293,7 @@ void AIClasses::Load() {
 
 
 
-void BuildTask::PostLoad() { def = KAIKStateExt->GetAi()->cb->GetUnitDef(id); }
-void TaskPlan::PostLoad() { def = KAIKStateExt->GetAi()->cb->GetUnitDef(defName.c_str()); }
-void UnitType::PostLoad() { /*def = KAIKStateExt->GetAi()->cb->GetUnitDef(?);*/ def = NULL; }
-void UpgradeTask::PostLoad() { /*newBuildingDef = KAIKStateExt->GetAi()->cb->GetUnitDef(?);*/ newBuildingDef = NULL; }
+void BuildTask::PostLoad() { def = KAIKStateExt->GetAI()->cb->GetUnitDef(id); }
+void TaskPlan::PostLoad() { def = KAIKStateExt->GetAI()->cb->GetUnitDef(defName.c_str()); }
+void UnitType::PostLoad() { /*def = KAIKStateExt->GetAI()->cb->GetUnitDef(?);*/ def = NULL; }
+void UpgradeTask::PostLoad() { /*newBuildingDef = KAIKStateExt->GetAI()->cb->GetUnitDef(?);*/ newBuildingDef = NULL; }

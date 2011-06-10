@@ -47,7 +47,7 @@ CUnitTable::~CUnitTable() {
 void CUnitTable::PostLoad() {
 	// NOTE: can we actually restore the UT
 	// state sensibly wrt. team sides etc.?
-	ai = KAIKStateExt->GetAi();
+	ai = KAIKStateExt->GetAI();
 
 	Init();
 }

@@ -16,13 +16,22 @@ CR_REG_METADATA(CKAIK, (
 	CR_POSTLOAD(PostLoad)
 ));
 
-CREX_REG_STATE_COLLECTOR(KAIK, CKAIK);
+#ifdef USING_CREG
+CREX_REG_STATE_COLLECTOR(CKAIK, CKAIK);
+//
 // #define CREX_REG_STATE_COLLECTOR(Name, RootClass)
 //    static RootClass* Name ## State;
-CKAIK* KAIKStateExt = KAIKState;
+CKAIK* KAIKStateExt = CKAIKState;
+#else
+// NOTE: never gets dereferenced (serialization
+// is disabled when USING_CREG is undefined, so
+// the various PostLoad()'s do not get called)
+CKAIK* KAIKStateExt = NULL;
+#endif
 
 
 
+#ifdef USING_CREG
 // called instead of InitAI() on load if IsLoadSupported() returns 1
 void CKAIK::Load(IGlobalAICallback* callback, std::istream* ifs) { CREX_SC_LOAD(KAIK, ifs); }
 void CKAIK::Save(std::ostream* ofs) { CREX_SC_SAVE(KAIK, ofs); }
@@ -51,6 +60,7 @@ void CKAIK::Serialize(creg::ISerializer* s) {
 		s->SerializeObjectInstance(ai, ai->GetClass());
 	}
 }
+#endif
 
 void CKAIK::InitAI(IGlobalAICallback* callback, int team) {
 	ai = new AIClasses(callback); ai->Init();
@@ -225,6 +235,7 @@ void CKAIK::GotChatMessage(const char* msg, int player) {
 }
 
 void CKAIK::GotLuaMessage(const char* inData, const char** outData) {
+	*outData = inData;
 }
 
 

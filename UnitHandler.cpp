@@ -78,14 +78,16 @@ void CUnitHandler::IdleUnitUpdate(int frame) {
 	// make sure that all the builders are in action (hack?)
 	if (frame % 15 == 0) {
 		for (std::list<BuilderTracker*>::iterator i = BuilderTrackers.begin(); i != BuilderTrackers.end(); i++) {
-			if ((*i)->idleStartFrame != -2) {
+			BuilderTracker* bTracker = *i;
+
+			if (bTracker->idleStartFrame != -2) {
 				// the brand new builders must be filtered still
-				const bool ans = VerifyOrder(*i);
-				const int builderID = (*i)->builderID;
+				const bool ans = VerifyOrder(bTracker);
+				const int builderID = bTracker->builderID;
 				const CCommandQueue* myCommands = ai->cb->GetCurrentUnitCommands(builderID);
 
 				// two sec delay is ok
-				if (((*i)->commandOrderPushFrame + LAG_ACCEPTANCE) < frame) {
+				if ((bTracker->commandOrderPushFrame + LAG_ACCEPTANCE) < frame) {
 					if (!ans) {
 						float3 pos = ai->cb->GetUnitPos(builderID);
 
@@ -103,7 +105,7 @@ void CUnitHandler::IdleUnitUpdate(int frame) {
 						myCommands = ai->cb->GetCurrentUnitCommands(builderID);
 
 						if (!myCommands->empty()) {
-							DecodeOrder(*i, true);
+							DecodeOrder(bTracker, true);
 						} else {
 							IdleUnitAdd(builderID, frame);
 						}

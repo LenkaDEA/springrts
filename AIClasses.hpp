@@ -4,6 +4,7 @@
 #include <list>
 #include <set>
 #include <vector>
+#include <string>
 
 #include "System/float3.h"
 #include "IncCREG.h"

@@ -40,12 +40,14 @@ class CKAIK: public IGlobalAI {
 
 		void Update();
 
+		#ifdef USING_CREG
 		void Load(IGlobalAICallback* callback, std::istream* ifs);
 		void Save(std::ostream* ofs);
 		void PostLoad(void);
 		void Serialize(creg::ISerializer* s);
+		#endif
 
-		AIClasses* GetAi() const { return ai; }
+		AIClasses* GetAI() const { return ai; }
 
 	private:
 		AIClasses* ai;

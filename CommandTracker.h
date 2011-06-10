@@ -1,6 +1,8 @@
 #ifndef KAIK_COMMANDTRACKER_HDR
 #define KAIK_COMMANDTRACKER_HDR
 
+#include <map>
+
 struct AIClasses;
 
 namespace springLegacyAI {

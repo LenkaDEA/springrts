@@ -220,7 +220,7 @@ void CKAIK::EnemyFinished(int enemyUnitID) {
 
 
 
-void CKAIK::GotChatMessage(const char* msg, int player) {
+void CKAIK::RecvChatMessage(const char* msg, int player) {
 	if (ai->Initialized()) {
 		player = player;
 
@@ -234,7 +234,7 @@ void CKAIK::GotChatMessage(const char* msg, int player) {
 	}
 }
 
-void CKAIK::GotLuaMessage(const char* inData, const char** outData) {
+void CKAIK::RecvLuaMessage(const char* inData, const char** outData) {
 	*outData = inData;
 }
 

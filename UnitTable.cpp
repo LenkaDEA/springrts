@@ -684,11 +684,10 @@ float CUnitTable::GetScore(const UnitDef* udef, UnitCategory cat) {
 		} break;
 		case CAT_NUKE: {
 			// KLOOTNOTE: should factor damage into this as well
-			float metalCost = udef->stockpileWeaponDef->metalcost;
-			float energyCost = udef->stockpileWeaponDef->energycost;
-			float supplyCost = udef->stockpileWeaponDef->supplycost;
-			float denom = metalCost + energyCost + supplyCost + 1.0f;
-			float range = udef->stockpileWeaponDef->range;
+			const float metalCost = udef->stockpileWeaponDef->metalcost;
+			const float energyCost = udef->stockpileWeaponDef->energycost;
+			const float denom = metalCost + energyCost + 1.0f;
+			const float range = udef->stockpileWeaponDef->range;
 			benefit = (udef->stockpileWeaponDef->areaOfEffect + range) / denom;
 		} break;
 		/*

@@ -1,6 +1,10 @@
 ### Generic native Skirmish AI config
 #
 
+if(NOT WIN32)
+	add_definitions(-DLUA_USE_POSIX)
+endif()
+
 GetNativeSourcesRecursive(luaSources "${CMAKE_SOURCE_DIR}/rts/lib/lua/src" "")
 
 set(mySourceDirRel         "") # Common values are "" or "src"

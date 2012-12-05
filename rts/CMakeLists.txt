@@ -1,38 +1,20 @@
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/ System)
-
 # Place executables and shared libs under "build-dir/",
 # instead of under "build-dir/rts/"
 # This way, we have the build-dir structure more like the install-dir one,
 # which makes testing spring in the builddir easier, eg. like this:
 # cd build-dir
 # SPRING_DATADIR=$(pwd) ./spring
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "..")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 
-### Spring defines
+SET(ENGINE_SRC_ROOT_DIR "${CMAKE_SOURCE_DIR}/rts")
+
+
+### Assemble defines
 SET(USE_MMGR FALSE CACHE BOOL "Use memory manager?")
 if (USE_MMGR)
 	ADD_DEFINITIONS(-DUSE_MMGR)
 endif (USE_MMGR)
-
-SET(USE_GML FALSE CACHE BOOL "Use the GML OpenGL threading library?")
-if (USE_GML)
-	ADD_DEFINITIONS(-DUSE_GML)
-	SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-tls-direct-seg-refs")
-endif (USE_GML)
-
-SET(USE_GML_SIM FALSE CACHE BOOL "Use independent Simulation thread?")
-if (USE_GML_SIM)
-	if (NOT USE_GML)
-		MESSAGE(SEND_ERROR "USE_GML_SIM requires USE_GML")
-	endif (NOT USE_GML)
-	ADD_DEFINITIONS(-DUSE_GML_SIM)
-endif (USE_GML_SIM)
-
-SET(USE_GML_DEBUG FALSE CACHE BOOL "Use GML call debugging?")
-if (USE_GML_DEBUG)
-	ADD_DEFINITIONS(-DUSE_GML_DEBUG)
-endif (USE_GML_DEBUG)
 
 SET(TRACE_SYNC FALSE CACHE BOOL "Enable sync tracker")
 if (TRACE_SYNC)
@@ -42,123 +24,82 @@ endif (TRACE_SYNC)
 SET(SYNCDEBUG FALSE CACHE BOOL "Enable sync debugger (needs SYNCCHECK=true)")
 if (SYNCDEBUG)
 	ADD_DEFINITIONS(-DSYNCDEBUG)
+	If     (NOT "${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG2" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG3")
+		Message(FATAL_ERROR "You need CMAKE_BUILD_TYPE set to either DEBUG2 or DEBUG3 for a SYNCDEBUG build")
+	EndIf  ()
+	If     (NOT SYNCCHECK)
+		Message(FATAL_ERROR "You need SYNCCHECK=TRUE for a SYNCDEBUG build")
+	EndIf  ()
+	If     (NOT TRACE_SYNC)
+		Message(WARNING "It is recommended to use TRACE_SYNC=TRUE for a SYNCDEBUG build")
+	EndIf  ()
 endif (SYNCDEBUG)
 
-FIND_PACKAGE(OpenAL REQUIRED)
-LIST(APPEND spring_libraries ${OPENAL_LIBRARY})
-INCLUDE_DIRECTORIES(${OPENAL_INCLUDE_DIR})
-FIND_PACKAGE(OggVorbis REQUIRED)
-LIST(APPEND spring_libraries ${OGG_LIBRARY} ${VORBISFILE_LIBRARY} ${VORBIS_LIBRARY})
+# Only used by GML build, but used in builds/GML and lib/gml
+SET(USE_GML_DEBUG FALSE CACHE BOOL "Use GML call debugging?")
 
-FIND_PACKAGE(OpenGL REQUIRED)
-FIND_PACKAGE(GLU REQUIRED)
-FIND_PACKAGE(GLUT REQUIRED)
-FIND_PACKAGE(GLEW REQUIRED)
-LIST(APPEND spring_libraries ${OPENGL_gl_LIBRARY} ${OPENGL_glu_LIBRARY} ${GLEW_LIBRARIES} ${DEVIL_IL_LIBRARY} ${DEVIL_ILU_LIBRARY})
 
-FIND_PACKAGE(Freetype REQUIRED)
-INCLUDE_DIRECTORIES(${FREETYPE_INCLUDE_DIR})
-LIST(APPEND spring_libraries ${FREETYPE_LIBRARIES})
+
+### Assemble common incude dirs
+INCLUDE_DIRECTORIES(BEFORE lib/lua/include)
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include/AL)
+INCLUDE_DIRECTORIES(${SPRING_MINIZIP_INCLUDE_DIR})
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
+INCLUDE_DIRECTORIES(${DEVIL_INCLUDE_DIR})
+
+### Assemble common libraries
+Add_Subdirectory(System/Sound)
+if    (NO_SOUND)
+	ADD_DEFINITIONS(-DNO_SOUND)
+endif (NO_SOUND)
 
 ### Find include directories and add platform specific libraries
-IF (MINGW)
-	FIND_PACKAGE(Win32Libs REQUIRED)
-	LIST(APPEND spring_libraries ${WIN32_LIBRARIES} mingw32)
-ELSE (MINGW)
-	FIND_PACKAGE(X11 REQUIRED)
-	LIST(APPEND spring_libraries ${X11_X11_LIB} ${X11_Xcursor_LIB})
-ENDIF (MINGW)
+LIST(APPEND engineCommonLibraries ${DEVIL_IL_LIBRARY} ${JPEG_LIBRARY} ${TIFF_LIBRARY} ${PNG_LIBRARY})
+LIST(APPEND engineCommonLibraries ${Boost_REGEX_LIBRARY} ${Boost_THREAD_LIBRARY} ${Boost_PROGRAM_OPTIONS_LIBRARY} ${Boost_SYSTEM_LIBRARY} ${Boost_SIGNALS_LIBRARY})
+LIST(APPEND engineCommonLibraries lua luasocket 7zip oscpack ${SPRING_MINIZIP_LIBRARY} streflop lobby assimp)
 
-LIST(APPEND spring_libraries ${SDL_LIBRARY} ${Boost_REGEX_LIBRARY} ${Boost_THREAD_LIBRARY} ${Boost_PROGRAM_OPTIONS_LIBRARY} ${Boost_SYSTEM_LIBRARY} ${Boost_SIGNALS_LIBRARY})
+IF    (PREFER_STATIC_LIBS)
+	# dependency of minizip
+	FIND_PACKAGE_STATIC(ZLIB REQUIRED)
+	LIST(APPEND engineCommonLibraries ${ZLIB_LIBRARY})
+ENDIF (PREFER_STATIC_LIBS)
 
-### build all libraries in lib (has its own CMakeLists.txt)
-ADD_SUBDIRECTORY(lib)
-LIST(APPEND spring_libraries lua 7zip hpiutil2 oscpack minizip streflop lobby)
-if (USE_GML)
-	list (APPEND spring_libraries gml)
-endif (USE_GML)
-
-### include directories needed for compiling spring
-INCLUDE_DIRECTORIES(BEFORE lib/lua/include)
-
-### all spring source directories
-### each directorie which contains source has to be here
-AUX_SOURCE_DIRECTORY(Game gamefiles)
-AUX_SOURCE_DIRECTORY(Game/Camera gamefiles)
-AUX_SOURCE_DIRECTORY(Game/Server gamefiles)
-AUX_SOURCE_DIRECTORY(Game/StartScripts gamefiles)
-AUX_SOURCE_DIRECTORY(Game/UI gamefiles)
-AUX_SOURCE_DIRECTORY(Menu gamefiles)
-
-AUX_SOURCE_DIRECTORY(Lua luafiles)
-
-AUX_SOURCE_DIRECTORY(ExternalAI aifiles)
-AUX_SOURCE_DIRECTORY(ExternalAI/Interface aifiles)
-
-AUX_SOURCE_DIRECTORY(Map mapfiles)
-AUX_SOURCE_DIRECTORY(Map/SM3 mapfiles)
-AUX_SOURCE_DIRECTORY(Map/SM3/terrain mapfiles)
-AUX_SOURCE_DIRECTORY(Map/SMF mapfiles)
-
-AUX_SOURCE_DIRECTORY(Rendering renderfiles)
-AUX_SOURCE_DIRECTORY(Rendering/Env renderfiles)
-AUX_SOURCE_DIRECTORY(Rendering/GL renderfiles)
-AUX_SOURCE_DIRECTORY(Rendering/Shaders renderfiles)
-AUX_SOURCE_DIRECTORY(Rendering/Textures renderfiles)
-AUX_SOURCE_DIRECTORY(Rendering/UnitModels renderfiles)
-
-AUX_SOURCE_DIRECTORY(aGui renderfiles)
-
-AUX_SOURCE_DIRECTORY(Sim simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Features simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Misc simfiles)
-AUX_SOURCE_DIRECTORY(Sim/MoveTypes simfiles)
-AUX_SOURCE_DIRECTORY(Sim/MoveTypes/MoveMath simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Objects simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Path simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Projectiles simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Projectiles/WeaponProjectiles simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Projectiles/Unsynced simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Units simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Units/COB simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Units/CommandAI simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Units/Groups simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Units/UnitTypes simfiles)
-AUX_SOURCE_DIRECTORY(Sim/Weapons simfiles)
-
-AUX_SOURCE_DIRECTORY(System sysfiles)
-AUX_SOURCE_DIRECTORY(System/Platform sysfiles)
-### only use the directory for target platform
-IF (UNIX)
-	AUX_SOURCE_DIRECTORY(System/Platform/Linux sysfiles)
-ELSE (UNIX)
-	AUX_SOURCE_DIRECTORY(System/Platform/Win sysfiles)
+IF    (UNIX)
+	# Needed for dynamically loading shared libraries (on some OS)
+	LIST(APPEND engineCommonLibraries dl)
 ENDIF (UNIX)
-AUX_SOURCE_DIRECTORY(System/FileSystem sysfiles)
-AUX_SOURCE_DIRECTORY(System/Net sysfiles)
-AUX_SOURCE_DIRECTORY(System/Script sysfiles)
-AUX_SOURCE_DIRECTORY(System/Sync sysfiles)
-AUX_SOURCE_DIRECTORY(System/Sound sysfiles)
-AUX_SOURCE_DIRECTORY(System/creg sysfiles)
 
-### Add icon and manifest to exe using windres
 IF (MINGW)
-	FIND_PROGRAM(WINDRES NAMES windres i586-mingw32msvc-windres i586-pc-mingw32-windres i686-mingw32-windres DOC "path to mingw's windres executable")
-	ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/icon.o COMMAND ${WINDRES} -I${CMAKE_CURRENT_SOURCE_DIR} -i${CMAKE_CURRENT_SOURCE_DIR}/icon.rc -o ${CMAKE_CURRENT_BINARY_DIR}/icon.o -v)
-	LIST(APPEND sysfiles icon.o)
+	LIST(APPEND engineCommonLibraries ${WIN32_LIBRARIES} mingw32)
 ENDIF (MINGW)
+
+
+### Assemble engine sources
+Add_Subdirectory(Game)
+Add_Subdirectory(Lua)
+Add_Subdirectory(ExternalAI)
+Add_Subdirectory(Rendering)
+Add_Subdirectory(aGui)
+Add_Subdirectory(Menu)
+Add_Subdirectory(Map)
+Add_Subdirectory(Sim)
+#Add_Subdirectory(System) # this is already added in ../
+
+SET(engineSources
+		${sources_engine_Game}
+		${sources_engine_Lua}
+		${sources_engine_Map}
+		${sources_engine_Rendering}
+		${sources_engine_aGui}
+		${sources_engine_Menu}
+		${sources_engine_Sim}
+		${sources_engine_System}
+		${sources_engine_ExternalAI}
+		${nedmalloc_obj} # TODO remove? (seems never to be set)
+	)
 
 ### Add headers for generated project files (e.g. Code::Blocks)
-IF (NOT WIN32)
-	EXECUTE_PROCESS(COMMAND find ${CMAKE_CURRENT_SOURCE_DIR} \( -name *.h -o -name *.hpp \) -printf %p\; OUTPUT_VARIABLE headers)
-ENDIF (NOT WIN32)
+file(GLOB_RECURSE engineHeaders "*.h" "*.hpp")
 
-ADD_EXECUTABLE(spring ${gamefiles} ${luafiles} ${mapfiles} ${fsfiles} ${renderfiles} ${simfiles} ${sysfiles} ${aifiles} ${nedmalloc_obj} ${headers})
-TARGET_LINK_LIBRARIES(spring ${spring_libraries})
 
-IF (MINGW)
-	#SET_TARGET_PROPERTIES(spring PROPERTIES LINK_FLAGS "-Wl,--output-def,spring.def")
-	#install (FILES ${CMAKE_CURRENT_BINARY_DIR}/spring.def DESTINATION ${BINDIR})
-ENDIF (MINGW)
-
-install (TARGETS spring DESTINATION ${BINDIR})
+Add_Subdirectory(builds)

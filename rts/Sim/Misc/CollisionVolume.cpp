@@ -1,10 +1,18 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include "CollisionVolume.h"
-#include "LogOutput.h"
-#include "mmgr.h"
+#include "System/Log/ILog.h"
+#include "System/mmgr.h"
 
 
-static CLogSubsystem LOG_COLVOL("CollisionVolume");
+#define LOG_SECTION_COLVOL "CollisionVolume"
+LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_COLVOL)
+
+// use the specific section for all LOG*() calls in this source file
+#ifdef LOG_SECTION_CURRENT
+	#undef LOG_SECTION_CURRENT
+#endif
+#define LOG_SECTION_CURRENT LOG_SECTION_COLVOL
 
 
 CR_BIND(CollisionVolume, );
@@ -20,40 +28,9 @@ CR_REG_METADATA(CollisionVolume, (
 	CR_MEMBER(testType),
 	CR_MEMBER(primaryAxis),
 	CR_MEMBER(secondaryAxes),
-	CR_MEMBER(disabled)
+	CR_MEMBER(disabled),
+	CR_MEMBER(defaultScale)
 ));
-
-std::pair<int, int> CollisionVolume::GetVolumeTypeForString(const std::string& volumeTypeStr) {
-	std::pair<int, int> p(COLVOL_TYPE_FOOTPRINT, COLVOL_AXIS_Z);
-
-	if (volumeTypeStr.size() > 0) {
-		std::string lcVolumeTypeStr(StringToLower(volumeTypeStr));
-
-		if (lcVolumeTypeStr.find("ell") != std::string::npos) {
-			p.first = COLVOL_TYPE_ELLIPSOID;
-		}
-
-		if (lcVolumeTypeStr.find("cyl") != std::string::npos) {
-			p.first = COLVOL_TYPE_CYLINDER;
-
-			if (lcVolumeTypeStr.size() == 4) {
-				if (lcVolumeTypeStr[3] == 'x') { p.second = COLVOL_AXIS_X; }
-				if (lcVolumeTypeStr[3] == 'y') { p.second = COLVOL_AXIS_Y; }
-				if (lcVolumeTypeStr[3] == 'z') { p.second = COLVOL_AXIS_Z; }
-			}
-		}
-
-		if (lcVolumeTypeStr.find("box") != std::string::npos) {
-			p.first = COLVOL_TYPE_BOX;
-		}
-
-		if (lcVolumeTypeStr.find("footprint") != std::string::npos) {
-			p.first = COLVOL_TYPE_FOOTPRINT;
-		}
-	}
-
-	return p;
-}
 
 // base ctor (CREG-only)
 CollisionVolume::CollisionVolume()
@@ -66,15 +43,16 @@ CollisionVolume::CollisionVolume()
 	volumeBoundingRadius   = 1.0f;
 	volumeBoundingRadiusSq = 1.0f;
 	volumeType             = COLVOL_TYPE_ELLIPSOID;
-	testType               = COLVOL_TEST_DISC;
+	testType               = COLVOL_HITTEST_DISC;
 	primaryAxis            = COLVOL_AXIS_Z;
 	secondaryAxes[0]       = COLVOL_AXIS_X;
 	secondaryAxes[1]       = COLVOL_AXIS_Y;
 	disabled               = false;
+	defaultScale           = true;
 }
 
 // copy ctor
-CollisionVolume::CollisionVolume(const CollisionVolume* v, float defRadius)
+CollisionVolume::CollisionVolume(const CollisionVolume* v, float defaultRadius)
 {
 	axisScales             = v->axisScales;
 	axisHScales            = v->axisHScales;
@@ -89,77 +67,110 @@ CollisionVolume::CollisionVolume(const CollisionVolume* v, float defRadius)
 	secondaryAxes[0]       = v->secondaryAxes[0];
 	secondaryAxes[1]       = v->secondaryAxes[1];
 	disabled               = v->disabled;
+	defaultScale           = v->defaultScale;
 
-	// if the volume being copied was not given
-	// explicit scales, convert the clone into a
-	// sphere if provided with a non-zero radius
-	if (axisScales == float3(1.0f, 1.0f, 1.0f) && defRadius > 0.0f) {
-		SetDefaultScale(defRadius);
+	if (defaultScale && defaultRadius > 0.0f) {
+		// if the volume being copied was not given
+		// explicit scales, convert the clone into a
+		// sphere if provided with a non-zero radius
+		Init(defaultRadius);
 	}
 }
 
-CollisionVolume::CollisionVolume(const std::string& typeStr, const float3& scales, const float3& offsets, int testType)
+CollisionVolume::CollisionVolume(const std::string& volTypeString, const float3& scales, const float3& offsets, int hitTestType)
 {
-	std::pair<int, int> p = CollisionVolume::GetVolumeTypeForString(typeStr);
+	int volType = COLVOL_TYPE_FOOTPRINT;
+	int volAxis = COLVOL_AXIS_Z;
 
-	switch (p.first) {
-		case COLVOL_TYPE_ELLIPSOID: { logOutput.Print(LOG_COLVOL, "New ellipsoid"); } break;
-		case COLVOL_TYPE_CYLINDER:  { logOutput.Print(LOG_COLVOL, "New cylinder");  } break;
-		case COLVOL_TYPE_BOX:       { logOutput.Print(LOG_COLVOL, "New box");       } break;
-		case COLVOL_TYPE_FOOTPRINT: { logOutput.Print(LOG_COLVOL, "New footprint"); } break;
-		default: { } break;
+	if (!volTypeString.empty()) {
+		const std::string& volTypeStr = StringToLower(volTypeString);
+		const std::string& volTypePrefix = volTypeStr.substr(0, 3);
+
+		if (volTypePrefix == "ell") {
+			volType = COLVOL_TYPE_ELLIPSOID;
+		} else if (volTypePrefix == "cyl") {
+			volType = COLVOL_TYPE_CYLINDER;
+
+			switch (volTypeStr[volTypeStr.size() - 1]) {
+				case 'x': { volAxis = COLVOL_AXIS_X; } break;
+				case 'y': { volAxis = COLVOL_AXIS_Y; } break;
+				case 'z': { volAxis = COLVOL_AXIS_Z; } break;
+				default: {} break;
+			}
+		} else if (volTypePrefix == "box") {
+			volType = COLVOL_TYPE_BOX;
+		}
 	}
 
-	Init(scales, offsets, p.first, testType, p.second);
+	const char* typeStr = NULL;
+	switch (volType) {
+		case COLVOL_TYPE_ELLIPSOID: {
+			typeStr = "ellipsoid";
+		} break;
+		case COLVOL_TYPE_CYLINDER: {
+			typeStr = "cylinder";
+		} break;
+		case COLVOL_TYPE_BOX: {
+			typeStr = "cuboid";
+		} break;
+		case COLVOL_TYPE_FOOTPRINT: {
+			typeStr = "footprint";
+		} break;
+		default: {} break;
+	}
+	if (typeStr != NULL) {
+		LOG_L(L_DEBUG,
+				"%s (scale: <%.2f, %.2f, %.2f>, "
+				"offsets: <%.2f, %.2f, %.2f>, "
+				"test-type: %d, axis: %d)",
+				typeStr,
+				scales.x, scales.y, scales.z,
+				offsets.x, offsets.y, offsets.z,
+				hitTestType, volAxis);
+	}
+
+	Init(scales, offsets, volType, hitTestType, volAxis);
 }
 
 
-void CollisionVolume::SetDefaultScale(const float s)
+
+void CollisionVolume::Init(float r)
 {
-	// called iif unit or feature defines no custom volume,
-	// <s> is the object's default RADIUS (not its diameter)
+	// <r> is the object's default RADIUS (not its diameter),
 	// so we need to double it to get the full-length scales
-	const float3 scales(s * 2.0f, s * 2.0f, s * 2.0f);
-
-	Init(scales, ZeroVector, volumeType, testType, primaryAxis);
+	Init(float3(r * 2.0f, r * 2.0f, r * 2.0f), ZeroVector, volumeType, testType, primaryAxis);
 }
-
 
 void CollisionVolume::Init(const float3& scales, const float3& offsets, int vType, int tType, int pAxis)
 {
-	//logOutput.Print(LOG_COLVOL, "Init(scales={%g,%g,%g}, offsets={%g,%g,%g}, vType=%d, tType=%d, pAxis=%d)",
-	//                scales.x, scales.y, scales.z, offsets.x, offsets.y, offsets.z, vType, tType, pAxis);
-
 	// assign these here, since we can be
 	// called from outside the constructor
 	primaryAxis = std::max(pAxis, 0) % COLVOL_NUM_AXES;
-	volumeType  = std::max(vType, 0) % COLVOL_NUM_TYPES;
-	testType    = std::max(tType, 0) % COLVOL_NUM_TESTS;
+	volumeType  = std::max(vType, 0) % COLVOL_NUM_SHAPES;
+	testType    = std::max(tType, 0) % COLVOL_NUM_HITTESTS;
 
 	// allow defining a custom volume without using it for coldet
 	disabled    = (scales.x < 0.0f || scales.y < 0.0f || scales.z < 0.0f);
 	axisOffsets = offsets;
 
 	// make sure none of the scales are ever negative
-	// or zero; if the resulting vector is <1, 1, 1>
+	// or zero; if the resulting vector is <1, 1, 1>,
 	// then the unit / feature loaders will override
 	// the (clone) scales with the model's radius
-	SetAxisScales(std::max(1.0f, scales.x), std::max(1.0f, scales.y), std::max(1.0f, scales.z));
+	const float3 adjScales(std::max(1.0f, scales.x), std::max(1.0f, scales.y), std::max(1.0f, scales.z));
 
 	if (volumeType == COLVOL_TYPE_ELLIPSOID) {
-		// if all axes (or half-axes) are equal in scale,
-		// volume is a sphere (a special-case ellipsoid)
-		if ((streflop::fabsf(axisHScales.x - axisHScales.y) < EPS) &&
-		    (streflop::fabsf(axisHScales.y - axisHScales.z) < EPS)) {
-
-			logOutput.Print(LOG_COLVOL, "auto-converting spherical COLVOL_TYPE_ELLIPSOID to COLVOL_TYPE_SPHERE");
+		// if all axes are equal in scale, volume is a sphere (a special-case ellipsoid)
+		if ((math::fabsf(adjScales.x - adjScales.y) < EPS) &&
+		    (math::fabsf(adjScales.y - adjScales.z) < EPS))
+		{
+			LOG_L(L_DEBUG, "auto-converting spherical COLVOL_TYPE_ELLIPSOID to COLVOL_TYPE_SPHERE");
 			volumeType = COLVOL_TYPE_SPHERE;
 		}
 	}
 
-
-	// secondaryAxes[0] = (primaryAxis + 1) % 3;
-	// secondaryAxes[1] = (primaryAxis + 2) % 3;
+	// secondaryAxes[0] = (primaryAxis + 1) % COLVOL_NUM_AXES;
+	// secondaryAxes[1] = (primaryAxis + 2) % COLVOL_NUM_AXES;
 
 	switch (primaryAxis) {
 		case COLVOL_AXIS_X: {
@@ -176,8 +187,9 @@ void CollisionVolume::Init(const float3& scales, const float3& offsets, int vTyp
 		} break;
 	}
 
-	SetBoundingRadius();
+	SetAxisScales(adjScales.x, adjScales.y, adjScales.z);
 }
+
 
 void CollisionVolume::SetBoundingRadius() {
 	// set the radius of the minimum bounding sphere
@@ -187,7 +199,7 @@ void CollisionVolume::SetBoundingRadius() {
 		case COLVOL_TYPE_BOX: {
 			// would be an over-estimation for cylinders
 			volumeBoundingRadiusSq = axisHScalesSq.x + axisHScalesSq.y + axisHScalesSq.z;
-			volumeBoundingRadius = streflop::sqrt(volumeBoundingRadiusSq);
+			volumeBoundingRadius = math::sqrt(volumeBoundingRadiusSq);
 		} break;
 		case COLVOL_TYPE_CYLINDER: {
 			const float prhs = axisHScales[primaryAxis     ];   // primary axis half-scale
@@ -196,7 +208,7 @@ void CollisionVolume::SetBoundingRadius() {
 			const float mshs = std::max(sahs, sbhs);            // max. secondary axis half-scale
 
 			volumeBoundingRadiusSq = prhs * prhs + mshs * mshs;
-			volumeBoundingRadius = streflop::sqrtf(volumeBoundingRadiusSq);
+			volumeBoundingRadius = math::sqrt(volumeBoundingRadiusSq);
 		} break;
 		case COLVOL_TYPE_ELLIPSOID: {
 			volumeBoundingRadius = std::max(axisHScales.x, std::max(axisHScales.y, axisHScales.z));
@@ -213,7 +225,7 @@ void CollisionVolume::SetBoundingRadius() {
 	}
 }
 
-void CollisionVolume::SetAxisScales(float xs, float ys, float zs) {
+void CollisionVolume::SetAxisScales(const float& xs, const float& ys, const float& zs) {
 	axisScales.x = xs;
 	axisScales.y = ys;
 	axisScales.z = zs;
@@ -229,9 +241,14 @@ void CollisionVolume::SetAxisScales(float xs, float ys, float zs) {
 	axisHIScales.x = 1.0f / axisHScales.x;
 	axisHIScales.y = 1.0f / axisHScales.y;
 	axisHIScales.z = 1.0f / axisHScales.z;
+
+	// scale was unspecified
+	defaultScale = (xs == 1.0f && ys == 1.0f && zs == 1.0f);
+
+	SetBoundingRadius();
 }
 
-void CollisionVolume::RescaleAxes(float xs, float ys, float zs) {
+void CollisionVolume::RescaleAxes(const float& xs, const float& ys, const float& zs) {
 	axisScales.x *= xs; axisHScales.x *= xs;
 	axisScales.y *= ys; axisHScales.y *= ys;
 	axisScales.z *= zs; axisHScales.z *= zs;

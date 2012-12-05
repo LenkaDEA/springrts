@@ -1,58 +1,48 @@
-#ifndef SMOOTHHEIGHTMESH_H
-#define SMOOTHHEIGHTMESH_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "Map/Ground.h"
+#ifndef SMOOTH_HEIGHT_MESH_H
+#define SMOOTH_HEIGHT_MESH_H
 
-/** This class requires that BaseMesh objects support GetHeight(float x, float y) method.
+#include <vector>
 
-Provides a GetHeight(x, y) of its own that smooths the mesh.
-*/
+class CGround;
 
+/**
+ * Provides a GetHeight(x, y) of its own that smooths the mesh.
+ */
 class SmoothHeightMesh
 {
-protected:
-	int maxx, maxy;
-	float fmaxx, fmaxy;
-	float resolution;
-	float smoothRadius;
-
-	float *mesh;
-	float *origMesh;
-
 public:
-	bool drawEnabled;
-
-	SmoothHeightMesh(const CGround* ground, float maxx_, float maxy_, float resolution_,
-			 float smoothRadius_):
-			fmaxx(maxx_), fmaxy(maxy_), resolution(resolution_),
-			smoothRadius(smoothRadius_),
-			mesh(0), origMesh(0),
-			drawEnabled(false)
-	{
-		maxx = fmaxx/resolution + 1;
-		maxy = fmaxy/resolution + 1;
-		MakeSmoothMesh(ground);
-	};
-	~SmoothHeightMesh() { delete[] mesh; mesh = 0; delete[] origMesh; origMesh = 0; }
-
-	void MakeSmoothMesh(const CGround* ground);
+	SmoothHeightMesh(const CGround* ground, float mx, float my, float res, float smoothRad);
+	~SmoothHeightMesh();
 
 	float GetHeight(float x, float y);
+	float GetHeightAboveWater(float x, float y);
 	float SetHeight(int index, float h);
 	float AddHeight(int index, float h);
 	float SetMaxHeight(int index, float h);
 
-	int GetMaxX() { return maxx; }
-	int GetMaxY() { return maxy; }
-	float GetResolution() { return resolution; }
+	int GetMaxX() const { return maxx; }
+	int GetMaxY() const { return maxy; }
+	float GetFMaxX() const { return fmaxx; }
+	float GetFMaxY() const { return fmaxy; }
+	float GetResolution() const { return resolution; }
 
-	float* GetMeshData() { return mesh; }
-	float* GetOriginalMeshData() { return origMesh; }
+	const float* GetMeshData() const { return &mesh[0]; }
+	const float* GetOriginalMeshData() const { return &origMesh[0]; }
 
-	void DrawWireframe(float yoffset);
+private:
+	void MakeSmoothMesh(const CGround* ground);
+
+	const int maxx, maxy;
+	const float fmaxx, fmaxy;
+	const float resolution;
+	const float smoothRadius;
+
+	std::vector<float> mesh;
+	std::vector<float> origMesh;
 };
 
+extern SmoothHeightMesh* smoothGround;
 
-extern SmoothHeightMesh *smoothGround;
-
-#endif // SMOOTHHEIGHTMESH_H
+#endif

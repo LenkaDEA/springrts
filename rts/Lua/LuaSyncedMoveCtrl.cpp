@@ -1,13 +1,6 @@
-#include "StdAfx.h"
-// LuaSyncedMoveCtrl.cpp.cpp: implementation of the CLuaSyncedMoveCtrl class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include <set>
-#include <list>
-#include <cctype>
-
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaSyncedMoveCtrl.h"
 
@@ -19,14 +12,15 @@
 #include "Sim/MoveTypes/ScriptMoveType.h"
 #include "Sim/MoveTypes/GroundMoveType.h"
 #include "Sim/MoveTypes/AAirMoveType.h"
-#include "Sim/MoveTypes/AirMoveType.h"
-#include "Sim/MoveTypes/TAAirMoveType.h"
+#include "Sim/MoveTypes/StrafeAirMoveType.h"
+#include "Sim/MoveTypes/HoverAirMoveType.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitHandler.h"
-#include "myMath.h"
-#include "LogOutput.h"
+#include "System/myMath.h"
+#include "System/Log/ILog.h"
+#include "LuaHelper.h"
 
-using namespace std;
+#include <cctype>
 
 
 /******************************************************************************/
@@ -35,7 +29,7 @@ using namespace std;
 
 bool LuaSyncedMoveCtrl::PushMoveCtrl(lua_State* L)
 {
-	lua_pushstring(L, "MoveCtrl");
+	lua_pushliteral(L, "MoveCtrl");
 	lua_newtable(L);
 
 #define REGISTER_LUA_CFUNC(x) \
@@ -76,8 +70,6 @@ bool LuaSyncedMoveCtrl::PushMoveCtrl(lua_State* L)
 
 	REGISTER_LUA_CFUNC(SetNoBlocking);
 
-	REGISTER_LUA_CFUNC(SetLeaveTracks);
-
 	REGISTER_LUA_CFUNC(SetShotStop);
 	REGISTER_LUA_CFUNC(SetSlopeStop);
 	REGISTER_LUA_CFUNC(SetCollideStop);
@@ -89,28 +81,6 @@ bool LuaSyncedMoveCtrl::PushMoveCtrl(lua_State* L)
 	lua_rawset(L, -3);
 
 	return true;
-}
-
-
-/******************************************************************************/
-/******************************************************************************/
-//
-//  Access helpers
-//
-
-static inline int CtrlTeam()
-{
-	return CLuaHandle::GetActiveHandle()->GetCtrlTeam();
-}
-
-
-static inline bool CanControlUnit(const CUnit* unit)
-{
-	const int ctrlTeam = CtrlTeam();
-	if (ctrlTeam < 0) {
-		return (ctrlTeam == CEventClient::AllAccessTeam) ? true : false;
-	}
-	return (ctrlTeam == unit->team);
 }
 
 
@@ -127,21 +97,7 @@ static inline CUnit* ParseUnit(lua_State* L, const char* caller, int index)
 	if (unit == NULL) {
 		return NULL;
 	}
-	if (!CanControlUnit(unit)) {
-		return NULL;
-	}
-	return unit;
-}
-
-
-static inline CUnit* ParseControlledUnit(lua_State* L,
-                                         const char* caller, int index)
-{
-	CUnit* unit = ParseUnit(L, caller, index);
-	if (unit == NULL) {
-		return NULL;
-	}
-	if (!unit->usingScriptMoveType) {
+	if (!CanControlUnit(L, unit)) {
 		return NULL;
 	}
 	return unit;
@@ -158,7 +114,7 @@ static inline CScriptMoveType* ParseMoveType(lua_State* L,
 	if (!unit->usingScriptMoveType) {
 		return NULL;
 	}
-	return (CScriptMoveType*)unit->moveType;
+	return static_cast<CScriptMoveType*>(unit->moveType);
 }
 
 
@@ -315,9 +271,9 @@ int LuaSyncedMoveCtrl::SetPhysics(lua_State* L)
 	const float3 rot(luaL_checkfloat(L, 8),
 	                 luaL_checkfloat(L, 9),
 	                 luaL_checkfloat(L, 10));
-	ASSERT_SYNCED_FLOAT3(pos);
-	ASSERT_SYNCED_FLOAT3(vel);
-	ASSERT_SYNCED_FLOAT3(rot);
+	ASSERT_SYNCED(pos);
+	ASSERT_SYNCED(vel);
+	ASSERT_SYNCED(rot);
 	moveType->SetPhysics(pos, vel, rot);
 	return 0;
 }
@@ -332,7 +288,7 @@ int LuaSyncedMoveCtrl::SetPosition(lua_State* L)
 	const float3 pos(luaL_checkfloat(L, 2),
 	                 luaL_checkfloat(L, 3),
 	                 luaL_checkfloat(L, 4));
-	ASSERT_SYNCED_FLOAT3(pos);
+	ASSERT_SYNCED(pos);
 	moveType->SetPosition(pos);
 	return 0;
 }
@@ -347,7 +303,7 @@ int LuaSyncedMoveCtrl::SetVelocity(lua_State* L)
 	const float3 vel(luaL_checkfloat(L, 2),
 	                 luaL_checkfloat(L, 3),
 	                 luaL_checkfloat(L, 4));
-	ASSERT_SYNCED_FLOAT3(vel);
+	ASSERT_SYNCED(vel);
 	moveType->SetVelocity(vel);
 	return 0;
 }
@@ -362,7 +318,7 @@ int LuaSyncedMoveCtrl::SetRelativeVelocity(lua_State* L)
 	const float3 relVel(luaL_checkfloat(L, 2),
 	                    luaL_checkfloat(L, 3),
 	                    luaL_checkfloat(L, 4));
-	ASSERT_SYNCED_FLOAT3(relVel);
+	ASSERT_SYNCED(relVel);
 	moveType->SetRelativeVelocity(relVel);
 	return 0;
 }
@@ -377,7 +333,7 @@ int LuaSyncedMoveCtrl::SetRotation(lua_State* L)
 	const float3 rot(luaL_checkfloat(L, 2),
 	                 luaL_checkfloat(L, 3),
 	                 luaL_checkfloat(L, 4));
-	ASSERT_SYNCED_FLOAT3(rot);
+	ASSERT_SYNCED(rot);
 	moveType->SetRotation(rot);
 	return 0;
 }
@@ -385,15 +341,7 @@ int LuaSyncedMoveCtrl::SetRotation(lua_State* L)
 
 int LuaSyncedMoveCtrl::SetRotationOffset(lua_State* L)
 {
-	CScriptMoveType* moveType = ParseMoveType(L, __FUNCTION__, 1);
-	if (moveType == NULL) {
-		return 0;
-	}
-	const float3 rotOff(luaL_checkfloat(L, 2),
-	                    luaL_checkfloat(L, 3),
-	                    luaL_checkfloat(L, 4));
-	ASSERT_SYNCED_FLOAT3(rotOff);
-	moveType->SetRotationOffset(rotOff);
+	// DEPRECATED
 	return 0;
 }
 
@@ -407,7 +355,7 @@ int LuaSyncedMoveCtrl::SetRotationVelocity(lua_State* L)
 	const float3 rotVel(luaL_checkfloat(L, 2),
 	                    luaL_checkfloat(L, 3),
 	                    luaL_checkfloat(L, 4));
-	ASSERT_SYNCED_FLOAT3(rotVel);
+	ASSERT_SYNCED(rotVel);
 	moveType->SetRotationVelocity(rotVel);
 	return 0;
 }
@@ -420,7 +368,7 @@ int LuaSyncedMoveCtrl::SetHeading(lua_State* L)
 		return 0;
 	}
 	const short heading = (short)luaL_checknumber(L, 2);
-	ASSERT_SYNCED_PRIMITIVE((short)heading);
+	ASSERT_SYNCED((short)heading);
 	moveType->SetHeading(heading);
 	return 0;
 }
@@ -540,21 +488,6 @@ int LuaSyncedMoveCtrl::SetNoBlocking(lua_State* L)
 }
 
 
-int LuaSyncedMoveCtrl::SetLeaveTracks(lua_State* L)
-{
-	CScriptMoveType* moveType = ParseMoveType(L, __FUNCTION__, 1);
-	if (moveType == NULL) {
-		return 0;
-	}
-	const int args = lua_gettop(L); // number of arguments
-	if ((args < 2) || !lua_isboolean(L, 2)) {
-		luaL_error(L, "Incorrect arguments to SetLeaveTracks()");
-	}
-	moveType->leaveTracks = lua_toboolean(L, 2);
-	return 0;
-}
-
-
 int LuaSyncedMoveCtrl::SetShotStop(lua_State* L)
 {
 	CScriptMoveType* moveType = ParseMoveType(L, __FUNCTION__, 1);
@@ -607,15 +540,11 @@ int LuaSyncedMoveCtrl::SetCollideStop(lua_State* L)
 static inline bool SetGenericMoveTypeValue(AMoveType* mt, const string& key, float value)
 {
 	// can't set goal here, need a different function that calls mt->SetGoal
-	// FIXME should use setter methods here and in other Set*MoveTypeValue functoins, but they mostly don't exist
+	// FIXME should use setter methods in all Set*MoveTypeValue functions, but they mostly don't exist
 	if (key == "maxSpeed") {
-		if (value > 0)
-			mt->owner->maxSpeed = value / GAME_SPEED;
 		mt->SetMaxSpeed(value / GAME_SPEED); return true;
-	} else if (key == "maxWantedSpeed") {
-		mt->SetWantedMaxSpeed(value / GAME_SPEED); return true;
 	} else if (key == "repairBelowHealth") {
-		mt->repairBelowHealth = value; return true;
+		mt->SetRepairBelowHealth(value); return true;
 	}
 	return false;
 }
@@ -627,10 +556,9 @@ static inline bool SetGenericMoveTypeValue(AMoveType* mt, const string& key, boo
 
 
 /******************************************************************************/
-/* CAirMoveType handling */
+/* CStrafeAirMoveType handling */
 
-
-static inline bool SetAirMoveTypeValue(CAirMoveType* mt, const string& key, float value)
+static inline bool SetAirMoveTypeValue(CStrafeAirMoveType* mt, const string& key, float value)
 {
 	if (SetGenericMoveTypeValue(mt, key, value))
 		return true;
@@ -657,7 +585,7 @@ static inline bool SetAirMoveTypeValue(CAirMoveType* mt, const string& key, floa
 	return false;
 }
 
-static inline bool SetAirMoveTypeValue(CAirMoveType* mt, const string& key, bool value)
+static inline bool SetAirMoveTypeValue(CStrafeAirMoveType* mt, const string& key, bool value)
 {
 	if (SetGenericMoveTypeValue(mt, key, value))
 		return true;
@@ -670,25 +598,25 @@ static inline bool SetAirMoveTypeValue(CAirMoveType* mt, const string& key, bool
 }
 
 
-static inline void SetSingleAirMoveTypeValue(lua_State *L, int keyidx, int validx, CAirMoveType *moveType)
+static inline void SetSingleAirMoveTypeValue(lua_State* L, int keyidx, int validx, CStrafeAirMoveType* moveType)
 {
 	const string key = lua_tostring(L, keyidx);
+	bool assigned = true;
+
 	if (lua_isnumber(L, validx)) {
-		const float value = float(lua_tonumber(L, validx));
-		if (!SetAirMoveTypeValue(moveType, key, value)) {
-			LogObject() << "can't assign key \"" << key << "\" to AirMoveType";
-		}
+		assigned = SetAirMoveTypeValue(moveType, key, lua_tofloat(L, validx));
 	} else if (lua_isboolean(L, validx)) {
-		bool value = lua_toboolean(L, validx);
-		if (!SetAirMoveTypeValue(moveType, key, value)) {
-			LogObject() << "can't assign key \"" << key << "\" to AirMoveType";
-		}
+		assigned = SetAirMoveTypeValue(moveType, key, lua_toboolean(L, validx));
+	}
+
+	if (!assigned) {
+		LOG_L(L_WARNING, "Can not assign key \"%s\" to AirMoveType", key.c_str());
 	}
 }
 
 int LuaSyncedMoveCtrl::SetAirMoveTypeData(lua_State *L)
 {
-	CAirMoveType* moveType = ParseMoveType<CAirMoveType>(L, __FUNCTION__, 1);
+	CStrafeAirMoveType* moveType = ParseMoveType<CStrafeAirMoveType>(L, __FUNCTION__, 1);
 	if (moveType == NULL) {
 		luaL_error(L, "Unit does not have a compatible MoveType");
 	}
@@ -715,15 +643,12 @@ int LuaSyncedMoveCtrl::SetAirMoveTypeData(lua_State *L)
 /******************************************************************************/
 /* CGroundMoveType handling */
 
-
 static inline bool SetGroundMoveTypeValue(CGroundMoveType* mt, const string& key, float value)
 {
 	if (SetGenericMoveTypeValue(mt, key, value))
 		return true;
 
-	if (key == "baseTurnRate") {
-		mt->baseTurnRate = value; return true;
-	} else if (key == "turnRate") {
+	if (key == "turnRate") {
 		mt->turnRate = value; return true;
 	} else if (key == "accRate") {
 		mt->accRate = value; return true;
@@ -732,15 +657,7 @@ static inline bool SetGroundMoveTypeValue(CGroundMoveType* mt, const string& key
 	} else if (key == "maxReverseSpeed") {
 		// use setter?
 		mt->maxReverseSpeed = value / GAME_SPEED;
-		mt->owner->maxReverseSpeed = value / GAME_SPEED;
 		return true;
-	} else if (key == "wantedSpeed") {
-		// use setter?
-		mt->wantedSpeed = value / GAME_SPEED; return true;
-	} else if (key == "requestedSpeed") {
-		mt->requestedSpeed = value / GAME_SPEED; return true;
-	} else if (key == "requestedTurnRate") {
-		mt->requestedTurnRate = value; return true;
 	}
 
 	return false;
@@ -751,26 +668,22 @@ static inline bool SetGroundMoveTypeValue(CGroundMoveType* mt, const string& key
 	if (SetGenericMoveTypeValue(mt, key, value))
 		return true;
 
-	if (key == "floatOnWater") {
-		mt->floatOnWater = value; return true;
-	}
-
 	return false;
 }
 
-static inline void SetSingleGroundMoveTypeValue(lua_State *L, int keyidx, int validx, CGroundMoveType *moveType)
+static inline void SetSingleGroundMoveTypeValue(lua_State* L, int keyidx, int validx, CGroundMoveType* moveType)
 {
 	const string key = lua_tostring(L, keyidx);
+	bool assigned = true;
+
 	if (lua_isnumber(L, validx)) {
-		const float value = float(lua_tonumber(L, validx));
-		if (!SetGroundMoveTypeValue(moveType, key, value)) {
-			LogObject() << "can't assign key \"" << key << "\" to GroundMoveType";
-		}
+		assigned = SetGroundMoveTypeValue(moveType, key, lua_tofloat(L, validx));
 	} else if (lua_isboolean(L, validx)) {
-		bool value = lua_toboolean(L, validx);
-		if (!SetGroundMoveTypeValue(moveType, key, value)) {
-			LogObject() << "can't assign key \"" << key << "\" to GroundMoveType";
-		}
+		assigned = SetGroundMoveTypeValue(moveType, key, lua_toboolean(L, validx));
+	}
+
+	if (!assigned) {
+		LOG_L(L_WARNING, "Can not assign key \"%s\" to GroundMoveType", key.c_str());
 	}
 }
 
@@ -802,15 +715,13 @@ int LuaSyncedMoveCtrl::SetGroundMoveTypeData(lua_State *L)
 
 
 /******************************************************************************/
-/* CTAAirMoveType handling */
+/* CHoverAirMoveType handling */
 
-
-
-static inline bool SetTAAirMoveTypeValue(CTAAirMoveType* mt, const string& key, float value)
+static inline bool SetHoverAirMoveTypeValue(CHoverAirMoveType* mt, const string& key, float value)
 {
 	if (SetGenericMoveTypeValue(mt, key, value)) {
 		if (key == "maxSpeed") {
-			mt->brakeDistance = (mt->maxSpeed * mt->maxSpeed) / mt->decRate;
+			mt->brakeDistance = (mt->GetMaxSpeed() * mt->GetMaxSpeed()) / mt->decRate;
 		}
 		return true;
 	}
@@ -823,7 +734,7 @@ static inline bool SetTAAirMoveTypeValue(CTAAirMoveType* mt, const string& key, 
 		mt->accRate = value; return true;
 	} else if (key == "decRate") {
 		mt->decRate = value;
-		mt->brakeDistance = (mt->maxSpeed * mt->maxSpeed) / mt->decRate;
+		mt->brakeDistance = (mt->GetMaxSpeed() * mt->GetMaxSpeed()) / mt->decRate;
 		return true;
 	} else if (key == "altitudeRate") {
 		mt->altitudeRate = value; return true;
@@ -840,7 +751,7 @@ static inline bool SetTAAirMoveTypeValue(CTAAirMoveType* mt, const string& key, 
 	return false;
 }
 
-static inline bool SetTAAirMoveTypeValue(CTAAirMoveType* mt, const string& key, bool value)
+static inline bool SetHoverAirMoveTypeValue(CHoverAirMoveType* mt, const string& key, bool value)
 {
 	if (SetGenericMoveTypeValue(mt, key, value))
 		return true;
@@ -851,6 +762,8 @@ static inline bool SetTAAirMoveTypeValue(CTAAirMoveType* mt, const string& key, 
 		mt->useSmoothMesh = value; return true;
 	} else if (key == "bankingAllowed") {
 		mt->bankingAllowed = value; return true;
+	} else if (key == "airStrafe") {
+		mt->airStrafe = value; return true;
 	} else if (key == "dontLand") {
 		mt->dontLand = value; return true;
 	}
@@ -858,25 +771,25 @@ static inline bool SetTAAirMoveTypeValue(CTAAirMoveType* mt, const string& key, 
 	return false;
 }
 
-static inline void SetSingleTAAirMoveTypeValue(lua_State *L, int keyidx, int validx, CTAAirMoveType *moveType)
+static inline void SetSingleHoverAirMoveTypeValue(lua_State* L, int keyIdx, int valIdx, CHoverAirMoveType* moveType)
 {
-	const string key = lua_tostring(L, keyidx);
-	if (lua_isnumber(L, validx)) {
-		const float value = float(lua_tonumber(L, validx));
-		if (!SetTAAirMoveTypeValue(moveType, key, value)) {
-			LogObject() << "can't assign key \"" << key << "\" to GunshipMoveType";
-		}
-	} else if (lua_isboolean(L, validx)) {
-		bool value = lua_toboolean(L, validx);
-		if (!SetTAAirMoveTypeValue(moveType, key, value)) {
-			LogObject() << "can't assign key \"" << key << "\" to GunshipMoveType";
-		}
+	const string key = lua_tostring(L, keyIdx);
+	bool assigned = true;
+
+	if (lua_isnumber(L, valIdx)) {
+		assigned = SetHoverAirMoveTypeValue(moveType, key, lua_tofloat(L, valIdx));
+	} else if (lua_isboolean(L, valIdx)) {
+		assigned = SetHoverAirMoveTypeValue(moveType, key, lua_toboolean(L, valIdx));
+	}
+
+	if (!assigned) {
+		LOG_L(L_WARNING, "Can not assign key \"%s\" to GunshipMoveType", key.c_str());
 	}
 }
 
 int LuaSyncedMoveCtrl::SetGunshipMoveTypeData(lua_State *L)
 {
-	CTAAirMoveType* moveType = ParseMoveType<CTAAirMoveType>(L, __FUNCTION__, 1);
+	CHoverAirMoveType* moveType = ParseMoveType<CHoverAirMoveType>(L, __FUNCTION__, 1);
 	if (moveType == NULL) {
 		luaL_error(L, "Unit does not have a compatible MoveType");
 	}
@@ -885,13 +798,13 @@ int LuaSyncedMoveCtrl::SetGunshipMoveTypeData(lua_State *L)
 
 	if (args == 3 && lua_isstring(L, 2)) {
 		// a single value
-		SetSingleTAAirMoveTypeValue(L, 2, 3, moveType);
+		SetSingleHoverAirMoveTypeValue(L, 2, 3, moveType);
 	} else if (args == 2 && lua_istable(L, 2)) {
 		// a table of values
 		const int table = 2;
 		for (lua_pushnil(L); lua_next(L, table) != 0; lua_pop(L, 1)) {
 			if (lua_israwstring(L, -2)) {
-				SetSingleTAAirMoveTypeValue(L, -2, -1, moveType);
+				SetSingleHoverAirMoveTypeValue(L, -2, -1, moveType);
 			}
 		}
 	}

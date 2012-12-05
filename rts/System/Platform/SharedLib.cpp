@@ -1,18 +1,9 @@
-/**
- * @file SharedLib.cpp
- * @brief shared library loader implementation
- * @author Christopher Han <xiphux@gmail.com>
- * @author Robin Vobruba <hoijui.quaero@gmail.com>
- *
- * Base shared library loading class implementation
- * Copyright (C) 2005.  Licensed under the terms of the
- * GNU GPL, v2 or later.
- */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #if defined BUILDING_AI
-#include "Util.h"
+#include "System/Util.h"
 #else // defined BUILDING_AI
-#include "LogOutput.h"
+#include "System/Log/ILog.h"
 #endif // defined BUILDING_AI
 
 // OS dependent stuff
@@ -41,6 +32,7 @@ SharedLib* SharedLib::Instantiate(const char* fileName)
 
 	if (lib == NULL || lib->LoadFailed()) {
 		// loading failed
+		delete lib;
 		lib = NULL;
 	}
 
@@ -78,7 +70,7 @@ void SharedLib::reportError(const char* errorMsg, const char* fileName, int line
 		// DO NOTHING
 	#endif // defined EXTERNAL_LOGGER
 #else // defined BUILDING_AI
-	logOutput.Print("%s:%d: %s: %s", fileName, lineNumber, function, errorMsg);
+	LOG_L(L_ERROR, "%s:%d: %s: %s", fileName, lineNumber, function, errorMsg);
 #endif // defined BUILDING_AI
 }
 

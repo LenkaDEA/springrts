@@ -22,6 +22,9 @@
 
 #include "Util.h"
 
+#include "System/maindefines.h"
+#include "System/SafeCStrings.h"
+
 #include <string.h>
 #include <stdlib.h>
 
@@ -85,11 +88,11 @@ int SSkirmishAISpecifier_hash(
 	hashString[0] = '\0';
 
 	if (useShortName) {
-		STRCATS(hashString, hashString_size, spec->shortName);
+		STRCAT_T(hashString, hashString_size, spec->shortName);
 	}
-	STRCATS(hashString, hashString_size, "#");
+	STRCAT_T(hashString, hashString_size, "#");
 	if (useVersion) {
-		STRCATS(hashString, hashString_size, spec->version);
+		STRCAT_T(hashString, hashString_size, spec->version);
 	}
 
 	int keyHash = string_simpleHash(hashString);

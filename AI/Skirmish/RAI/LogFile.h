@@ -1,6 +1,6 @@
 // _____________________________________________________
 //
-// RAI - Skirmish AI for TA Spring
+// RAI - Skirmish AI for Spring
 // Author: Reth / Michael Vadovszki
 // _____________________________________________________
 
@@ -8,9 +8,13 @@
 #define RAI_LOGFILE_H
 
 #include <string>
+#include <cstdio>
 
 using std::string;
-class IAICallback;
+namespace springLegacyAI {
+	class IAICallback;
+}
+using namespace springLegacyAI;
 
 
 class cLogFile

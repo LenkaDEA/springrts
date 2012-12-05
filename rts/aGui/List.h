@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LIST_H
 #define LIST_H
 
@@ -23,7 +25,7 @@ public:
 	void MouseRelease(int x, int y, int button);
 	virtual void DrawSelf();
 	virtual bool HandleEventSelf(const SDL_Event& ev);
-	std::string GetTooltip(int x,int y) { return tooltip; }
+	std::string GetTooltip(int x, int y) const { return tooltip; }
 
 	void RemoveAllItems();
 	void AddItem(const std::string& name,const std::string& description);
@@ -68,6 +70,10 @@ private:
 	float itemHeight;
 	bool hasFocus;
 	int topIndex;
+
+	GuiElement scrollbar;
+	bool activeScrollbar;
+	float scrollbarGrabPos;
 
 	// for filtering
 	std::string query;

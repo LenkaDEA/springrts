@@ -1,15 +1,16 @@
 // _____________________________________________________
 //
-// RAI - Skirmish AI for TA Spring
+// RAI - Skirmish AI for Spring
 // Author: Reth / Michael Vadovszki
 // _____________________________________________________
 
 #ifndef RAIG_RESOURCE_MAP_H
 #define RAIG_RESOURCE_MAP_H
 
-#include "ExternalAI/IAICallback.h"
+#include "LegacyCpp/IAICallback.h"
 #include "GTerrainMap.h"
 #include <set>
+#include <string>
 using std::map;
 using std::set;
 using std::vector;
@@ -48,7 +49,7 @@ class GlobalResourceMap
 public:
 	GlobalResourceMap(IAICallback* cb, cLogFile* logfile, GlobalTerrainMap* TM);
 	~GlobalResourceMap();
-	float3 GetMetalMapPosition(const float3& position);
+	float3 GetMetalMapPosition(const float3& position) const;
 
 	ResourceSite** R[2];	// a list of each resource type
 	int RSize[2];			// # of each resource type
@@ -63,6 +64,7 @@ private:
 			isMetalSector = false;
 			closestMetalSector = 0;
 			percentMetal = 0.0;
+			S = NULL;
 //			totalMetal = 0.0;
 		};
 
@@ -105,7 +107,7 @@ private:
 	int MMXSize;
 	int MMExtractorRadiusI;
 
-	IAICallback* cb;
+	string resourceFileName_w;
 
 	// needed to save the file
 	string relResourceFileName;
@@ -114,7 +116,7 @@ private:
 	vector<int> saveF;
 	int saveSectorSize;
 
-//	cLogFile *l; // Debugging only
+	cLogFile* l;
 };
 
 #endif

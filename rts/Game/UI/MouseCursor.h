@@ -1,9 +1,11 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef MOUSECURSOR_H
 #define MOUSECURSOR_H
 
 #include <string>
 #include <vector>
-#include "Rendering/GL/myGL.h"
+/// #include "Rendering/GL/myGL.h"
 //#include "HwMouseCursor.h"
 
 class CBitmap;
@@ -13,25 +15,27 @@ class CMouseCursor {
 	public:
 		enum HotSpot {TopLeft, Center};
 
-		bool animated;
-		bool hwValid; //if hardware cursor is valid
-
+	public:
 		static CMouseCursor* New(const std::string &name, HotSpot hs);
-
-		~CMouseCursor(void);
+		static CMouseCursor* GetNullCursor();
+		~CMouseCursor();
 
 		void Update();
-		void Draw(int x, int y, float scale);	// software cursor draw
-		void DrawQuad(int x, int y);		// draw command queue icon
-		void BindTexture(); 			// software mouse cursor
-		void BindHwCursor(); 			// hardware mouse cursor
+		void Draw(int x, int y, float scale) const;   // software cursor draw
+		void DrawQuad(int x, int y) const;            // draw command queue icon
+		void BindTexture() const;                     // software mouse cursor
+		void BindHwCursor() const;                    // hardware mouse cursor
 
 		int GetMaxSizeX() const { return xmaxsize; }
 		int GetMaxSizeY() const { return ymaxsize; }
 
-	protected:	
+	public:
+		bool animated;
+		bool hwValid; //if hardware cursor is valid
+
+	protected:
 		struct ImageData {
-			GLuint texture;
+			unsigned int texture;
 			int xOrigSize;
 			int yOrigSize;
 			int xAlignedSize;
@@ -39,22 +43,20 @@ class CMouseCursor {
 		};
 		struct FrameData {
 			FrameData(const ImageData& _image, float time)
-			: image(_image), length(time) {}
+				: image(_image), length(time), startTime(0.0f), endTime(0.0f) {}
 			ImageData image;
 			float length;
 			float startTime;
 			float endTime;
 		};
 
-	protected:	
+	protected:
 		CMouseCursor(const std::string &name, HotSpot hs);
 		bool LoadCursorImage(const std::string& name, struct ImageData& image);
 		bool BuildFromSpecFile(const std::string& name);
 		bool BuildFromFileNames(const std::string& name, int lastFrame);
-		CBitmap* getAlignedBitmap(const CBitmap &orig);
-		void setBitmapTransparency(CBitmap &bm, int r, int g, int b);
 
-	protected:	
+	protected:
 		HotSpot hotSpot;
 
 		std::vector<ImageData> images;

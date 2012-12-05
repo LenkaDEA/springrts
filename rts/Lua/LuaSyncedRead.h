@@ -1,13 +1,14 @@
-#ifndef LUA_SYNCED_INFO_H
-#define LUA_SYNCED_INFO_H
-// LuaSyncedRead.h: interface for the LuaSyncedRead class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef LUA_SYNCED_READ_H
+#define LUA_SYNCED_READ_H
 
 struct lua_State;
 
 
 class LuaSyncedRead {
+	friend class CLuaIntro;
+
 	public:
 		static bool PushEntries(lua_State* L);
 
@@ -28,7 +29,6 @@ class LuaSyncedRead {
 		static int IsGameOver(lua_State* L);
 
 		static int GetGaiaTeamID(lua_State* L);
-		static int GetRulesInfoMap(lua_State* L);
 
 		static int GetGameSpeed(lua_State* L);
 		static int GetGameFrame(lua_State* L);
@@ -58,6 +58,7 @@ class LuaSyncedRead {
 		static int GetTeamInfo(lua_State* L);
 		static int GetTeamResources(lua_State* L);
 		static int GetTeamUnitStats(lua_State* L);
+		static int GetTeamResourceStats(lua_State* L);
 		static int GetTeamRulesParam(lua_State* L);
 		static int GetTeamRulesParams(lua_State* L);
 		static int GetTeamStatsHistory(lua_State* L);
@@ -85,18 +86,21 @@ class LuaSyncedRead {
 		static int GetUnitNearestEnemy(lua_State* L);
 
 		static int GetFeaturesInRectangle(lua_State* L);
+		static int GetFeaturesInSphere(lua_State* L);
+		static int GetFeaturesInCylinder(lua_State* L);
+		static int GetProjectilesInRectangle(lua_State* L);
 
 		static int ValidUnitID(lua_State* L);
 		static int GetUnitTooltip(lua_State* L);
 		static int GetUnitDefID(lua_State* L);
 		static int GetUnitTeam(lua_State* L);
 		static int GetUnitAllyTeam(lua_State* L);
-		static int GetUnitLineage(lua_State* L);
 		static int GetUnitNeutral(lua_State* L);
 		static int GetUnitHealth(lua_State* L);
 		static int GetUnitIsDead(lua_State* L);
 		static int GetUnitIsStunned(lua_State* L);
 		static int GetUnitResources(lua_State* L);
+		static int GetUnitMetalExtraction(lua_State* L);
 		static int GetUnitExperience(lua_State* L);
 		static int GetUnitStates(lua_State* L);
 		static int GetUnitArmored(lua_State* L);
@@ -129,6 +133,7 @@ class LuaSyncedRead {
 		static int GetUnitCollisionVolumeData(lua_State* L);
 		static int GetUnitPieceCollisionVolumeData(lua_State* L);
 
+		static int GetUnitBlocking(lua_State* L);
 		static int GetUnitMoveTypeData(lua_State* L);
 
 		static int GetUnitCommands(lua_State* L);
@@ -164,6 +169,7 @@ class LuaSyncedRead {
 		static int GetFeatureResources(lua_State* L);
 		static int GetFeatureNoSelect(lua_State* L);
 		static int GetFeatureResurrect(lua_State* L);
+		static int GetFeatureCollisionVolumeData(lua_State* L);
 
 		static int GetProjectilePosition(lua_State* L);
 		static int GetProjectileVelocity(lua_State* L);
@@ -183,6 +189,7 @@ class LuaSyncedRead {
 
 		static int GetSmoothMeshHeight(lua_State* L);
 
+		static int TestMoveOrder(lua_State* L);
 		static int TestBuildOrder(lua_State* L);
 		static int Pos2BuildPos(lua_State* L);
 
@@ -213,5 +220,4 @@ class LuaSyncedRead {
 		static int GetCOBGlobalVar(lua_State* L);
 };
 
-
-#endif /* LUA_SYNCED_INFO_H */
+#endif /* LUA_SYNCED_READ_H */

@@ -1,27 +1,54 @@
-// WordCompletion.cpp: implementation of the CWordCompletion class.
-//
-//////////////////////////////////////////////////////////////////////
-//
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 //  TODO: replace 'WordProperties' with regex/glob expressions
-//        ex: '.give [0-9]* armcom'
-//
+//        ex: '/give [0-9]* [_0-9a-zA-Z]+'
+//        or even create a domain specific language
+//        ex: '/give <ammount> {unitname} <team-ID>'
+//        user-input: '/give 10 armcom 1'
 
-
-#include "StdAfx.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "WordCompletion.h"
+
+#include "System/Log/ILog.h"
+
+#include <stdexcept>
+
 
 CWordCompletion::CWordCompletion()
 {
 	Reset();
-	return;
 }
-
 
 CWordCompletion::~CWordCompletion()
 {
-	return;
+}
+
+
+CWordCompletion* CWordCompletion::singleton = NULL;
+
+void CWordCompletion::CreateInstance() {
+
+	if (singleton == NULL) {
+		singleton = new CWordCompletion();
+	} else {
+		throw std::logic_error(
+				"CWordCompletion singleton is already initialized");
+	}
+}
+
+void CWordCompletion::DestroyInstance() {
+
+	if (singleton != NULL) {
+		// SafeDelete
+		CWordCompletion* tmp = singleton;
+		singleton = NULL;
+		delete tmp;
+	} else {
+		// this might happen during shutdown after an unclean init
+		LOG_L(L_WARNING, "CWordCompletion singleton was not initialized"
+				" or is already destroyed");
+	}
 }
 
 
@@ -30,57 +57,25 @@ void CWordCompletion::Reset()
 	words.clear();
 	WordProperties sl(true, false, false);
 
-	// local commands
-	words["/aikill "] = sl;
-	words["/aireload "] = sl;
-	words["/aicontrol "] = sl;
-	words["/ailist"] = sl;
-	words["/advshading "] = sl;
-	words["/hardwarecursor "] = sl;
-	words["/clock"] = sl;
-	words["/cmdcolors "] = sl;
-	words["/ctrlpanel "] = sl;
-	words["/distdraw "] = sl;
-	words["/disticon "] = sl;
-	words["/debuginfo sound"] = sl;
-	words["/debuginfo profiling"] = sl;
-	words["/incguiopacity "] = sl;
-	words["/decguiopacity "] = sl;
-	words["/echo "] = sl;
-	words["/font "] = sl;
-	words["/gameinfo"] = sl;
-	words["/gathermode"] = sl;
-	words["/grounddecals "] = sl;
-	words["/info "] = sl;
-	words["/luaui "] = sl;
-	words["/maxparticles "] = sl;
-	words["/maxnanoparticles "] = sl;
-	words["/minimap "] = sl;
-	words["/say "] = sl;
-	words["/shadows "] = sl;
-	words["/specfullview "] = sl;
-	words["/water "] = sl;
+	// key bindings (Game/UI/KeyBindings.cpp)
 	words["/bind "] = sl;
 	words["/unbind "] = sl;
-	words["/unbindall"] = sl;
+	words["/unbindall "] = sl;
 	words["/unbindaction "] = sl;
 	words["/unbindkeyset "] = sl;
-	words["/keyload"] = sl;
-	words["/keyreload"] = sl;
-	words["/keysave"] = sl;
-	words["/keysyms"] = sl;
-	words["/keycodes"] = sl;
-	words["/keyprint"] = sl;
-	words["/keydebug"] = sl;
+	words["/keyload "] = sl;
+	words["/keyreload "] = sl;
+	words["/keysave "] = sl;
+	words["/keysyms "] = sl;
+	words["/keycodes "] = sl;
+	words["/keyprint "] = sl;
+	words["/keydebug "] = sl;
 	words["/fakemeta "] = sl;
-	words["/volume "] = sl;
-	words["/unitreplyvolume "] = sl;
-	words["/viewtaflip "] = sl;
-	words["/vsync "] = sl;
-	words["/wiremap "] = sl;
-	words["/airmesh "] = sl;
 
-	// minimap sub-commands
+	// camera handler (Game/CameraHandler.cpp)
+	words["/viewtaflip "] = sl;
+
+	// mini-map (Game/UI/MiniMap.cpp)
 	WordProperties mm(false, false, true);
 	words["fullproxy "] = mm;
 	words["drawcommands "] = mm;
@@ -94,43 +89,50 @@ void CWordCompletion::Reset()
 	words["maximize "] = mm;
 	words["maxspect "] = mm;
 
-	// remote commands
+	// remote commands (Game/GameServer.cpp)
 	// TODO those commans are registered in Console, get the list from there
 	// This is best done with a new command class (eg. ConsoleCommand)
+	// deprecated idea, use *ActionExecutor's instead
 	words["/atm"] = sl;
-	words["/cheat "] = sl;
 	words["/devlua "] = sl;
 	words["/editdefs "] = sl;
 	words["/give "] = sl;
-	words["/kick "] = sl;
-	words["/kickbynum "] = sl;
 	words["/luagaia "] = sl;
 	words["/luarules "] = sl;
 	words["/nocost"] = sl;
-	words["/nohelp "] = sl;
-	words["/nopause "] = sl;
 	words["/nospectatorchat "] = sl;
 	words["/reloadcob "] = sl;
+	words["/reloadcegs "] = sl;
 	words["/save "] = sl;
+	words["/skip "] = sl;
+	words["/skip +"] = sl;
+	words["/skip f"] = sl;
+	words["/skip f+"] = sl;
+	words["/spectator "] = sl;
+	words["/take "] = sl;
+	words["/team "] = sl;
+
+	words["/cheat "] = sl;
+	words["/nohelp "] = sl;
+	words["/nopause "] = sl;
 	words["/setmaxspeed "] = sl;
 	words["/setminspeed "] = sl;
-	words["/skip +"] = sl;
-	words["/spectator"] = sl;
-	words["/take"] = sl;
-	words["/team "] = sl;
-	// words[".crash"] = sl; // don't make it too easy
-
-	return;
+	words["/kick "] = sl;
+	words["/kickbynum "] = sl;
 }
 
 
-void CWordCompletion::AddWord(const std::string& word,
-                              bool startOfLine, bool unitName, bool minimap)
+void CWordCompletion::AddWord(const std::string& word, bool startOfLine,
+		bool unitName, bool miniMap)
 {
 	if (!word.empty()) {
-		words[word] = WordProperties(startOfLine, unitName, minimap);
+		if (words.find(word) != words.end()) {
+			LOG_SL("WordCompletion", L_DEBUG,
+					"Tried to add already present word: %s", word.c_str());
+			return;
+		}
+		words[word] = WordProperties(startOfLine, unitName, miniMap);
 	}
-	return;
 }
 
 void CWordCompletion::RemoveWord(const std::string& word)
@@ -144,7 +146,7 @@ std::vector<std::string> CWordCompletion::Complete(std::string& msg) const
 	std::vector<std::string> partials;
 
 	const bool unitName = (msg.find("/give ") == 0);
-	const bool minimap = (msg.find("/minimap ") == 0);
+	const bool miniMap = (msg.find("/minimap ") == 0);
 
 	// strip "a:" and "s:" prefixes
 	std::string prefix, rawmsg;
@@ -171,13 +173,13 @@ std::vector<std::string> CWordCompletion::Complete(std::string& msg) const
 
 	// make a list of valid possible matches
 	std::map<std::string, WordProperties>::const_iterator it;
-	for (it = start; it != words.end(); it++) {
+	for (it = start; it != words.end(); ++it) {
 		const int cmp = it->first.compare(0, fragLen, fragment);
 		if (cmp < 0) continue;
 		if (cmp > 0) break;
 		if ((!it->second.startOfLine || startOfLine) &&
 		    (!it->second.unitName    || unitName)    &&
-		    (!it->second.minimap     || minimap)) {
+		    (!it->second.miniMap     || miniMap)) {
 			partials.push_back(it->first);
 		}
 	}

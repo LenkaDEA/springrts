@@ -1,16 +1,6 @@
-#include "StdAfx.h"
-// LuaMaterial.cpp: implementation of the CLuaMaterial class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include <string>
-#include <vector>
-#include <cstring>
-
-using std::string;
-using std::vector;
-
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaMaterial.h"
 
@@ -21,16 +11,22 @@ using std::vector;
 #include "Game/Camera.h"
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Env/CubeMapHandler.h"
+#include "Rendering/Env/ISky.h"
 #include "Sim/Units/Unit.h"
-#include "LogOutput.h"
-#include "Util.h"
+#include "System/Log/ILog.h"
+#include "System/Util.h"
+
+#include <string>
+#include <vector>
+#include <cstring>
+
+using std::string;
+using std::vector;
 
 
 LuaMatHandler LuaMatHandler::handler;
 LuaMatHandler& luaMatHandler = LuaMatHandler::handler;
 
-
-#define LOGPRINTF logOutput.Print
 
 #define STRING_CASE(ptr, x) case x: ptr = #x; break;
 
@@ -43,7 +39,7 @@ LuaMatHandler& luaMatHandler = LuaMatHandler::handler;
 
 void LuaUnitUniforms::Execute(CUnit* unit) const
 {
-	//FIXME use vertex attributes
+	// FIXME use vertex attributes
 	if (!haveUniforms) {
 		return;
 	}
@@ -82,20 +78,23 @@ void LuaUnitUniforms::SetCustomCount(int count)
 
 LuaUnitUniforms& LuaUnitUniforms::operator=(const LuaUnitUniforms& u)
 {
-	delete[] customData;
-	customData = NULL;
+	// do not assign to self
+	if (this != &u) {
+		delete[] customData;
+		customData = NULL;
 
-	haveUniforms = u.haveUniforms;
-	speedLoc     = u.speedLoc;
-	healthLoc    = u.healthLoc;
-	unitIDLoc    = u.unitIDLoc;
-	teamIDLoc    = u.teamIDLoc;
-	customLoc    = u.customLoc;
-	customCount  = u.customCount;
+		haveUniforms = u.haveUniforms;
+		speedLoc     = u.speedLoc;
+		healthLoc    = u.healthLoc;
+		unitIDLoc    = u.unitIDLoc;
+		teamIDLoc    = u.teamIDLoc;
+		customLoc    = u.customLoc;
+		customCount  = u.customCount;
 
-	if (customCount > 0) {
-		customData = new GLfloat[customCount];
-		memcpy(customData, u.customData, customCount * sizeof(GLfloat));
+		if (customCount > 0) {
+			customData = new GLfloat[customCount];
+			memcpy(customData, u.customData, customCount * sizeof(GLfloat));
+		}
 	}
 
 	return *this;
@@ -199,7 +198,7 @@ void LuaMatShader::Print(const string& indent) const
 		STRING_CASE(typeName, LUASHADER_3DO);
 		STRING_CASE(typeName, LUASHADER_S3O);
 	}
-	LOGPRINTF("%s%s %i\n", indent.c_str(), typeName, openglID);
+	LOG("%s%s %i", indent.c_str(), typeName, openglID);
 }
 
 /******************************************************************************/
@@ -262,7 +261,7 @@ void LuaMatTexture::Bind(const LuaMatTexture& prev) const
 		}
 	}
 	else if (type == LUATEX_REFLECTION) {
-		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, cubeMapHandler->GetReflectionTextureID());
+		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, cubeMapHandler->GetEnvReflectionTextureID());
 		if (enable) {
 			glEnable(GL_TEXTURE_CUBE_MAP_ARB);
 		}
@@ -308,8 +307,8 @@ void LuaMatTexture::Print(const string& indent) const
 		STRING_CASE(typeName, LUATEX_REFLECTION);
 		STRING_CASE(typeName, LUATEX_SPECULAR);
 	}
-	LOGPRINTF("%s%s %i %s\n", indent.c_str(),
-	       typeName, openglID, enable ? "true" : "false");
+	LOG("%s%s %i %s", indent.c_str(),
+			typeName, openglID, (enable ? "true" : "false"));
 }
 
 
@@ -348,32 +347,22 @@ void LuaMaterial::Execute(const LuaMaterial& prev) const
 
 	shader.Execute(prev.shader);
 
+	//FIXME add projection matrices!!!
 	if (cameraLoc >= 0) {
-		// FIXME: this is happening too much, just use floats?
-		GLfloat array[16];
-		const GLdouble* modelview = camera->GetModelview(); // GetMatrixData("camera")
-		for (int i = 0; i < 16; i += 4) {
-			array[i    ] = (GLfloat) modelview[i    ];
-			array[i + 1] = (GLfloat) modelview[i + 1];
-			array[i + 2] = (GLfloat) modelview[i + 2];
-			array[i + 3] = (GLfloat) modelview[i + 3];
-		}
-		glUniformMatrix4fv(cameraLoc, 1, GL_FALSE, array);
+		const CMatrix44f& viewMat = camera->GetViewMatrix(); // GetMatrixData("camera")
+		glUniformMatrix4fv(cameraLoc, 1, GL_FALSE, viewMat);
 	}
 	if (cameraInvLoc >= 0) {
-		GLfloat array[16];
-		const GLdouble* modelviewInv = camera->modelviewInverse; // GetMatrixData("caminv")
-		for (int i = 0; i < 16; i += 4) {
-			array[i    ] = (GLfloat) modelviewInv[i    ];
-			array[i + 1] = (GLfloat) modelviewInv[i + 1];
-			array[i + 2] = (GLfloat) modelviewInv[i + 2];
-			array[i + 3] = (GLfloat) modelviewInv[i + 3];
-		}
-		glUniformMatrix4fv(cameraInvLoc, 1, GL_FALSE, array);
+		const CMatrix44f& viewMatInv = camera->GetViewMatrixInverse(); // GetMatrixData("caminv")
+		glUniformMatrix4fv(cameraInvLoc, 1, GL_FALSE, viewMatInv);
 	}
 
 	if (cameraPosLoc >= 0) {
 		glUniformf3(cameraPosLoc, camera->pos);
+	}
+
+	if (sunPosLoc >= 0) {
+		glUniformf3(sunPosLoc, sky->GetLight()->GetLightDir());
 	}
 
 	if (shadowLoc >= 0) {
@@ -381,7 +370,7 @@ void LuaMaterial::Execute(const LuaMaterial& prev) const
 	}
 
 	if (shadowParamsLoc >= 0) {
-		glUniform4f(shadowParamsLoc, shadowHandler->xmid, shadowHandler->ymid, shadowHandler->p17, shadowHandler->p18);
+		glUniform4fv(shadowParamsLoc, 1, &(shadowHandler->GetShadowParams().x));
 	}
 
 	const int maxTex = std::max(texCount, prev.texCount);
@@ -466,6 +455,10 @@ int LuaMaterial::Compare(const LuaMaterial& a, const LuaMaterial& b)
 		return (a.cameraPosLoc < b.cameraPosLoc) ? -1 : +1;
 	}
 
+	if (a.sunPosLoc != b.sunPosLoc) {
+		return (a.sunPosLoc < b.sunPosLoc) ? -1 : +1;
+	}
+
 	if (a.shadowLoc != b.shadowLoc) {
 		return (a.shadowLoc < b.shadowLoc) ? -1 : +1;
 	}
@@ -498,24 +491,25 @@ void LuaMaterial::Print(const string& indent) const
 #define CULL_TO_STR(x) \
 	(x==GL_FRONT) ? "front" : (x==GL_BACK) ? "back" : (x!=0) ? "false" : "unknown"
 
-	LOGPRINTF("%s%s\n", indent.c_str(), GetMatTypeName(type));
-	LOGPRINTF("%sorder = %i\n", indent.c_str(), order);
+	LOG("%s%s", indent.c_str(), GetMatTypeName(type));
+	LOG("%sorder = %i", indent.c_str(), order);
 	shader.Print(indent);
-	LOGPRINTF("%stexCount = %i\n", indent.c_str(), texCount);
+	LOG("%stexCount = %i", indent.c_str(), texCount);
 	for (int t = 0; t < texCount; t++) {
 		char buf[32];
 		SNPRINTF(buf, sizeof(buf), "%s  tex[%i] ", indent.c_str(), t);
 		textures[t].Print(buf);
 	}
-	LOGPRINTF("%spreList  = %i\n",  indent.c_str(), preList);
-	LOGPRINTF("%spostList = %i\n",  indent.c_str(), postList);
-	LOGPRINTF("%suseCamera = %s\n", indent.c_str(), useCamera ? "true" : "false");
-	LOGPRINTF("%sculling = %s\n", indent.c_str(), CULL_TO_STR(culling));
-	LOGPRINTF("%scameraLoc = %i\n", indent.c_str(), cameraLoc);
-	LOGPRINTF("%scameraInvLoc = %i\n", indent.c_str(), cameraInvLoc);
-	LOGPRINTF("%scameraPosLoc = %i\n", indent.c_str(), cameraPosLoc);
-	LOGPRINTF("%sshadowLoc = %i\n", indent.c_str(), shadowLoc);
-	LOGPRINTF("%sshadowParamsLoc = %i\n", indent.c_str(), shadowParamsLoc);
+	LOG("%spreList  = %i",  indent.c_str(), preList);
+	LOG("%spostList = %i",  indent.c_str(), postList);
+	LOG("%suseCamera = %s", indent.c_str(), (useCamera ? "true" : "false"));
+	LOG("%sculling = %s", indent.c_str(), CULL_TO_STR(culling));
+	LOG("%scameraLoc = %i", indent.c_str(), cameraLoc);
+	LOG("%scameraInvLoc = %i", indent.c_str(), cameraInvLoc);
+	LOG("%scameraPosLoc = %i", indent.c_str(), cameraPosLoc);
+	LOG("%ssunPosLoc = %i", indent.c_str(), sunPosLoc);
+	LOG("%sshadowLoc = %i", indent.c_str(), shadowLoc);
+	LOG("%sshadowParamsLoc = %i", indent.c_str(), shadowParamsLoc);
 }
 
 
@@ -602,8 +596,8 @@ void LuaMatBin::UnRef()
 
 void LuaMatBin::Print(const string& indent) const
 {
-	LOGPRINTF("%sunitCount = %i\n", indent.c_str(), (int)units.size());
-	LOGPRINTF("%spointer = %p\n", indent.c_str(), this);
+	LOG("%sunitCount = %i", indent.c_str(), (int)units.size());
+	LOG("%spointer = %p", indent.c_str(), this);
 	LuaMaterial::Print(indent + "  ");
 }
 
@@ -620,6 +614,8 @@ LuaMatHandler::LuaMatHandler()
 	reset3doShader = NULL;
 	setupS3oShader = NULL;
 	resetS3oShader = NULL;
+
+	prevMat = NULL;
 }
 
 
@@ -638,7 +634,7 @@ LuaMatHandler::~LuaMatHandler()
 LuaMatRef LuaMatHandler::GetRef(const LuaMaterial& mat)
 {
 	if ((mat.type < 0) || (mat.type >= LUAMAT_TYPE_COUNT)) {
-		logOutput.Print("ERROR: LuaMatHandler::GetRef() untyped material\n");
+		LOG_L(L_WARNING, "LuaMatHandler::GetRef() untyped material");
 		return LuaMatRef();
 	}
 	LuaMatBinSet& binSet = binTypes[mat.type];
@@ -683,7 +679,7 @@ void LuaMatHandler::FreeBin(LuaMatBin* bin)
 	LuaMatBinSet::iterator it = binSet.find(bin);
 	if (it != binSet.end()) {
 		if (*it != bin) {
-			logOutput.Print("ERROR: LuaMatHandler::FreeBin pointer mismatch\n");
+			LOG_L(L_WARNING, "LuaMatHandler::FreeBin pointer mismatch");
 		}
 		delete bin;
 		binSet.erase(it);
@@ -699,10 +695,10 @@ void LuaMatHandler::PrintBins(const string& indent, LuaMatType type) const
 	const LuaMatBinSet& binSet = binTypes[type];
 	LuaMatBinSet::const_iterator it;
 	int num = 0;
-	LOGPRINTF("%sBINCOUNT = "_STPF_"\n", indent.c_str(), binSet.size());
+	LOG("%sBINCOUNT = "_STPF_, indent.c_str(), binSet.size());
 	for (it = binSet.begin(); it != binSet.end(); ++it) {
 		LuaMatBin* bin = *it;
-		LOGPRINTF("%sBIN %i:\n", indent.c_str(), num);
+		LOG("%sBIN %i:", indent.c_str(), num);
 		bin->Print(indent + "    ");
 		num++;
 	}

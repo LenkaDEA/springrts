@@ -1,7 +1,6 @@
-#include "StdAfx.h"
-// LuaFeatureDefs.cpp: implementation of the LuaFeatureDefs class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include <set>
 #include <string>
@@ -9,8 +8,6 @@
 #include <set>
 #include <map>
 #include <cctype>
-
-#include "mmgr.h"
 
 #include "LuaFeatureDefs.h"
 
@@ -20,16 +17,10 @@
 #include "LuaDefs.h"
 #include "LuaHandle.h"
 #include "LuaUtils.h"
+#include "Rendering/Models/3DModel.h"
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureHandler.h"
-#include "LogOutput.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/FileSystem.h"
-
-using namespace std;
-
-
-#define TREE_RADIUS 20  // copied from Feature.cpp
+#include "System/Log/ILog.h"
 
 
 static ParamMap paramMap;
@@ -58,16 +49,15 @@ static int CustomParamsTable(lua_State* L, const void* data);
 bool LuaFeatureDefs::PushEntries(lua_State* L)
 {
 	if (paramMap.empty()) {
-	  InitParamMap();
+		InitParamMap();
 	}
 
-	const map<string, const FeatureDef*>& featureDefs =
-		featureHandler->GetFeatureDefs();
+	const map<string, const FeatureDef*>& featureDefs = featureHandler->GetFeatureDefs();
 	map<string, const FeatureDef*>::const_iterator fdIt;
-	for (fdIt = featureDefs.begin(); fdIt != featureDefs.end(); fdIt++) {
-	  const FeatureDef* fd = fdIt->second;
+	for (fdIt = featureDefs.begin(); fdIt != featureDefs.end(); ++fdIt) {
+		const FeatureDef* fd = fdIt->second;
 		if (fd == NULL) {
-	  	continue;
+			continue;
 		}
 		lua_pushnumber(L, fd->id);
 		lua_newtable(L); { // the proxy table
@@ -172,12 +162,12 @@ static int FeatureDefIndex(lua_State* L)
 
 	// not a default value
 	if (it == paramMap.end()) {
-	  lua_rawget(L, 1);
-	  return 1;
+		lua_rawget(L, 1);
+		return 1;
 	}
 
 	const void* userData = lua_touserdata(L, lua_upvalueindex(1));
-	const FeatureDef* fd = (const FeatureDef*)userData;
+	const FeatureDef* fd = static_cast<const FeatureDef*>(userData);
 	const DataElement& elem = it->second;
 	const char* p = ((const char*)fd) + elem.offset;
 	switch (elem.type) {
@@ -198,16 +188,19 @@ static int FeatureDefIndex(lua_State* L)
 			return 1;
 		}
 		case STRING_TYPE: {
-			lua_pushstring(L, ((string*)p)->c_str());
+			lua_pushsstring(L, *((string*)p));
 			return 1;
 		}
 		case FUNCTION_TYPE: {
 			return elem.func(L, p);
 		}
-		case ERROR_TYPE:{
-			luaL_error(L, "ERROR_TYPE in FeatureDefs __index");
+		case ERROR_TYPE: {
+			LOG_L(L_ERROR, "[%s] ERROR_TYPE for key \"%s\" in FeatureDefs __index", __FUNCTION__, name);
+			lua_pushnil(L);
+			return 1;
 		}
 	}
+
 	return 0;
 }
 
@@ -230,7 +223,7 @@ static int FeatureDefNewIndex(lua_State* L)
 	}
 
 	const void* userData = lua_touserdata(L, lua_upvalueindex(1));
-	const FeatureDef* fd = (const FeatureDef*)userData;
+	const FeatureDef* fd = static_cast<const FeatureDef*>(userData);
 
 	// write-protected
 	if (!gs->editDefsEnabled) {
@@ -264,8 +257,10 @@ static int FeatureDefNewIndex(lua_State* L)
 			*((string*)p) = lua_tostring(L, -1);
 			return 0;
 		}
-		case ERROR_TYPE:{
-			luaL_error(L, "ERROR_TYPE in FeatureDefs __newindex");
+		case ERROR_TYPE: {
+			LOG_L(L_ERROR, "[%s] ERROR_TYPE for key \"%s\" in FeatureDefs __newindex", __FUNCTION__, name);
+			lua_pushnil(L);
+			return 1;
 		}
 	}
 
@@ -275,7 +270,7 @@ static int FeatureDefNewIndex(lua_State* L)
 
 static int FeatureDefMetatable(lua_State* L)
 {
-	const void* userData = lua_touserdata(L, lua_upvalueindex(1));
+	/*const void* userData =*/ lua_touserdata(L, lua_upvalueindex(1));
 	//const FeatureDef* fd = (const FeatureDef*)userData;
 	return 0;
 }
@@ -308,7 +303,8 @@ static int DrawTypeString(lua_State* L, const void* data)
 	switch (drawType) {
 		case DRAWTYPE_MODEL: { HSTR_PUSH(L,   "model"); break; }
 		case DRAWTYPE_NONE:  { HSTR_PUSH(L,    "none"); break; }
-		default:             {
+
+		default: {
 			if (drawType >= DRAWTYPE_TREE) {
 				HSTR_PUSH(L,    "tree");
 			} else {
@@ -327,8 +323,8 @@ static int CustomParamsTable(lua_State* L, const void* data)
 	lua_newtable(L);
 	map<string, string>::const_iterator it;
 	for (it = params.begin(); it != params.end(); ++it) {
-		lua_pushstring(L, it->first.c_str());
-		lua_pushstring(L, it->second.c_str());
+		lua_pushsstring(L, it->first);
+		lua_pushsstring(L, it->second);
 		lua_rawset(L, -3);
 	}
 	return 1;
@@ -337,13 +333,13 @@ static int CustomParamsTable(lua_State* L, const void* data)
 
 static int ModelHeight(lua_State* L, const void* data)
 {
-	const FeatureDef* fd = ((const FeatureDef*) data);
+	const FeatureDef* fd = static_cast<const FeatureDef*>(data);
 	const S3DModel* model = NULL;
 	float height = 0.0f;
 
 	switch (fd->drawType) {
 		case DRAWTYPE_MODEL: {
-			model = LoadModel(fd);
+			model = fd->LoadModel();
 			height = model? model->height: 0.0f;
 			break;
 		}
@@ -367,13 +363,13 @@ static int ModelHeight(lua_State* L, const void* data)
 
 static int ModelRadius(lua_State* L, const void* data)
 {
-	const FeatureDef* fd = ((const FeatureDef*) data);
+	const FeatureDef* fd = static_cast<const FeatureDef*>(data);
 	const S3DModel* model = NULL;
 	float radius = 0.0f;
 
 	switch (fd->drawType) {
 		case DRAWTYPE_MODEL: {
-			model = LoadModel(fd);
+			model = fd->LoadModel();
 			radius = model? model->radius: 0.0f;
 			break;
 		}
@@ -398,9 +394,9 @@ static int ModelRadius(lua_State* L, const void* data)
 #define TYPE_MODEL_FUNC(name, param)                            \
 	static int Model ## name(lua_State* L, const void* data)    \
 	{                                                           \
-		const FeatureDef* fd = ((const FeatureDef*)data);       \
+		const FeatureDef* fd = static_cast<const FeatureDef*>(data); \
 		if (fd->drawType == DRAWTYPE_MODEL) {                   \
-			const S3DModel* model = LoadModel(fd);              \
+			const S3DModel* model = fd->LoadModel();            \
 			lua_pushnumber(L, model? model -> param : 0.0f);    \
 			return 1;                                           \
 		}                                                       \
@@ -409,15 +405,15 @@ static int ModelRadius(lua_State* L, const void* data)
 
 //TYPE_MODEL_FUNC(Height, height); // ::ModelHeight()
 //TYPE_MODEL_FUNC(Radius, radius); // ::ModelRadius()
-TYPE_MODEL_FUNC(Minx,   minx);
-TYPE_MODEL_FUNC(Midx,   relMidPos.x);
-TYPE_MODEL_FUNC(Maxx,   maxx);
-TYPE_MODEL_FUNC(Miny,   miny);
-TYPE_MODEL_FUNC(Midy,   relMidPos.y);
-TYPE_MODEL_FUNC(Maxy,   maxy);
-TYPE_MODEL_FUNC(Minz,   minz);
-TYPE_MODEL_FUNC(Midz,   relMidPos.z);
-TYPE_MODEL_FUNC(Maxz,   maxz);
+TYPE_MODEL_FUNC(Minx, mins.x);
+TYPE_MODEL_FUNC(Midx, relMidPos.x);
+TYPE_MODEL_FUNC(Maxx, maxs.x);
+TYPE_MODEL_FUNC(Miny, mins.y);
+TYPE_MODEL_FUNC(Midy, relMidPos.y);
+TYPE_MODEL_FUNC(Maxy, maxs.y);
+TYPE_MODEL_FUNC(Minz, mins.z);
+TYPE_MODEL_FUNC(Midz, relMidPos.z);
+TYPE_MODEL_FUNC(Maxz, maxs.z);
 
 
 /******************************************************************************/
@@ -450,9 +446,8 @@ static bool InitParamMap()
 
 	ADD_INT("id", fd.id);
 
-	ADD_STRING("name",     fd.myName);
+	ADD_STRING("name",     fd.name);
 	ADD_STRING("tooltip",  fd.description);
-	ADD_STRING("filename", fd.filename);
 
 	ADD_FLOAT("metal",       fd.metal);
 	ADD_FLOAT("energy",      fd.energy);
@@ -478,6 +473,7 @@ static bool InitParamMap()
 	ADD_BOOL("upright",      fd.upright);
 	ADD_BOOL("destructable", fd.destructable);
 	ADD_BOOL("reclaimable",  fd.reclaimable);
+	ADD_BOOL("autoreclaim",  fd.autoreclaim);
 	ADD_BOOL("blocking",     fd.blocking);
 	ADD_BOOL("burnable",     fd.burnable);
 	ADD_BOOL("floating",     fd.floating);

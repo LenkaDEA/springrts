@@ -1,19 +1,4 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "Interface.h"
 
@@ -50,14 +35,14 @@ CInterface::CInterface(int interfaceId,
 			"Failed locating the log file %s.", logFileName);
 	}
 
-	simpleLog_init(logFilePath, timeStamps, logLevel);
+	simpleLog_init(logFilePath, timeStamps, logLevel, false);
 
 	const char* const myShortName = callback->AIInterface_Info_getValueByKey(interfaceId,
 			AI_INTERFACE_PROPERTY_SHORT_NAME);
 	const char* const myVersion = callback->AIInterface_Info_getValueByKey(interfaceId,
 			AI_INTERFACE_PROPERTY_VERSION);
 
-	simpleLog_log("This is the log-file of the %s version %s",
+	simpleLog_log("This is the log-file of the %s v%s AI Interface",
 			myShortName, myVersion);
 	simpleLog_log("Using read/write data-directory: %s",
 			callback->DataDirs_getWriteableDir(interfaceId));
@@ -110,7 +95,7 @@ const SSkirmishAILibrary* CInterface::LoadSkirmishAILibrary(
 			myLoadedSkirmishAILibs[spec] = lib;
 		} else {
 			// failure
-			free(ai);
+			delete ai;
 			ai = NULL;
 		}
 	} else {
@@ -131,7 +116,7 @@ int CInterface::UnloadSkirmishAILibrary(
 	T_skirmishAILibs::iterator skirmishAILib = myLoadedSkirmishAILibs.find(spec);
 
 	if (skirmishAI == myLoadedSkirmishAIs.end()) {
-		// to unload AI is not loaded -> no problem, do nothing
+		// to-unload-AI is not loaded -> no problem, do nothing
 	} else {
 		delete skirmishAI->second;
 		myLoadedSkirmishAIs.erase(skirmishAI);
@@ -143,7 +128,7 @@ int CInterface::UnloadSkirmishAILibrary(
 }
 int CInterface::UnloadAllSkirmishAILibraries() {
 
-	while (myLoadedSkirmishAIs.size() > 0) {
+	while (!myLoadedSkirmishAIs.empty()) {
 		T_skirmishAISpecifiers::const_iterator ai =
 				mySkirmishAISpecifiers.begin();
 		UnloadSkirmishAILibrary((*ai).shortName, (*ai).version);
@@ -173,8 +158,10 @@ sharedLib_t CInterface::LoadSkirmishAILib(const std::string& libFilePath,
 
 	funcName = "getLevelOfSupportFor";
 	skirmishAILibrary->getLevelOfSupportFor
-			= (LevelOfSupport (CALLING_CONV_FUNC_POINTER *)(int teamId,
-			const char*, int, const char*, const char*))
+			= (LevelOfSupport (CALLING_CONV_FUNC_POINTER *)(
+			const char* aiShortName, const char* aiVersion,
+			const char* engineVersionString, int engineVersionNumber,
+			const char* aiInterfaceShortName, const char* aiInterfaceVersion))
 			sharedLib_findAddress(sharedLib, funcName.c_str());
 	if (skirmishAILibrary->getLevelOfSupportFor == NULL) {
 		// do nothing: it is permitted that an AI does not export this function
@@ -183,7 +170,7 @@ sharedLib_t CInterface::LoadSkirmishAILib(const std::string& libFilePath,
 
 	funcName = "init";
 	skirmishAILibrary->init
-			= (int (CALLING_CONV_FUNC_POINTER *)(int teamId,
+			= (int (CALLING_CONV_FUNC_POINTER *)(int skirmishAIId,
 			const struct SSkirmishAICallback*))
 			sharedLib_findAddress(sharedLib, funcName.c_str());
 	if (skirmishAILibrary->init == NULL) {
@@ -194,7 +181,7 @@ sharedLib_t CInterface::LoadSkirmishAILib(const std::string& libFilePath,
 
 	funcName = "release";
 	skirmishAILibrary->release
-			= (int (CALLING_CONV_FUNC_POINTER *)(int teamId))
+			= (int (CALLING_CONV_FUNC_POINTER *)(int skirmishAIId))
 			sharedLib_findAddress(sharedLib, funcName.c_str());
 	if (skirmishAILibrary->release == NULL) {
 		// do nothing: it is permitted that an AI does not export this function,
@@ -204,8 +191,8 @@ sharedLib_t CInterface::LoadSkirmishAILib(const std::string& libFilePath,
 
 	funcName = "handleEvent";
 	skirmishAILibrary->handleEvent
-			= (int (CALLING_CONV_FUNC_POINTER *)(int teamId,
-			int, const void*))
+			= (int (CALLING_CONV_FUNC_POINTER *)(int skirmishAIId,
+			int topicId, const void* data))
 			sharedLib_findAddress(sharedLib, funcName.c_str());
 	if (skirmishAILibrary->handleEvent == NULL) {
 		reportInterfaceFunctionError(libFilePath, funcName);

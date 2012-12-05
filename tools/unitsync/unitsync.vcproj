@@ -64,7 +64,7 @@
 			<Tool
 				Name="VCLinkerTool"
 				AdditionalDependencies="zlibwapi.lib DevIL.lib ILU.lib SDL.lib Advapi32.lib"
-				OutputFile="../../game/unitsync.dll"
+				OutputFile="..\..\dist\unitsync.dll"
 				LinkIncremental="2"
 				AdditionalLibraryDirectories="../../vclibs/DevIL/lib;&quot;../../vclibs/freetype-2.1.10/objs&quot;;../../vclibs/OpenAL/libs;../../vclibs/glew/lib;../../vclibs/zlibwapi/lib;&quot;../../vclibs/SDL-1.2.9/lib&quot;;../../vclibs/boost/lib;../../vclibs/libjpeg"
 				ModuleDefinitionFile="exports.def"
@@ -144,7 +144,7 @@
 			<Tool
 				Name="VCLinkerTool"
 				AdditionalDependencies="zlibwapi.lib DevIL.lib ILU.lib SDL.lib Advapi32.lib"
-				OutputFile="../../game/unitsync.dll"
+				OutputFile="..\..\dist\unitsync.dll"
 				LinkIncremental="1"
 				AdditionalLibraryDirectories="../../vclibs/DevIL/lib;&quot;../../vclibs/freetype-2.1.10/objs&quot;;../../vclibs/OpenAL/libs;../../vclibs/glew/lib;../../vclibs/zlibwapi/lib;&quot;../../vclibs/SDL-1.2.9/lib&quot;;../../vclibs/boost/lib;../../vclibs/libjpeg"
 				ModuleDefinitionFile="exports.def"
@@ -225,7 +225,7 @@
 			<Tool
 				Name="VCLinkerTool"
 				AdditionalDependencies="zlibwapi.lib DevIL.lib ILU.lib SDL.lib Advapi32.lib"
-				OutputFile="../../game/unitsync-python.dll"
+				OutputFile="..\..\dist\unitsync-python.dll"
 				LinkIncremental="1"
 				AdditionalLibraryDirectories="../../vclibs/DevIL/lib;&quot;../../vclibs/freetype-2.1.10/objs&quot;;../../vclibs/OpenAL/libs;../../vclibs/glew/lib;../../vclibs/zlibwapi/lib;&quot;../../vclibs/SDL-1.2.9/lib&quot;;../../vclibs/boost/lib;../../vclibs/libjpeg"
 				ModuleDefinitionFile="exports.def"
@@ -405,15 +405,15 @@
 				Name="Archive"
 				>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\Archive7Zip.cpp"
+					RelativePath="..\..\rts\System\FileSystem\SevenZipArchive.cpp"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\Archive7Zip.h"
+					RelativePath="..\..\rts\System\FileSystem\SevenZipArchive.h"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveBase.cpp"
+					RelativePath="..\..\rts\System\FileSystem\IArchive.cpp"
 					>
 					<FileConfiguration
 						Name="Debug|Win32"
@@ -441,23 +441,23 @@
 					</FileConfiguration>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveBase.h"
+					RelativePath="..\..\rts\System\FileSystem\IArchive.h"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveBuffered.cpp"
+					RelativePath="..\..\rts\System\FileSystem\BufferedArchive.cpp"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveBuffered.h"
+					RelativePath="..\..\rts\System\FileSystem\BufferedArchive.h"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveDir.cpp"
+					RelativePath="..\..\rts\System\FileSystem\DirArchive.cpp"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveDir.h"
+					RelativePath="..\..\rts\System\FileSystem\DirArchive.h"
 					>
 				</File>
 				<File
@@ -469,11 +469,11 @@
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveHPI.cpp"
+					RelativePath="..\..\rts\System\FileSystem\ZipArchive.cpp"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveHPI.h"
+					RelativePath="..\..\rts\System\FileSystem\ZipArchive.h"
 					>
 				</File>
 				<File
@@ -501,11 +501,11 @@
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveZip.cpp"
+					RelativePath="..\..\rts\System\FileSystem\PoolArchive.cpp"
 					>
 				</File>
 				<File
-					RelativePath="..\..\rts\System\FileSystem\ArchiveZip.h"
+					RelativePath="..\..\rts\System\FileSystem\PoolArchive.h"
 					>
 				</File>
 				<File

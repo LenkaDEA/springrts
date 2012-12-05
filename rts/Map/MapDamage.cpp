@@ -1,5 +1,6 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "MapDamage.h"
 #include "BasicMapDamage.h"
@@ -10,16 +11,17 @@
 
 IMapDamage* mapDamage;
 
-IMapDamage::IMapDamage()
+IMapDamage::IMapDamage() :
+	disabled(true),
+	mapHardness(0.0f)
 {
-	disabled = true;
 }
 
 IMapDamage::~IMapDamage()
 {
 }
 
-IMapDamage * IMapDamage::GetMapDamage()
+IMapDamage* IMapDamage::GetMapDamage()
 {
 	bool disable = false;
 	

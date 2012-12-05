@@ -1,5 +1,7 @@
-#ifndef __OVERHEAD_CONTROLLER_H__
-#define __OVERHEAD_CONTROLLER_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _OVERHEAD_CONTROLLER_H
+#define _OVERHEAD_CONTROLLER_H
 
 #include "CameraController.h"
 
@@ -12,15 +14,15 @@ public:
 	const std::string GetName() const { return "ta"; }
 
 	void KeyMove(float3 move);
-	void MousePress(int, int, int) { /* empty */ }
-	void MouseRelease(int, int, int) { /* empty */ }
+	void MousePress(int x, int y, int button) { /* empty */ }
+	void MouseRelease(int x, int y, int button) { /* empty */ }
 	void MouseMove(float3 move);
 	void ScreenEdgeMove(float3 move);
 	void MouseWheelMove(float move);
 
 	void Update();
-	float3 GetPos();
-	float3 GetDir();
+	float3 GetPos() const;
+	void SetPos(const float3& newPos);
 
 	float3 SwitchFrom() const;
 	void SwitchTo(bool showText);
@@ -31,8 +33,11 @@ public:
 	bool flipped;
 
 private:
+	void UpdateVectors();
+
+private:
+	float middleClickScrollSpeed;
 	float zscale;
-	float3 dir;
 	float height;
 	float oldAltHeight;
 	bool changeAltHeight;
@@ -40,4 +45,4 @@ private:
 	float tiltSpeed;
 };
 
-#endif
+#endif // _OVERHEAD_CONTROLLER_H

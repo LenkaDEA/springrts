@@ -1,12 +1,20 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_SCREAM_H
 #define LUA_SCREAM_H
-// LuaScream.h: interface for the LuaScream class.
-//
-//////////////////////////////////////////////////////////////////////
 
 struct lua_State;
 
 
+/**
+ * This creates a userdata object, which calls a special user-defined function,
+ * when the object gets destroyed (=> garbage collector).
+ * You use it like this (Lua):
+ * <code>
+ *   local myScream = Script.CreateScream()
+ *   myScream.func  = function() Spring.Echo("AHHHHHH") end
+ * </code>
+ */
 class LuaScream {
 	public:
 		LuaScream();

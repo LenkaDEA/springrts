@@ -1,28 +1,66 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef SYNCED_PRIMITIVE_BASSE_H
 #define SYNCED_PRIMITIVE_BASSE_H
 
+#ifdef SYNCCHECK
+	#include "SyncChecker.h"
+#endif
 
-/**
- * @brief base class to use for synced classes
- */
-class CSyncedPrimitiveBase {
-
-	protected:
-
-		/**
-	 * @brief wrapper to call the private CSyncDebugger::Sync()
-		 */
-		void Sync(void* p, unsigned size, const char* op) {
 #ifdef SYNCDEBUG
-			CSyncDebugger::GetInstance()->Sync(p, size, op);
+	#include "SyncDebugger.h"
+#endif
+
+#include <assert.h>
+
+
+// NOTE: lowercase sync clashes with extern void sync(...) from unistd.h
+namespace Sync {
+
+	/**
+	 * @brief Assert a contiguous memory area is still synchronized.
+	 * @param p    Start of the memory area
+	 * @param size Size of the memory area
+	 * @param msg  An arbitrary debugging text (preferably short)
+	 *
+	 * (A checksum of) the memory may be passed to either the CSyncDebugger,
+	 * or the CSyncChecker, depending on the enabled @code #defines @endcode.
+	 */
+	static inline void Assert(const void* p, unsigned size, const char* msg) {
+#ifdef SYNCDEBUG
+		CSyncDebugger::GetInstance()->Sync(p, size, msg);
 #endif
 #ifdef SYNCCHECK
-			CSyncChecker::Sync(p, size);
+		assert(CSyncChecker::InSyncedCode());
+		CSyncChecker::Sync(p, size);
 	#ifdef TRACE_SYNC_HEAVY
-			tracefile << "Sync " << op << " " << CSyncChecker::GetChecksum() << "\n";
+		tracefile << "Sync " << msg << " " << CSyncChecker::GetChecksum() << "\n";
 	#endif
 #endif
-		}
-};
+	}
+
+	/**
+	 * @brief Check sync of the argument x.
+	 */
+	template<typename T>
+	static inline void Assert(const T& x, const char* msg = "assert") {
+		Assert(&x, sizeof(T), msg);
+	}
+
+}
+
+#ifndef NDEBUG
+#  define ENTER_SYNCED_CODE() CSyncChecker::EnterSyncedCode()
+#  define LEAVE_SYNCED_CODE() CSyncChecker::LeaveSyncedCode()
+#else
+#  define ENTER_SYNCED_CODE()
+#  define LEAVE_SYNCED_CODE()
+#endif
+
+#ifdef SYNCDEBUG
+#  define ASSERT_SYNCED(x) Sync::Assert(x)
+#else
+#  define ASSERT_SYNCED(x)
+#endif
 
 #endif

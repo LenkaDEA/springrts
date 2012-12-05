@@ -1,12 +1,10 @@
-#include "StdAfx.h"
-// LuaGaia.cpp: implementation of the CLuaGaia class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 
 #include <set>
 #include <cctype>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaGaia.h"
 
@@ -19,21 +17,18 @@
 #include "LuaWeaponDefs.h"
 #include "LuaOpenGL.h"
 
-#include "Rendering/UnitModels/UnitDrawer.h"
+#include "Rendering/UnitDrawer.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/CommandAI/Command.h"
-#include "LogOutput.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/FileSystem.h"
-#include "Util.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/Util.h"
 
 
 CLuaGaia* luaGaia = NULL;
-
-string CLuaGaia::configString;
 
 static const char* LuaGaiaSyncedFilename   = "LuaGaia/main.lua";
 static const char* LuaGaiaUnsyncedFilename = "LuaGaia/draw.lua";
@@ -44,13 +39,15 @@ static const char* LuaGaiaUnsyncedFilename = "LuaGaia/draw.lua";
 
 void CLuaGaia::LoadHandler()
 {
+	//FIXME GML: this needs a mutex!!!
+
 	if (luaGaia) {
 		return;
 	}
 
 	new CLuaGaia();
 
-	if (luaGaia->L == NULL) {
+	if (!luaGaia->IsValid()) {
 		delete luaGaia;
 	}
 }
@@ -58,17 +55,8 @@ void CLuaGaia::LoadHandler()
 
 void CLuaGaia::FreeHandler()
 {
+	//FIXME GML: this needs a mutex!!!
 	delete luaGaia;
-}
-
-
-bool CLuaGaia::SetConfigString(const string& cfg)
-{
-	configString = cfg;
-	if ((cfg == "0") || (cfg == "disabled")) {
-		return false;
-	}
-	return true;
 }
 
 
@@ -76,22 +64,22 @@ bool CLuaGaia::SetConfigString(const string& cfg)
 /******************************************************************************/
 
 CLuaGaia::CLuaGaia()
-: CLuaHandleSynced("LuaGaia", LUA_HANDLE_ORDER_GAIA, ".luagaia ")
+: CLuaHandleSynced("LuaGaia", LUA_HANDLE_ORDER_GAIA)
 {
 	luaGaia = this;
 
-	if (L == NULL) {
+	if (!IsValid()) {
 		return;
 	}
 
 	teamsLocked = true;
 
-	fullCtrl = true;
-	fullRead = true;
-	ctrlTeam = AllAccessTeam; //teamHandler->GaiaTeamID();
-	readTeam = AllAccessTeam;
-	readAllyTeam = AllAccessTeam;
-	selectTeam = teamHandler->GaiaTeamID();
+	SetFullCtrl(true, true);
+	SetFullRead(true, true);
+	SetCtrlTeam(AllAccessTeam, true); //teamHandler->GaiaTeamID();
+	SetReadTeam(AllAccessTeam, true);
+	SetReadAllyTeam(AllAccessTeam, true);
+	SetSelectTeam(teamHandler->GaiaTeamID(), true);
 
 	Init(LuaGaiaSyncedFilename, LuaGaiaUnsyncedFilename, SPRING_VFS_MAP);
 }
@@ -99,7 +87,7 @@ CLuaGaia::CLuaGaia()
 
 CLuaGaia::~CLuaGaia()
 {
-	if (L != NULL) {
+	if (L_Sim != NULL || L_Draw != NULL) {
 		Shutdown();
 		KillLua();
 	}
@@ -107,37 +95,19 @@ CLuaGaia::~CLuaGaia()
 }
 
 
-bool CLuaGaia::AddSyncedCode()
+bool CLuaGaia::AddSyncedCode(lua_State *L)
 {
-	lua_getglobal(L, "Script");
-	LuaPushNamedCFunc(L, "GetConfigString", GetConfigString);
-	lua_pop(L, 1);
-
 	return true;
 }
 
 
-bool CLuaGaia::AddUnsyncedCode()
+bool CLuaGaia::AddUnsyncedCode(lua_State *L)
 {
-	lua_pushstring(L, "UNSYNCED");
-	lua_gettable(L, LUA_REGISTRYINDEX);
-	lua_pushstring(L, "Script");
-	lua_rawget(L, -2);
-	LuaPushNamedCFunc(L, "GetConfigString", GetConfigString);
-	lua_pop(L, 1);
+	/*lua_pushliteral(L, "UNSYNCED");
+	lua_gettable(L, LUA_REGISTRYINDEX);*/
 
 	return true;
 }
-
-
-/******************************************************************************/
-
-int CLuaGaia::GetConfigString(lua_State* L)
-{
-	lua_pushlstring(L, configString.c_str(), configString.size());
-	return 1;
-}
-
 
 /******************************************************************************/
 /******************************************************************************/

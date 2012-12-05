@@ -1,5 +1,6 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 /**
- * @file bitops.h
  * @brief Bit twiddling operations
  *
  * Bit twiddling shortcuts for various
@@ -56,12 +57,13 @@ static inline unsigned int count_bits_set(unsigned int w)
 
 /**
  * @brief Make even number macro
- * @param x Number to make even
+ * @param n Number to make even
  *
  * Quick macro to make a number even, by
  * forcing the rightmost bit to 0.
  */
-#define make_even_number(x) 	((x) &= ~0x1)
+#define make_even_number(n) 	((n) += ((n) & 0x1)?1:0) //! ~ceil()
+//#define make_even_number(n) 	((x) &= ~0x1)            //! ~floor()
 
 /**
  * @brief Conditionally set flag macro

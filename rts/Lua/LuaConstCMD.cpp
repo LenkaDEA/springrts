@@ -1,8 +1,6 @@
-#include "StdAfx.h"
-// LuaConstCMD.cpp: implementation of the LuaConstCMD class.
-//
-//////////////////////////////////////////////////////////////////////
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "LuaConstCMD.h"
 
@@ -65,7 +63,8 @@ bool LuaConstCMD::PushEntries(lua_State* L)
 	PUSH_CMD(RECLAIM);
 	PUSH_CMD(CLOAK);
 	PUSH_CMD(STOCKPILE);
-	PUSH_CMD(DGUN);
+	PUSH_CMD(MANUALFIRE);
+	LuaInsertDualMapPair(L, "DGUN", CMD_MANUALFIRE); // backward compability (TODO: find a way to print a warning when used!)
 	PUSH_CMD(RESTORE);
 	PUSH_CMD(REPEAT);
 	PUSH_CMD(TRAJECTORY);

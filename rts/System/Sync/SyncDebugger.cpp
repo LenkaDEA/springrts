@@ -1,77 +1,76 @@
-/* Author: Tobi Vollebregt */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
 
 #ifdef SYNCDEBUG
 
-#include <boost/format.hpp>
-
-#include "LogOutput.h"
-#include "GlobalUnsynced.h"
-#include "Sim/Misc/GlobalSynced.h"
-#include "Game/PlayerHandler.h"
-#include "BaseNetProtocol.h"
-#include "NetProtocol.h"
 #include "SyncDebugger.h"
-#include "SyncChecker.h"
-#include "SyncTracer.h"
+
+#include "Game/GlobalUnsynced.h"
+#include "Game/PlayerHandler.h"
+#include "Sim/Misc/GlobalSynced.h"
+#include "System/BaseNetProtocol.h"
+#include "System/Log/ILog.h"
+#include "System/NetProtocol.h"
+
+#include "HsiehHash.h"
 #include "Logger.h"
+#include "SyncTracer.h"
 
 #include <string.h>
 #include <map>
+
 #ifndef WIN32
-/* for backtrace() function */
-# include <execinfo.h>
-# define HAVE_BACKTRACE
+	/* for backtrace() function */
+	#include <execinfo.h>
+	#define HAVE_BACKTRACE
 #elif defined __MINGW32__
-/* from backtrace.c: */
-extern "C" int backtrace (void **array, int size);
-# define HAVE_BACKTRACE
+	/* from backtrace.c: */
+	extern "C" int backtrace(void** array, int size);
+	#define HAVE_BACKTRACE
 #else
-# undef HAVE_BACKTRACE
+	#undef HAVE_BACKTRACE
 #endif
 
 
-#define LOGFILE_SERVER   "syncdebug-server.log"
-#define LOGFILE_CLIENT   "syncdebug-client.log"
+#define LOGFILE_SERVER "syncdebug-server.log"
+#define LOGFILE_CLIENT "syncdebug-client.log"
 
 
-// externals
-extern bool globalQuit;
+#define LOG_SECTION_SYNC_DEBUGGER "SD"
+LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_SYNC_DEBUGGER)
+
+// use the specific section for all LOG*() calls in this source file
+#ifdef LOG_SECTION_CURRENT
+	#undef LOG_SECTION_CURRENT
+#endif
+#define LOG_SECTION_CURRENT LOG_SECTION_SYNC_DEBUGGER
+
 
 
 /**
  * @brief logging instance
  */
-CLogger logger;
+static CLogger logger;
 
 
-/**
- * @brief get sync debugger instance
- *
- * The sync debugger is a singleton (for now).
- * @return the instance
- */
 CSyncDebugger* CSyncDebugger::GetInstance() {
 	static CSyncDebugger instance;
 	return &instance;
 }
 
 
-/**
- * @brief default-noarg-constructor
- */
-CSyncDebugger::CSyncDebugger():
-		history(NULL), historybt(NULL), historyIndex(0),
-		disable_history(false), may_enable_history(false),
-		flop(0), waitingForBlockResponse(false)
+CSyncDebugger::CSyncDebugger()
+	: history(NULL)
+	, historybt(NULL)
+	, historyIndex(0)
+	, disable_history(false)
+	, may_enable_history(false)
+	, flop(0)
+	, waitingForBlockResponse(false)
 {
 }
 
 
-/**
- * @brief destructor
- */
 CSyncDebugger::~CSyncDebugger()
 {
 	delete[] history;
@@ -79,20 +78,12 @@ CSyncDebugger::~CSyncDebugger()
 }
 
 
-/**
- * @brief initialize
- *
- * Initialize the sync debugger. Pass true for a server (this requires approx.
- * 144 megabytes on 32 bit systems and 240 megabytes on 64 bit systems) and
- * false for a client (requires only 16 megabytes extra).
- * FIXME update this comment to reflect new values
- */
 void CSyncDebugger::Initialize(bool useBacktrace, unsigned numPlayers)
 {
 	delete[] history;
-	history = 0;
+	history = NULL;
 	delete[] historybt;
-	historybt = 0;
+	historybt = NULL;
 
 #ifdef HAVE_BACKTRACE
 	if (useBacktrace) {
@@ -110,40 +101,29 @@ void CSyncDebugger::Initialize(bool useBacktrace, unsigned numPlayers)
 	disable_history = false;
 	may_enable_history = false;
 	flop = 0;
-	for (unsigned j = 0; j < numPlayers; ++j) {
-		PlayerStruct buf;
-		buf.checksumResponses.clear();
-		buf.remoteHistory.clear();
-		buf.remoteFlop = 0;
-		players.push_back(buf);
-	}
+	players.clear();
+	players.resize(numPlayers);
 	pendingBlocksToRequest.clear();
 	waitingForBlockResponse = false;
 
 	// init logger
 	logger.SetFilename(useBacktrace ? LOGFILE_SERVER : LOGFILE_CLIENT);
-	logger.AddLine("Syncdebugger initialised");
+	logger.AddLine("SyncDebugger initialized");
 	logger.FlushBuffer();
 }
 
 
-/**
- * @brief the backbone of the sync debugger
- *
- * This function adds an item to the history and appends a backtrace and an
- * operator (op) to it. p must point to the data to checksum and size must be
- * the size of that data.
- */
-void CSyncDebugger::Sync(void* p, unsigned size, const char* op)
+void CSyncDebugger::Sync(const void* p, unsigned size, const char* op)
 {
-	if (!history && !historybt)
+	if (!history && !historybt) {
 		return;
+	}
 
 	HistItem* h = &history[historyIndex];
 
 #ifdef HAVE_BACKTRACE
 	if (historybt) {
-		// dirty hack to skip the uppermost 2 or 3 (32 resp. 64 bit) frames without memcpy'ing the whole backtrace...
+		// HACK to skip the uppermost 2 or 3 (32 resp. 64 bit) frames without memcpy'ing the whole backtrace
 		const int frameskip = (8 + sizeof(void*)) / sizeof(void*);
 		historybt[historyIndex].bt_size = backtrace(historybt[historyIndex].bt - frameskip, MAX_STACK + frameskip) - frameskip;
 		historybt[historyIndex].op = op;
@@ -152,44 +132,32 @@ void CSyncDebugger::Sync(void* p, unsigned size, const char* op)
 	}
 #endif
 
-	// if data fits and has even size, it's probably a POD type, store it verbatim
-	// TODO: transfer offending blocks from clients to the server
-	if (size == 1) {
-		h->data = *(unsigned char*)p;
-	} else if (size == sizeof(short)) {
-		h->data = *(unsigned short*)p;
-	} else if (size >= sizeof(unsigned)) {
-		h->data = *(unsigned *)p;
-	} else {
-		h->data = -1;
+	if (size == 4) {
+		// common case
+		h->data = *(const unsigned*) p;
+	}
+	else {
+		// > XOR seems dangerous in that every bit is independent of any other, this is bad.
+		// This isn't the case here, however, because typically we checksum only 1-8 bytes
+		// of data at a time, so most of it fits in the checksum anyway.
+		// (see SyncedPrimitiveBase / SyncedPrimitive, the main client of this method)
+		unsigned i = 0;
+		h->data = 0;
+		// whole dwords
+		for (; i < (size & ~3); i += 4)
+			h->data ^= *(const unsigned*) ((const unsigned char*) p + i);
+		// remaining 0 to 3 bytes
+		for (; i < size; ++i)
+			h->data ^= *((const unsigned char*) p + i);
 	}
 
-	// xor is dangerous in that every bit is independent of any other, this is bad
-#ifdef SD_USE_SIMPLE_CHECKSUM
-	unsigned i = 0;
-	h->chk = 0;
-	for (; i < (size & ~3); i += 4)
-		h->chk ^= *(unsigned*) ((unsigned char*) p + i);
-	for (; i < size; ++i)
-		h->chk ^= *((unsigned char*) p + i);
-#else
-	// 33*flop + gs->frameNum is enough to prevent zero slurping
-	// using CSyncChecker::g_checksum here will cause cascade false positives
-	h->chk = CSyncChecker::HsiehHash((char*)p, size, 33*flop + gs->frameNum);
-#endif
-
-	if (++historyIndex == HISTORY_SIZE * BLOCK_SIZE)
+	if (++historyIndex == HISTORY_SIZE * BLOCK_SIZE) {
 		historyIndex = 0; // wrap around
+	}
 	++flop;
 }
 
 
-/**
- * @brief output a backtrace to the log
- *
- * Writes the backtrace attached to history item # index to the log.
- * The backtrace is prefixed with prefix.
- */
 void CSyncDebugger::Backtrace(int index, const char* prefix) const
 {
 	if (historybt) {
@@ -209,31 +177,12 @@ void CSyncDebugger::Backtrace(int index, const char* prefix) const
 }
 
 
-/**
- * @brief get a checksum for a backtrace in the history
- *
- * @return a checksum for backtrace # index in the history.
- */
 unsigned CSyncDebugger::GetBacktraceChecksum(int index) const
 {
-#ifdef SD_USE_SIMPLE_CHECKSUM
-	unsigned checksum = 0;
-	const unsigned* p = (const unsigned*) historybt[index].bt;
-	for (unsigned i = 0; i < (sizeof(void*)/sizeof(unsigned)) * historybt[index].bt_size; ++i, ++p)
-		checksum = 33 * checksum + *p;
-	return checksum;
-#else
-	return CSyncChecker::HsiehHash((char *)historybt[index].bt, sizeof(void*) * historybt[index].bt_size, 0xf00dcafe);
-#endif
+	return HsiehHash((char *)historybt[index].bt, sizeof(void*) * historybt[index].bt_size, 0xf00dcafe);
 }
 
 
-/**
- * @brief serverside network receiver
- *
- * Plugin for the CGameServer network code in GameServer.cpp.
- * @return the number of bytes read from the network stream
- */
 bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
 {
 	bool syncDebugPacket = false;
@@ -243,7 +192,7 @@ bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
 				logger.AddLine("Server: received checksum response of %d instead of %d bytes", *(short*)&inbuf[1], HISTORY_SIZE * 4 + 12);
 			} else {
 				int player = inbuf[3];
-				if(player >= playerHandler->ActivePlayers() || player < 0) {
+				if (!playerHandler->IsValidPlayer(player)) {
 					logger.AddLine("Server: got invalid playernum %d in checksum response", player);
 				} else {
 					logger.AddLine("Server: got checksum response from %d", player);
@@ -268,7 +217,7 @@ bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
 				logger.AddLine("Server: received block response of %d instead of %d bytes", *(short*)&inbuf[1], BLOCK_SIZE * 4 + 4);
 			} else {
 				int player = inbuf[3];
-				if(player >= playerHandler->ActivePlayers() || player < 0) {
+				if (!playerHandler->IsValidPlayer(player)) {
 					logger.AddLine("Server: got invalid playernum %d in block response", player);
 				} else {
 					const unsigned* begin = (unsigned*)&inbuf[4];
@@ -296,12 +245,6 @@ bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
 }
 
 
-/**
- * @brief clientside network receiver
- *
- * Plugin for the CGame network code in Game.cpp.
- * @return the number of bytes read from the network stream
- */
 bool CSyncDebugger::ClientReceived(const unsigned char* inbuf)
 {
 	bool syncDebugPacket = false;
@@ -324,13 +267,13 @@ bool CSyncDebugger::ClientReceived(const unsigned char* inbuf)
 				ClientSendBlockResponse(*(unsigned short*)&inbuf[1]);
 				logger.AddLine("Client: block response sent for block %d", *(unsigned short*)&inbuf[1]);
 				// simple progress indication
-				logOutput.Print("[SD] Client: %d / %d", *(unsigned short*)&inbuf[3], *(unsigned short*)&inbuf[5]);
+				LOG("Client: %d / %d", *(unsigned short*)&inbuf[3], *(unsigned short*)&inbuf[5]);
 			}
 			syncDebugPacket = true;
 			break;
 		case NETMSG_SD_RESET:
 			logger.CloseSession();
-			logOutput.Print("[SD] Client: Done!");
+			LOG("Client: Done!");
 // 			disable_history = false;
 			may_enable_history = true;
 			syncDebugPacket = true;
@@ -341,11 +284,6 @@ bool CSyncDebugger::ClientReceived(const unsigned char* inbuf)
 }
 
 
-/**
- * @brief first step after desync
- *
- * Does nothing
- */
 void CSyncDebugger::ServerTriggerSyncErrorHandling(int serverframenum)
 {
 	if (!disable_history) {
@@ -354,45 +292,24 @@ void CSyncDebugger::ServerTriggerSyncErrorHandling(int serverframenum)
 }
 
 
-/**
- * @brief second step after desync
- *
- * Called by client to send a response to a checksum request.
- */
 void CSyncDebugger::ClientSendChecksumResponse()
 {
 	std::vector<unsigned> checksums;
 	for (unsigned i = 0; i < HISTORY_SIZE; ++i) {
-#ifdef SD_USE_SIMPLE_CHECKSUM
-		unsigned checksum = 0;
-		for (unsigned j = 0; j < BLOCK_SIZE; ++j) {
-			if (historybt)
-				checksum = 33 * checksum + historybt[BLOCK_SIZE * i + j].chk;
-			else  checksum = 33 * checksum + history[BLOCK_SIZE * i + j].chk;
-		}
-#else
 		unsigned checksum = 123456789;
 		for (unsigned j = 0; j < BLOCK_SIZE; ++j) {
-			if (historybt)
-				checksum = CSyncChecker::HsiehHash((char*)&historybt[BLOCK_SIZE * i + j].chk, sizeof(historybt[BLOCK_SIZE * i + j].chk), checksum);
-			else  checksum = CSyncChecker::HsiehHash((char*)&history[BLOCK_SIZE * i + j].chk, sizeof(history[BLOCK_SIZE * i + j].chk), checksum);
+			if (historybt) {
+				checksum = HsiehHash((char*)&historybt[BLOCK_SIZE * i + j].data, sizeof(historybt[0].data), checksum);
+			} else {
+				checksum = HsiehHash((char*)&history[BLOCK_SIZE * i + j].data, sizeof(history[0].data), checksum);
+			}
 		}
-#endif
 		checksums.push_back(checksum);
 	}
 	net->Send(CBaseNetProtocol::Get().SendSdCheckresponse(gu->myPlayerNum, flop, checksums));
 }
 
 
-/**
- * @brief third step after desync
- *
- * Called by server after all checksum responses have been received.
- * Compares the checksumResponses and figures out which blocks are out of sync
- * (have different checksum). For these blocks requests are queued which will
- * be send next frames (one request at a time, see
- * CSyncDebugger::ServerHandlePendingBlockRequests()).
- */
 void CSyncDebugger::ServerQueueBlockRequests()
 {
 	logger.AddLine("Server: queuing block requests");
@@ -427,17 +344,12 @@ void CSyncDebugger::ServerQueueBlockRequests()
 		net->Send(CBaseNetProtocol::Get().SendSdReset());
 	}
 	//cleanup
-	for (playerVec::iterator it = players.begin(); it != players.end(); ++it)
+	for (PlayerVec::iterator it = players.begin(); it != players.end(); ++it)
 		it->checksumResponses.clear();
+	logger.FlushBuffer();
 }
 
 
-/**
- * @brief helper for the third step
- *
- * Must be called by the server in GameServer.cpp once every frame to handle
- * queued block requests (see CSyncDebugger::ServerQueueBlockRequests()).
- */
 void CSyncDebugger::ServerHandlePendingBlockRequests()
 {
 	if (!pendingBlocksToRequest.empty() && !waitingForBlockResponse) {
@@ -448,11 +360,6 @@ void CSyncDebugger::ServerHandlePendingBlockRequests()
 }
 
 
-/**
- * @brief fourth step after desync
- *
- * Called by client to send a response to a block request.
- */
 void CSyncDebugger::ClientSendBlockResponse(int block)
 {
 	std::vector<unsigned> checksums;
@@ -460,13 +367,19 @@ void CSyncDebugger::ClientSendBlockResponse(int block)
 	tracefile << "Sending block response for block " << block << "\n";
 #endif
 	for (unsigned i = 0; i < BLOCK_SIZE; ++i) {
-		if (historybt)
-			checksums.push_back(historybt[BLOCK_SIZE * block + i].chk);
-		else  checksums.push_back(history[BLOCK_SIZE * block + i].chk);
+		if (historybt) {
+			checksums.push_back(historybt[BLOCK_SIZE * block + i].data);
+		}
+		else {
+			checksums.push_back(history[BLOCK_SIZE * block + i].data);
+		}
 #ifdef TRACE_SYNC
-		if (historybt)
-			tracefile << historybt[BLOCK_SIZE * block + i].chk << " " << historybt[BLOCK_SIZE * block + i].data << "\n";
-		else  tracefile << history[BLOCK_SIZE * block + i].chk << " " << history[BLOCK_SIZE * block + i].data  << "\n";
+		if (historybt) {
+			tracefile << historybt[BLOCK_SIZE * block + i].data << " " << historybt[BLOCK_SIZE * block + i].data << "\n";
+		}
+		else {
+			tracefile << history[BLOCK_SIZE * block + i].data << " " << history[BLOCK_SIZE * block + i].data  << "\n";
+		}
 #endif
 	}
 #ifdef TRACE_SYNC
@@ -476,13 +389,6 @@ void CSyncDebugger::ClientSendBlockResponse(int block)
 }
 
 
-/**
- * @brief fifth step after desync
- *
- * Called each time a set of blockResponses (one for every client) is received.
- * If there are no more pendingBlocksToRequest, it triggers the sixth step,
- * ServerDumpStack().
- */
 void CSyncDebugger::ServerReceivedBlockResponses()
 {
 	pendingBlocksToRequest.pop_front();
@@ -493,15 +399,6 @@ void CSyncDebugger::ServerReceivedBlockResponses()
 }
 
 
-/**
- * @brief sixth step after desync
- *
- * Called by server once all blockResponses are received. It dumps a backtrace
- * to the logger for every checksum mismatch in the block which was out of
- * sync. The backtraces are passed to the logger in a fairly simple form
- * consisting basically only of hexadecimal addresses. The logger class
- * resolves those to function, filename & line number.
- */
 void CSyncDebugger::ServerDumpStack()
 {
 	// first calculate start iterator...
@@ -540,9 +437,14 @@ void CSyncDebugger::ServerDumpStack()
 						checksumToIndex[checksum] = curBacktrace;
 						indexToHistPos[curBacktrace] = histPos;
 					}
-					logger.AddLine("Server: chk %08X instead of %08X frame %06u, (value=%08x %15.8e) backtrace %u in \"%s\"", players[j].remoteHistory[i], correctChecksum, historybt[histPos].frameNum, historybt[histPos].data, *(float*)&historybt[histPos].data, checksumToIndex[checksum], historybt[histPos].op);
+					logger.AddLine("Server: 0x%08X/%15.8e instead of 0x%08X/%15.8e, frame %06u, backtrace %u in \"%s\"",
+							players[j].remoteHistory[i], *(float*)(char*)&players[j].remoteHistory[i],
+							correctChecksum, *(float*)(char*)&correctChecksum,
+							historybt[histPos].frameNum, checksumToIndex[checksum], historybt[histPos].op);
 				} else {
-					logger.AddLine("Server: chk %08X instead of %08X", players[j].remoteHistory[i], correctChecksum);
+					logger.AddLine("Server: 0x%08X/%15.8e instead of 0x%08X/%15.8e",
+							players[j].remoteHistory[i], *(float*)(char*)&players[j].remoteHistory[i],
+							correctChecksum, *(float*)(char*)&correctChecksum);
 				}
 				err = true;
 			} else {
@@ -562,7 +464,7 @@ void CSyncDebugger::ServerDumpStack()
 		logger.AddLine("Server: huh, all checksums equal?!? (INTERNAL ERROR)");
 
 	//cleanup
-	for (playerVec::iterator it = players.begin(); it != players.end(); ++it)
+	for (PlayerVec::iterator it = players.begin(); it != players.end(); ++it)
 		it->remoteHistory.clear();
 
 	if (historybt) {
@@ -577,17 +479,10 @@ void CSyncDebugger::ServerDumpStack()
 	net->Send(CBaseNetProtocol::Get().SendSdReset());
 	logger.AddLine("Server: Done!");
 	logger.CloseSession();
-	logOutput.Print("[SD] Server: Done!");
+	LOG("Server: Done!");
 }
 
-/**
- * @brief re-enable the history
- *
- * Restart the sync debugger lifecycle, so it can be used again (if the sync
- * errors are resolved somehow or you were just testing it using .fakedesync).
- *
- * Called after typing '.reset' in chat area.
- */
+
 void CSyncDebugger::Reset()
 {
 	if (may_enable_history)

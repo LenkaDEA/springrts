@@ -1,16 +1,10 @@
-#include "StdAfx.h"
-// LuaVFS.cpp: implementation of the LuaVFS class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include <set>
-#include <list>
-#include <cctype>
-#include <limits.h>
+
+#include "System/mmgr.h"
+
+#include <cmath>
 #include <boost/regex.hpp>
-using namespace std;
-
-#include "mmgr.h"
 
 #include "LuaVFS.h"
 
@@ -20,12 +14,18 @@ using namespace std;
 #include "LuaHashString.h"
 #include "LuaIO.h"
 #include "LuaUtils.h"
-#include "LogOutput.h"
-#include "FileSystem/FileHandler.h"
-#include <FileSystem/ArchiveScanner.h>
-#include "FileSystem/VFSHandler.h"
-#include "FileSystem/FileSystem.h"
-#include "Util.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/ArchiveScanner.h"
+#include "System/FileSystem/VFSHandler.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/Util.h"
+
+#include <set>
+#include <list>
+#include <cctype>
+#include <limits.h>
+
+using std::min;
 
 
 /******************************************************************************/
@@ -155,6 +155,7 @@ int LuaVFS::Include(lua_State* L, bool synced)
 
 	const string filename = lua_tostring(L, 1);
 	if (!LuaIO::IsSimplePath(filename)) {
+		// the path may point to a file or dir outside of any data-dir
 //FIXME		return 0;
 	}
 
@@ -231,6 +232,7 @@ int LuaVFS::LoadFile(lua_State* L, bool synced)
 
 	const string filename = lua_tostring(L, 1);
 	if (!LuaIO::IsSimplePath(filename)) {
+		// the path may point to a file or dir outside of any data-dir
 //FIXME		return 0;
 	}
 
@@ -238,7 +240,7 @@ int LuaVFS::LoadFile(lua_State* L, bool synced)
 
 	string data;
 	if (LoadFileWithModes(filename, data, modes)) {
-		lua_pushlstring(L, data.c_str(), data.size());
+		lua_pushsstring(L, data);
 		return 1;
 	}
 	return 0;
@@ -268,13 +270,16 @@ int LuaVFS::FileExists(lua_State* L, bool synced)
 
 	const string filename = lua_tostring(L, 1);
 	if (!LuaIO::IsSimplePath(filename)) {
+		// the path may point to a file or dir outside of any data-dir
 //FIXME		return 0;
 	}
 
 	const string modes = GetModes(L, 2, synced);
 
-	CFileHandler fh(filename, modes);
-	lua_pushboolean(L, fh.FileExists());
+	//CFileHandler fh(filename, modes);
+	//lua_pushboolean(L, fh.FileExists());
+
+	lua_pushboolean(L, CFileHandler::FileExists(filename, modes));
 	return 1;
 }
 
@@ -304,6 +309,7 @@ int LuaVFS::DirList(lua_State* L, bool synced)
 	const string dir = lua_tostring(L, 1);
 	// keep searches within the Spring directory
 	if (!LuaIO::IsSimplePath(dir)) {
+		// the path may point to a file or dir outside of any data-dir
 //FIXME		return 0;
 	}
 	const string pattern = luaL_optstring(L, 2, "*");
@@ -340,6 +346,7 @@ int LuaVFS::SubDirs(lua_State* L, bool synced)
 	const string dir = lua_tostring(L, 1);
 	// keep searches within the Spring directory
 	if (!LuaIO::IsSimplePath(dir)) {
+		// the path may point to a file or dir outside of any data-dir
 //FIXME		return 0;
 	}
 	const string pattern = luaL_optstring(L, 2, "*");
@@ -369,11 +376,12 @@ int LuaVFS::UseArchive(lua_State* L)
 {
 	const string filename = luaL_checkstring(L, 1);
 	if (!LuaIO::IsSimplePath(filename)) {
+		// the path may point to a file or dir outside of any data-dir
 		//FIXME		return 0;
 	}
 
 	int funcIndex = 2;
-	if (CLuaHandle::GetActiveHandle()->GetSynced()) {
+	if (CLuaHandle::GetHandleSynced(L)) {
 		return 0;
 	}
 
@@ -405,15 +413,15 @@ int LuaVFS::UseArchive(lua_State* L)
 
 int LuaVFS::MapArchive(lua_State* L)
 {
-	if (CLuaHandle::GetActiveHandle()->GetSynced()) // only from unsynced
+	if (CLuaHandle::GetHandleSynced(L)) // only from unsynced
 	{
 		return 0;
 	}
 
 	const int args = lua_gettop(L); // number of arguments
-	const string filename = archiveScanner->ModNameToModArchive(luaL_checkstring(L, 1));
-	if (!LuaIO::IsSimplePath(filename))
-	{
+	const string filename = archiveScanner->ArchiveFromName(luaL_checkstring(L, 1));
+	if (!LuaIO::IsSimplePath(filename)) {
+		// the path may point to a file or dir outside of any data-dir
 		//FIXME		return 0;
 	}
 
@@ -423,7 +431,7 @@ int LuaVFS::MapArchive(lua_State* L)
 		std::ostringstream buf;
 		buf << "Achive not found: " << filename;
 		lua_pushboolean(L, false);
-		lua_pushstring(L, buf.str().c_str());
+		lua_pushsstring(L, buf.str());
 		return 0;
 	}
 
@@ -433,13 +441,13 @@ int LuaVFS::MapArchive(lua_State* L)
 		int checksum = 0;
 		std::istringstream buf(checksumBuf);
 		buf >> checksum;
-		const int realchecksum = archiveScanner->GetArchiveChecksum(filename);
+		const int realchecksum = archiveScanner->GetSingleArchiveChecksum(filename);
 		if (checksum != realchecksum)
 		{
 			std::ostringstream buf;
 			buf << "Bad archive checksum, got: " << realchecksum << " expected: " << checksum;
 			lua_pushboolean(L, false);
-			lua_pushstring(L, buf.str().c_str());
+			lua_pushsstring(L, buf.str());
 			return 0;
 		}
 	}
@@ -448,7 +456,7 @@ int LuaVFS::MapArchive(lua_State* L)
 		std::ostringstream buf;
 		buf << "Failed to load archive: " << filename;
 		lua_pushboolean(L, false);
-		lua_pushstring(L, buf.str().c_str());
+		lua_pushsstring(L, buf.str());
 	}
 	else
 	{
@@ -571,9 +579,6 @@ int UnpackType(lua_State* L)
 			lua_pushnumber(L, value);
 			lua_rawseti(L, -2, (i + 1));
 		}
-		lua_pushstring(L, "n");
-		lua_pushnumber(L, tableCount);
-		lua_rawset(L, -3);
 		return 1;
 	}
 

@@ -1,19 +1,20 @@
-#ifndef INFOCONSOLE_H
-#define INFOCONSOLE_H
-// InfoConsole.h: interface for the CInfoConsole class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef INFO_CONSOLE_H
+#define INFO_CONSOLE_H
+
+#include "InputReceiver.h"
+#include "System/float3.h"
+#include "System/EventClient.h"
+#include "System/Log/LogSinkHandler.h"
 
 #include <deque>
 #include <vector>
 #include <string>
 #include <list>
 #include <boost/thread/recursive_mutex.hpp>
-#include "float3.h"
-#include "InputReceiver.h"
-#include "LogOutput.h"
 
-class CInfoConsole: public CInputReceiver, public ILogSubscriber
+class CInfoConsole: public CInputReceiver, public CEventClient, public ILogSink
 {
 public:
 	CInfoConsole();
@@ -21,14 +22,18 @@ public:
 
 	void Update();
 	void Draw();
+	void PushNewLinesToEventHandler();
 
-	// ILogSubscriber interface implementation
-	void NotifyLogMsg(const CLogSubsystem& subsystem, const std::string& txt);
+	void RecordLogMessage(const std::string& section, int level,
+			const std::string& text);
 
 
-	void SetLastMsgPos(const float3& pos);
+	bool WantsEvent(const std::string& eventName) {
+		return (eventName == "LastMessagePosition");
+	}
+	void LastMessagePosition(const float3& pos);
 	const float3& GetMsgPos();
-	int GetMsgPosCount() const{
+	int GetMsgPosCount() const {
 		return lastMsgPositions.size();
 	}
 
@@ -40,22 +45,29 @@ public:
 	float height;
 	float fontScale;
 	float fontSize;
-	bool disabled;
+	bool enabled;
 
 public:
 	static const size_t maxLastMsgPos;
-
 	static const size_t maxRawLines;
+
 	struct RawLine {
-		RawLine(const std::string& text, const CLogSubsystem* subsystem, int id)
-		: text(text), subsystem(subsystem), id(id), time(0) {}
+		RawLine(const std::string& text, const std::string& section, int level,
+				int id)
+			: text(text)
+			, section(section)
+			, level(level)
+			, id(id)
+			, time(0)
+			{}
 		std::string text;
-		const CLogSubsystem* subsystem;
+		std::string section;
+		int level;
 		int id;
 		boost::uint32_t time;
 	};
+
 	int  GetRawLines(std::deque<RawLine>& copy);
-	void GetNewRawLines(std::vector<RawLine>& copy);
 
 private:
 	std::list<float3> lastMsgPositions;
@@ -75,4 +87,4 @@ private:
 	mutable boost::recursive_mutex infoConsoleMutex;
 };
 
-#endif /* INFOCONSOLE_H */
+#endif /* INFO_CONSOLE_H */

@@ -352,7 +352,7 @@
 */
 //SPRING
 #undef LUA_COMPAT_LSTR
-//#undef LUA_COMPAT_LSTR		1
+//#define LUA_COMPAT_LSTR		1
 
 /*
 @@ LUA_COMPAT_GFIND controls compatibility with old 'string.gfind' name.
@@ -540,16 +540,16 @@
 #if defined(LUA_CORE)
 //SPRING#include <math.h>
 #include "streflop_cond.h"
-#define luai_numadd(a,b)	((a)+(b))
-#define luai_numsub(a,b)	((a)-(b))
-#define luai_nummul(a,b)	((a)*(b))
-#define luai_numdiv(a,b)	((a)/(b))
-#define luai_nummod(a,b)	((a) - floor((a)/(b))*(b))
-#define luai_numpow(a,b)	(pow(a,b))
+#define luai_numadd(a,b)	((a) + (b))
+#define luai_numsub(a,b)	((a) - (b))
+#define luai_nummul(a,b)	((a) * (b))
+#define luai_numdiv(a,b)	((a) / (b))
+#define luai_nummod(a,b)	((a) - math::floor(luai_numdiv((a), (b))) * (b))
+#define luai_numpow(a,b)	(math::pow((a), (b)))
 #define luai_numunm(a)		(-(a))
-#define luai_numeq(a,b)		((a)==(b))
-#define luai_numlt(a,b)		((a)<(b))
-#define luai_numle(a,b)		((a)<=(b))
+#define luai_numeq(a,b)		((a) == (b))
+#define luai_numlt(a,b)		((a) <  (b))
+#define luai_numle(a,b)		((a) <= (b))
 #define luai_numisnan(a)	(!luai_numeq((a), (a)))
 #endif
 
@@ -567,33 +567,31 @@
 #if defined(LUA_NUMBER_DOUBLE) && !defined(LUA_ANSI) && !defined(__SSE2__) && \
     (defined(__i386) || defined (_M_IX86) || defined(__i386__))
 
-/* On a Microsoft compiler, use assembler */
-#if defined(_MSC_VER)
+	/* On a Microsoft compiler, use assembler */
+	#if defined(_MSC_VER)
 
-#warning Using ASM for lua_number2int  (SPRING)
-#define lua_number2int(i,d)   __asm fld d   __asm fistp i
-#define lua_number2integer(i,n)		lua_number2int(i, n)
+		#warning Using ASM for lua_number2int  (SPRING)
+		#define lua_number2int(i,d)   __asm fld d   __asm fistp i
+		#define lua_number2integer(i,n)		lua_number2int(i, n)
 
-/* the next trick should work on any Pentium, but sometimes clashes
-   with a DirectX idiosyncrasy */
-#else
+		/* the next trick should work on any Pentium, but sometimes clashes
+		with a DirectX idiosyncrasy */
+	#else
 
-#warning Using casting for lua_number2int  (SPRING)
-union luai_Cast { double l_d; long l_l; };
-#define lua_number2int(i,d) \
-  { volatile union luai_Cast u; u.l_d = (d) + 6755399441055744.0; (i) = u.l_l; }
-#define lua_number2integer(i,n)		lua_number2int(i, n)
+		#warning Using casting for lua_number2int  (SPRING)
+		union luai_Cast { double l_d; long l_l; };
+		#define lua_number2int(i,d) \
+		{ volatile union luai_Cast u; u.l_d = (d) + 6755399441055744.0; (i) = u.l_l; }
+		#define lua_number2integer(i,n)		lua_number2int(i, n)
 
-#endif
-
+	#endif
 
 /* this option always works, but may be slow */
 #else
-#define lua_number2int(i,d)	((i)=(int)(d))
-#define lua_number2integer(i,d)	((i)=(lua_Integer)(d))
+	#define lua_number2int(i, d)        ((i) = (int)(d))
+	#define lua_number2integer(i, d)    ((i) = (lua_Integer)(d))
 
 #endif
-
 
 /* }================================================================== */
 
@@ -616,7 +614,7 @@ union luai_Cast { double l_d; long l_l; };
 ** compiling as C++ code, with _longjmp/_setjmp when asked to use them,
 ** and with longjmp/setjmp otherwise.
 */
-#if defined(__cplusplus) && !(defined(__GNUC__) && (__GNUC__ == 4)) // FIXME: Some bug in GCC 4.2, 4.3, ... makes try/catch crash
+#if defined(__cplusplus)
 /* C++ exceptions */
 #define LUAI_THROW(L,c)	throw(c)
 #define LUAI_TRY(L,c,a)	try { a } catch(...) \

@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef KEYBINDINGS_H
 #define KEYBINDINGS_H
-// KeyBindings.h: interface for the CKeyBindings class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <stdio.h>
 #include <string>
@@ -36,11 +35,9 @@ class CKeyBindings : public CommandReceiver
 		const HotkeyList& GetHotkeys(const std::string& action) const;
 
 		virtual void PushAction(const Action&);
-		bool Command(const std::string& line);
+		bool ExecuteCommand(const std::string& line);
 
 		int GetFakeMetaKey() const { return fakeMetaKey; }
-
-		int GetDebug() const { return debug; }
 
 	public:
 		static const char NamedKeySetChar = '&';
@@ -85,7 +82,6 @@ class CKeyBindings : public CommandReceiver
 		// commands that use both Up and Down key presses
 		std::set<std::string> statefulCommands;
 
-		int debug;
 		int fakeMetaKey;
 		bool userCommand;
 };

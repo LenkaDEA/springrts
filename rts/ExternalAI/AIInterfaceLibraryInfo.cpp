@@ -1,30 +1,15 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software {} you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation {} either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY {} without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "AIInterfaceLibraryInfo.h"
 
 #include "AIInterfaceKey.h"
 #include "Interface/aidefines.h"
 #include "Interface/SAIInterfaceLibrary.h"
-#include "Util.h"
-#include "Info.h"
+#include "System/Util.h"
+#include "System/Info.h"
+#include "System/Log/ILog.h"
 
-#include "Platform/errorhandler.h"
-#include "FileSystem/VFSModes.h"
+#include "System/FileSystem/VFSModes.h"
 
 
 static const char* BAD_CHARS = "\t _#";
@@ -32,20 +17,24 @@ static const std::string DEFAULT_VALUE = "";
 
 
 CAIInterfaceLibraryInfo::CAIInterfaceLibraryInfo(
-		const CAIInterfaceLibraryInfo& interfaceInfo) :
-		keyLower_key(interfaceInfo.keyLower_key),
-		key_value(interfaceInfo.key_value),
-		key_description(interfaceInfo.key_description)
-		{}
+		const CAIInterfaceLibraryInfo& interfaceInfo)
+	: keys(interfaceInfo.keys)
+	, keyLower_key(interfaceInfo.keyLower_key)
+	, key_value(interfaceInfo.key_value)
+	, key_description(interfaceInfo.key_description)
+{
+}
 
 CAIInterfaceLibraryInfo::CAIInterfaceLibraryInfo(
 		const std::string& interfaceInfoFile) {
 
 	std::vector<InfoItem> tmpInfo;
-	parseInfo(tmpInfo, interfaceInfoFile);
-	std::vector<InfoItem>::const_iterator ii;
+	info_parseInfo(tmpInfo, interfaceInfoFile);
+	std::vector<InfoItem>::iterator ii;
 	for (ii = tmpInfo.begin(); ii != tmpInfo.end(); ++ii) {
-		SetInfo(ii->key, ii->value, ii->desc);
+		// TODO remove this, once we support non-string value types for AI Interface info
+		info_convertToStringValue(&(*ii));
+		SetInfo(ii->key, ii->valueTypeString, ii->desc);
 	}
 }
 
@@ -109,6 +98,17 @@ const std::string& CAIInterfaceLibraryInfo::GetDescription() const {
 const std::string& CAIInterfaceLibraryInfo::GetURL() const {
 	return GetInfo(AI_INTERFACE_PROPERTY_URL);
 }
+bool CAIInterfaceLibraryInfo::IsLookupSupported() const {
+
+	bool lookupSupported = false;
+
+	const std::string& lookupSupportedStr = GetInfo(AI_INTERFACE_PROPERTY_SUPPORTS_LOOKUP);
+	if (lookupSupportedStr != DEFAULT_VALUE) {
+		lookupSupported = StringToBool(lookupSupportedStr);
+	}
+
+	return lookupSupported;
+}
 const std::string& CAIInterfaceLibraryInfo::GetInfo(const std::string& key) const {
 
 	bool found = false;
@@ -125,7 +125,8 @@ const std::string& CAIInterfaceLibraryInfo::GetInfo(const std::string& key) cons
 	}
 
 	if (!found) {
-		logOutput.Print("AI Interface property '%s' could not be found.", key.c_str());
+		LOG_L(L_WARNING, "AI Interface property '%s' could not be found.",
+				key.c_str());
 		return DEFAULT_VALUE;
 	} else {
 		return strPair->second;
@@ -163,7 +164,7 @@ bool CAIInterfaceLibraryInfo::SetInfo(const std::string& key,
 	std::string keyLower = StringToLower(key);
 	if (keyLower == snKey || keyLower == vKey) {
 		if (value.find_first_of(BAD_CHARS) != std::string::npos) {
-		logOutput.Print("Error, AI interface property (%s or %s)\n"
+		LOG_L(L_WARNING, "AI interface property (%s or %s)\n"
 				"contains illegal characters (%s).",
 				AI_INTERFACE_PROPERTY_SHORT_NAME, AI_INTERFACE_PROPERTY_VERSION,
 				BAD_CHARS);

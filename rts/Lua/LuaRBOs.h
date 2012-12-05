@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_RBOS_H
 #define LUA_RBOS_H
-// LuaRBOs.h: interface for the LuaRBOs class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <set>
 using std::set;
@@ -27,7 +26,7 @@ class LuaRBOs {
 		struct RBO {
 			RBO() : id(0), target(0), format(0), xsize(0), ysize(0) {}
 			void Init();
-			void Free();
+			void Free(lua_State *L);
 
 			GLuint id;
 			GLenum target;

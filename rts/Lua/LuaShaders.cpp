@@ -1,14 +1,7 @@
-#include "StdAfx.h"
-// LuaShaders.cpp: implementation of the LuaShaders class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include <string>
-#include <vector>
-using std::string;
-using std::vector;
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaShaders.h"
 
@@ -17,11 +10,17 @@ using std::vector;
 #include "LuaHashString.h"
 #include "LuaHandle.h"
 #include "LuaOpenGL.h"
+#include "LuaOpenGLUtils.h"
 
 #include "Game/Camera.h"
 #include "Rendering/ShadowHandler.h"
-#include "LogOutput.h"
-#include "Util.h"
+#include "System/Log/ILog.h"
+#include "System/Util.h"
+
+#include <string>
+#include <vector>
+using std::string;
+using std::vector;
 
 
 int LuaShaders::activeShaderDepth = 0;
@@ -81,7 +80,7 @@ LuaShaders::~LuaShaders()
 
 inline void CheckDrawingEnabled(lua_State* L, const char* caller)
 {
-	if (!LuaOpenGL::IsDrawingEnabled()) {
+	if (!LuaOpenGL::IsDrawingEnabled(L)) {
 		luaL_error(L, "%s(): OpenGL calls can only be used in Draw() "
 		              "call-ins, or while creating display lists", caller);
 	}
@@ -93,10 +92,11 @@ inline void CheckDrawingEnabled(lua_State* L, const char* caller)
 
 GLuint LuaShaders::GetProgramName(unsigned int progID) const
 {
-	if ((progID <= 0) || (progID >= programs.size())) {
+	if (progID < programs.size()) {
+		return programs[progID].id;
+	} else {
 		return 0;
 	}
-	return programs[progID].id;
 }
 
 
@@ -125,13 +125,11 @@ unsigned int LuaShaders::AddProgram(const Program& p)
 
 void LuaShaders::RemoveProgram(unsigned int progID)
 {
-	if ((progID <= 0) || (progID >= programs.size())) {
-		return;
+	if (progID < programs.size()) {
+		Program& p = programs[progID];
+		DeleteProgram(p);
+		unused.push_back(progID);
 	}
-	Program& p = programs[progID];
-	DeleteProgram(p);
-	unused.push_back(progID);
-	return;
 }
 
 
@@ -158,8 +156,8 @@ void LuaShaders::DeleteProgram(Program& p)
 
 int LuaShaders::GetShaderLog(lua_State* L)
 {
-	const LuaShaders& shaders = CLuaHandle::GetActiveShaders();
-	lua_pushstring(L, shaders.errorLog.c_str());
+	const LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
+	lua_pushsstring(L, shaders.errorLog);
 	return 1;
 }
 
@@ -321,7 +319,7 @@ static bool ParseUniformSetupTables(lua_State* L, int index, GLuint progName)
 /******************************************************************************/
 /******************************************************************************/
 
-static GLuint CompileObject(const vector<string>& sources, GLenum type,
+static GLuint CompileObject(lua_State *L, const vector<string>& sources, GLenum type,
                             bool& success)
 {
 	if (sources.empty()) {
@@ -331,7 +329,7 @@ static GLuint CompileObject(const vector<string>& sources, GLenum type,
 
 	GLuint obj = glCreateShader(type);
 	if (obj == 0) {
-		LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 		shaders.errorLog = "Could not create shader object";
 		return 0;
 	}
@@ -356,7 +354,7 @@ static GLuint CompileObject(const vector<string>& sources, GLenum type,
 		GLsizei logSize = sizeof(log);
 		glGetShaderInfoLog(obj, logSize, &logSize, log);
 		
-		LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 		shaders.errorLog = log;
 		if (shaders.errorLog.empty()) {
 			shaders.errorLog = "Empty error message:  code = "
@@ -399,7 +397,7 @@ static bool ParseSources(lua_State* L, int table,
 		}
 	}
 	else if (!lua_isnil(L, -1)) {
-		LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 		shaders.errorLog = "Invalid " + string(type) + " shader source";
 		lua_pop(L, 1);
 		return false;
@@ -410,10 +408,10 @@ static bool ParseSources(lua_State* L, int table,
 }
 
 
-static bool ApplyGeometryParameters(lua_State* L, int table, GLuint prog)
+static void ApplyGeometryParameters(lua_State* L, int table, GLuint prog)
 {
-	if (!glProgramParameteriEXT_NONGML) {
-		return true;
+	if (!IS_GL_FUNCTION_AVAILABLE(glProgramParameteriEXT)) {
+		return;
 	}
 
 	struct { const char* name; GLenum param; } parameters[] = {
@@ -431,8 +429,6 @@ static bool ApplyGeometryParameters(lua_State* L, int table, GLuint prog)
 		}
 		lua_pop(L, 1);
 	}
-
-	return true;
 }
 
 
@@ -456,16 +452,16 @@ int LuaShaders::CreateShader(lua_State* L)
 	}
 
 	bool success;
-	const GLuint vertObj = CompileObject(vertSrcs, GL_VERTEX_SHADER, success);
+	const GLuint vertObj = CompileObject(L, vertSrcs, GL_VERTEX_SHADER, success);
 	if (!success) {
 		return 0;
 	}
-	const GLuint geomObj = CompileObject(geomSrcs, GL_GEOMETRY_SHADER_EXT, success);
+	const GLuint geomObj = CompileObject(L, geomSrcs, GL_GEOMETRY_SHADER_EXT, success);
 	if (!success) {
 		glDeleteShader(vertObj);
 		return 0;
 	}
-	const GLuint fragObj = CompileObject(fragSrcs, GL_FRAGMENT_SHADER, success);
+	const GLuint fragObj = CompileObject(L, fragSrcs, GL_FRAGMENT_SHADER, success);
 	if (!success) {
 		glDeleteShader(vertObj);
 		glDeleteShader(geomObj);
@@ -493,7 +489,7 @@ int LuaShaders::CreateShader(lua_State* L)
 
 	glLinkProgram(prog);
 
-	LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+	LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 
 	GLint result;
 	glGetProgramiv(prog, GL_LINK_STATUS, &result);
@@ -524,7 +520,7 @@ int LuaShaders::DeleteShader(lua_State* L)
 		return 0;
 	}
 	const int progID = luaL_checkint(L, 1);
-	LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+	LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	shaders.RemoveProgram(progID);
 	return 0;
 }
@@ -541,7 +537,7 @@ int LuaShaders::UseShader(lua_State* L)
 		return 1;
 	}
 		
-	LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+	LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	const GLuint progName = shaders.GetProgramName(progID);
 	if (progName == 0) {
 		lua_pushboolean(L, false);
@@ -563,7 +559,7 @@ int LuaShaders::ActiveShader(lua_State* L)
 		progName = 0;
 	}
 	else {
-		LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 		progName = shaders.GetProgramName(progID);
 		if (progName == 0) {
 			return 0;
@@ -580,8 +576,8 @@ int LuaShaders::ActiveShader(lua_State* L)
 	glUseProgram(currentProgram);
 
 	if (error != 0) {
-		logOutput.Print("gl.ActiveShader: error(%i) = %s",
-		                error, lua_tostring(L, -1));
+		LOG_L(L_ERROR, "gl.ActiveShader: error(%i) = %s",
+				error, lua_tostring(L, -1));
 		lua_error(L);
 	}
 
@@ -631,7 +627,7 @@ static const char* UniformTypeString(GLenum type)
 
 int LuaShaders::GetActiveUniforms(lua_State* L)
 {
-	const LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+	const LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	const GLuint progName = shaders.GetProgramName(L, 1);
 	if (progName == 0) {
 		return 0;
@@ -665,7 +661,7 @@ int LuaShaders::GetActiveUniforms(lua_State* L)
 
 int LuaShaders::GetUniformLocation(lua_State* L)
 {
-	const LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+	const LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	const GLuint progName = shaders.GetProgramName(L, 1);
 	if (progName == 0) {
 		return 0;
@@ -767,16 +763,6 @@ int LuaShaders::UniformInt(lua_State* L)
 }
 
 
-static void UniformMatrix4dv(GLint location, const double dm[16])
-{
-	float fm[16];
-	for (int i = 0; i < 16; i++) {
-		fm[i] = (float)dm[i];
-	}
-	glUniformMatrix4fv(location, 1, GL_FALSE, fm);
-}
-
-
 int LuaShaders::UniformMatrix(lua_State* L)
 {
 	if (activeShaderDepth <= 0) {
@@ -791,22 +777,11 @@ int LuaShaders::UniformMatrix(lua_State* L)
 				luaL_error(L, "Incorrect arguments to gl.UniformMatrix()");
 			}
 			const string matName = lua_tostring(L, 2);
-			if (matName == "shadow") {
-				if (shadowHandler) {
-					glUniformMatrix4fv(location, 1, GL_FALSE,
-					                   shadowHandler->shadowMatrix.m);
-				}
-			}
-			else if (matName == "camera") {
-				UniformMatrix4dv(location, camera->GetModelview());
-			}
-			else if (matName == "caminv") {
-				UniformMatrix4dv(location, camera->modelviewInverse);
-			}
-			else if (matName == "camprj") {
-				UniformMatrix4dv(location, camera->GetProjection());
-			}
-			else {
+			const CMatrix44f* mat = LuaOpenGLUtils::GetNamedMatrix(matName);
+
+			if (mat) {
+				glUniformMatrix4fv(location, 1, GL_FALSE, *mat);
+			} else {
 				luaL_error(L, "Incorrect arguments to gl.UniformMatrix()");
 			}
 			break;
@@ -849,7 +824,7 @@ int LuaShaders::SetShaderParameter(lua_State* L)
 		CheckDrawingEnabled(L, __FUNCTION__);
 	}
 
-	const LuaShaders& shaders = CLuaHandle::GetActiveShaders();
+	const LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	const GLuint progName = shaders.GetProgramName(L, 1);
 	if (progName == 0) {
 		return 0;
@@ -858,7 +833,7 @@ int LuaShaders::SetShaderParameter(lua_State* L)
 	const GLenum param = (GLenum)luaL_checkint(L, 2);
 	const GLint  value =  (GLint)luaL_checkint(L, 3);
 
-	if (glProgramParameteriEXT_NONGML) {
+	if (IS_GL_FUNCTION_AVAILABLE(glProgramParameteriEXT)) {
 		glProgramParameteriEXT(progName, param, value);
 	}
 

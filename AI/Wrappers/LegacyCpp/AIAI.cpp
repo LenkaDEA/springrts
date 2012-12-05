@@ -1,32 +1,16 @@
-/*
-	Copyright 2008  Nicolas Wu
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "AIAI.h"
 #include "Event/AIEvents.h"
-#include "ExternalAI/IGlobalAI.h"
+#include "IGlobalAI.h"
 #include "ExternalAI/Interface/AISEvents.h"
 
-CAIAI::CAIAI(int teamId, IGlobalAI* gAI):
-	team(teamId),
+springLegacyAI::CAIAI::CAIAI(springLegacyAI::IGlobalAI* gAI):
 	ai(gAI),
 	globalAICallback(NULL) {
 }
 
-CAIAI::~CAIAI() {
+springLegacyAI::CAIAI::~CAIAI() {
 
 	delete ai;
 	ai = NULL;
@@ -36,7 +20,7 @@ CAIAI::~CAIAI() {
 }
 
 
-int CAIAI::handleEvent(int topic, const void* data) {
+int springLegacyAI::CAIAI::handleEvent(int topic, const void* data) {
 
 	int ret = -1; // if this values remains, something went wrong
 
@@ -68,10 +52,14 @@ int CAIAI::handleEvent(int topic, const void* data) {
 				e = new CAIUpdateEvent(*((const SUpdateEvent*) data));
 				break;
 			}
+
 			case EVENT_MESSAGE: {
-				e = new CAIMessageEvent(*((const SMessageEvent*) data));
-				break;
-			}
+				e = new CAIChatMessageEvent(*((const SMessageEvent*) data));
+			} break;
+			case EVENT_LUA_MESSAGE: {
+				e = new CAILuaMessageEvent(*((const SLuaMessageEvent*) data));
+			} break;
+
 			case EVENT_UNIT_CREATED: {
 				e = new CAIUnitCreatedEvent(*((const SUnitCreatedEvent*) data));
 				break;
@@ -108,6 +96,7 @@ int CAIAI::handleEvent(int topic, const void* data) {
 						*((const SUnitCapturedEvent*) data));
 				break;
 			}
+
 			case EVENT_ENEMY_ENTER_LOS: {
 				e = new CAIEnemyEnterLOSEvent(
 						*((const SEnemyEnterLOSEvent*) data));
@@ -149,6 +138,16 @@ int CAIAI::handleEvent(int topic, const void* data) {
 			}
 			case EVENT_SEISMIC_PING:{
 				e = new CAISeismicPingEvent(*((const SSeismicPingEvent*) data));
+				break;
+			}
+			case EVENT_ENEMY_CREATED: {
+				e = new CAIEnemyCreatedEvent(
+						*((const SEnemyCreatedEvent*) data));
+				break;
+			}
+			case EVENT_ENEMY_FINISHED: {
+				e = new CAIEnemyFinishedEvent(
+						*((const SEnemyFinishedEvent*) data));
 				break;
 			}
 			default: {

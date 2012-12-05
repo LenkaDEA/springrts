@@ -1,89 +1,48 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "LogOutput.h"
+#include "System/LogOutput.h"
 
-#include <assert.h>
-#include <iostream>
-#include <fstream>
-#include <string.h>
-#include <boost/thread/recursive_mutex.hpp>
-
-#ifdef _MSC_VER
-#include <windows.h>
-#endif
-
-#include "lib/gml/gml.h"
-#include "Util.h"
-#include "float3.h"
-#include "Sim/Misc/GlobalSynced.h"
+#include "lib/gml/gmlmut.h"
+#include "System/Util.h"
 #include "Game/GameVersion.h"
-#include "ConfigHandler.h"
-#include "FileSystem/FileSystemHandler.h"
-#include "mmgr.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/Log/DefaultFilter.h"
+#include "System/Log/FileSink.h"
+#include "System/Log/ILog.h"
+#include "System/Log/Level.h"
+#include "System/mmgr.h"
 
 #include <string>
+#include <set>
 #include <vector>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
-using std::string;
-using std::vector;
+#include <cassert>
+#include <cstring>
+
+#include <boost/thread/recursive_mutex.hpp>
+
 
 /******************************************************************************/
 /******************************************************************************/
 
-CLogSubsystem* CLogSubsystem::linkedList;
-static CLogSubsystem LOG_DEFAULT("", true);
-
-
-CLogSubsystem::CLogSubsystem(const char* name, bool enabled)
-: name(name), next(linkedList), enabled(enabled)
-{
-	linkedList = this;
-}
+CONFIG(std::string, RotateLogFiles).defaultValue("auto")
+		.description("rotate logfiles, valid values are \"always\" (default in debug builds) and \"never\" (default in release builds).");
+CONFIG(std::string, LogSections).defaultValue("")
+		.description("Comma seperated list of enabled logsections, see infolog.txt / console output for possible values");
+CONFIG(bool, LogFlush).defaultValue(false)
+		.description("Instantly write to the logfile, use only for debugging as it will cause a slowdown");
 
 /******************************************************************************/
 /******************************************************************************/
 
 CLogOutput logOutput;
 
-namespace
-{
-	struct PreInitLogEntry
-	{
-		PreInitLogEntry(const CLogSubsystem* subsystem, string text)
-			: subsystem(subsystem), text(text) {}
-
-		const CLogSubsystem* subsystem;
-		string text;
-	};
-}
-
-// wrapped in a function to prevent order of initialization problems
-// when logOutput is used before main() is entered.
-static vector<PreInitLogEntry>& preInitLog()
-{
-	static vector<PreInitLogEntry> preInitLog;
-	return preInitLog;
-}
-
-static std::ofstream* filelog = 0;
+static std::ofstream* filelog = NULL;
 static bool initialized = false;
-
-static const int BUFFER_SIZE = 2048;
-
-
-LogObject::LogObject(const CLogSubsystem& _subsys) : subsys(_subsys)
-{
-}
-
-LogObject::LogObject() : subsys(LOG_DEFAULT)
-{
-}
-
-LogObject::~LogObject()
-{
-	// LogOutput adds a newline if necessary
-	logOutput.Prints(subsys, str.str());
-}
 
 CLogOutput::CLogOutput()
 	: fileName("")
@@ -98,7 +57,7 @@ CLogOutput::CLogOutput()
 	bool doRotateLogFiles = false;
 	std::string rotatePolicy = "auto";
 	if (configHandler != NULL) {
-		rotatePolicy = configHandler->GetString("RotateLogFiles", "auto");
+		rotatePolicy = configHandler->GetString("RotateLogFiles");
 	}
 	if (rotatePolicy == "always") {
 		doRotateLogFiles = true;
@@ -126,13 +85,7 @@ void CLogOutput::End()
 	GML_STDMUTEX_LOCK_NOPROF(log); // End
 
 	SafeDelete(filelog);
-}
-
-void CLogOutput::Flush()
-{
-	GML_STDMUTEX_LOCK_NOPROF(log); // Flush
-
-	filelog->flush();
+	//log_file_removeLogFile(filePath.c_str());
 }
 
 const std::string& CLogOutput::GetFileName() const
@@ -146,7 +99,7 @@ const std::string& CLogOutput::GetFilePath() const
 }
 void CLogOutput::SetFileName(std::string fname)
 {
-	GML_STDMUTEX_LOCK(log); // SetFileName
+	GML_STDMUTEX_LOCK_NOPROF(log); // SetFileName
 
 	assert(!initialized);
 	fileName = fname;
@@ -154,7 +107,7 @@ void CLogOutput::SetFileName(std::string fname)
 
 std::string CLogOutput::CreateFilePath(const std::string& fileName)
 {
-	return FileSystemHandler::GetCwd() + (char)FileSystemHandler::GetNativePathSeparator() + fileName;
+	return FileSystem::GetCwd() + (char)FileSystem::GetNativePathSeparator() + fileName;
 }
 
 
@@ -170,25 +123,24 @@ bool CLogOutput::IsLogFileRotating() const
 
 void CLogOutput::RotateLogFile() const
 {
-
 	if (IsLogFileRotating()) {
-		if (FileSystemHandler::FileExists(filePath)) {
+		if (FileSystem::FileExists(filePath)) {
 			// logArchiveDir: /absolute/writeable/data/dir/log/
 			std::string logArchiveDir = filePath.substr(0, filePath.find_last_of("/\\") + 1);
-			logArchiveDir = logArchiveDir + "log" + (char)FileSystemHandler::GetNativePathSeparator();
+			logArchiveDir = logArchiveDir + "log" + (char)FileSystem::GetNativePathSeparator();
 
-			const std::string archivedLogFile = logArchiveDir + FileSystemHandler::GetFileModificationDate(filePath) + "_" + fileName;
+			const std::string archivedLogFile = logArchiveDir + FileSystem::GetFileModificationDate(filePath) + "_" + fileName;
 
-			// create the log archive dir if it does nto exist yet
-			if (!FileSystemHandler::DirExists(logArchiveDir)) {
-				FileSystemHandler::mkdir(logArchiveDir);
+			// create the log archive dir if it does not exist yet
+			if (!FileSystem::DirExists(logArchiveDir)) {
+				FileSystem::CreateDirectory(logArchiveDir);
 			}
 
 			// move the old log to the archive dir
 			const int moveError = rename(filePath.c_str(), archivedLogFile.c_str());
 			if (moveError != 0) {
 				// no log here yet
-				std::cout << "Failed rotating the log file" << std::endl;
+				std::cerr << "Failed rotating the log file" << std::endl;
 			}
 		}
 	}
@@ -201,244 +153,116 @@ void CLogOutput::Initialize()
 	filePath = CreateFilePath(fileName);
 	RotateLogFile();
 
-	filelog = new std::ofstream(filePath.c_str());
+	/*filelog = new std::ofstream(filePath.c_str());
 	if (filelog->bad())
-		SafeDelete(filelog);
+		SafeDelete(filelog);*/
+	const bool flush = configHandler->GetBool("LogFlush");
+	log_file_addLogFile(filePath.c_str(), NULL, LOG_LEVEL_ALL, flush);
 
 	initialized = true;
-	Print("LogOutput initialized.\n");
-	Print("Spring %s", SpringVersion::GetFull().c_str());
-	logOutput.Print("Build date/time: %s", SpringVersion::BuildTime);
+	InitializeSections();
 
-	InitializeSubsystems();
-
-	for (vector<PreInitLogEntry>::iterator it = preInitLog().begin(); it != preInitLog().end(); ++it)
-	{
-		if (!it->subsystem->enabled) return;
-
-		// Output to subscribers
-		for(vector<ILogSubscriber*>::iterator lsi = subscribers.begin(); lsi != subscribers.end(); ++lsi)
-			(*lsi)->NotifyLogMsg(*(it->subsystem), it->text);
-		if (filelog)
-			ToFile(*it->subsystem, it->text);
+	/*std::vector<std::string>::iterator pili;
+	for (pili = preInitLog().begin(); pili != preInitLog().end(); ++pili) {
+		ToFile(*pili);
 	}
-	preInitLog().clear();
+	preInitLog().clear();*/
+
+	LOG("LogOutput initialized.");
+	LOG("Spring %s", SpringVersion::GetFull().c_str());
+	LOG("Build date/time: %s", SpringVersion::GetBuildTime().c_str());
+	LOG("Build environment: %s", SpringVersion::GetBuildEnvironment().c_str());
+	LOG("Compiler: %s", SpringVersion::GetCompiler().c_str());
 }
 
-void CLogOutput::InitializeSubsystems()
+void CLogOutput::InitializeSections()
 {
+	// the new systems (ILog.h) log-sub-systems are called sections:
+	const std::set<const char*> sections = log_filter_section_getRegisteredSet();
+
 	{
-		LogObject lo;
-		lo << "Available log subsystems: ";
-		for (CLogSubsystem* sys = CLogSubsystem::GetList(); sys; sys = sys->next) {
-			if (sys->name && *sys->name) {
-				lo << sys->name;
-				if (sys->next)
-					lo << ", ";
+		std::stringstream logSectionsStr;
+		logSectionsStr << "Available log sections: ";
+		int numSec = 0;
+		std::set<const char*>::const_iterator si;
+		for (si = sections.begin(); si != sections.end(); ++si) {
+			if (numSec > 0) {
+				logSectionsStr << ", ";
 			}
+			logSectionsStr << *si;
+			numSec++;
 		}
+		LOG("%s", logSectionsStr.str().c_str());
 	}
-	// enabled subsystems is superset of the ones specified in environment
+
+	// enabled sections is a superset of the ones specified in the environment
 	// and the ones specified in the configuration file.
-	// configHandler cannot be accessed here in unitsync since it may not exist.
-#ifndef UNITSYNC
-	string subsystems = "," + StringToLower(configHandler->GetString("LogSubsystems", "")) + ",";
-#else
-#  ifdef DEBUG
+	// configHandler cannot be accessed here in unitsync, as it may not exist.
+	std::string enabledSections = ",";
+#if defined(UNITSYNC)
+	#if defined(DEBUG)
 	// unitsync logging in debug mode always on
-	string subsystems = ",unitsync,";
-#  else
-	string subsystems = ",";
-#  endif
+	enabledSections += "unitsync,ArchiveScanner,";
+	#endif
+#else
+	#if defined(DEDICATED)
+	enabledSections += "DedicatedServer,";
+	#endif
+	#if !defined(DEBUG)
+	// Always show at least INFO level of these sections
+	enabledSections += "Sound,";
+	#endif
+	enabledSections += StringToLower(configHandler->GetString("LogSections")) + ",";
 #endif
 
-	const char* const env = getenv("SPRING_LOG_SUBSYSTEMS");
-	if (env)
-		subsystems += StringToLower(env) + ",";
+	const char* const envSec = getenv("SPRING_LOG_SECTIONS");
+	std::string env;
+	if (envSec != NULL) {
+		env += ",";
+		env += envSec;
+	}
 
-
-	{
-		LogObject lo;
-		lo << "Enabled log subsystems: ";
-		for (CLogSubsystem* sys = CLogSubsystem::GetList(); sys; sys = sys->next) {
-			if (sys->name && *sys->name) {
-				const string name = StringToLower(sys->name);
-				const string::size_type index = subsystems.find("," + name + ",");
-
-				// log subsystems which are enabled by default can not be disabled
-				// ("enabled by default" wouldn't make sense otherwise...)
-				if (!sys->enabled && index != string::npos)
-					sys->enabled = true;
-
-				if (sys->enabled) {
-					lo << sys->name;
-					if (sys->next)
-						lo << ", ";
-				}
-			}
+	if (!env.empty()) {
+		// this allows to disable all sections from the env var
+		std::string envSections(StringToLower(env));
+		if (envSections == std::string("none")) {
+			enabledSections = "";
+		} else {
+			enabledSections += envSections + ",";
 		}
 	}
+	const std::string enabledSectionsLC = StringToLower(enabledSections);
 
-	Print("Enable or disable log subsystems using the LogSubsystems configuration key\n");
-	Print("  or the SPRING_LOG_SUBSYSTEMS environment variable (both comma separated).\n");
-}
+	{
+		std::stringstream enabledLogSectionsStr;
+		enabledLogSectionsStr << "Enabled log sections: ";
+		int numSec = 0;
 
+		// new log sections
+		std::set<const char*>::const_iterator si;
+		for (si = sections.begin(); si != sections.end(); ++si) {
+			const std::string name = StringToLower(*si);
+			const bool found = (enabledSectionsLC.find("," + name + ",") != std::string::npos);
 
-void CLogOutput::Output(const CLogSubsystem& subsystem, const std::string& str)
-{
-	GML_STDMUTEX_LOCK(log); // Output
-
-	if (!initialized) {
-		ToStdout(subsystem, str);
-		preInitLog().push_back(PreInitLogEntry(&subsystem, str));
-		return;
+			if (found) {
+				if (numSec > 0) {
+					enabledLogSectionsStr << ", ";
+				}
+#if       defined(DEBUG)
+				log_filter_section_setMinLevel(*si, LOG_LEVEL_DEBUG);
+				enabledLogSectionsStr << *si << "(LOG_LEVEL_DEBUG)";
+#else  // defined(DEBUG)
+				log_filter_section_setMinLevel(*si, LOG_LEVEL_INFO);
+				enabledLogSectionsStr << *si << "(LOG_LEVEL_INFO)";
+#endif // defined(DEBUG)
+				numSec++;
+			}
+		}
+		LOG("%s", enabledLogSectionsStr.str().c_str());
 	}
 
-	if (!subsystem.enabled) return;
-
-	// Output to subscribers
-	for(vector<ILogSubscriber*>::iterator lsi = subscribers.begin(); lsi != subscribers.end(); ++lsi)
-		(*lsi)->NotifyLogMsg(subsystem, str);
-
-#ifdef _MSC_VER
-	int index = strlen(str.c_str()) - 1;
-	bool newline = ((index < 0) || (str[index] != '\n'));
-	OutputDebugString(str.c_str());
-	if (newline)
-		OutputDebugString("\n");
-#endif // _MSC_VER
-
-
-	if (filelog) {
-		ToFile(subsystem, str);
-	}
-
-	ToStdout(subsystem, str);
+	LOG("Enable or disable log sections using the LogSections configuration key");
+	LOG("  or the SPRING_LOG_SECTIONS environment variable (both comma separated).");
+	LOG("  Use \"none\" to disable the default log sections.");
 }
 
-
-void CLogOutput::SetLastMsgPos(const float3& pos)
-{
-	GML_STDMUTEX_LOCK(log); // SetLastMsgPos
-
-	for(vector<ILogSubscriber*>::iterator lsi = subscribers.begin(); lsi != subscribers.end(); ++lsi)
-		(*lsi)->SetLastMsgPos(pos);
-}
-
-
-void CLogOutput::AddSubscriber(ILogSubscriber* ls)
-{
-	GML_STDMUTEX_LOCK(log); // AddSubscriber
-
-	subscribers.push_back(ls);
-}
-
-
-void CLogOutput::RemoveAllSubscribers()
-{
-	GML_STDMUTEX_LOCK(log); // RemoveAllSubscribers
-
-	subscribers.clear();
-}
-
-
-void CLogOutput::RemoveSubscriber(ILogSubscriber *ls)
-{
-	GML_STDMUTEX_LOCK(log); // RemoveSubscriber
-
-	subscribers.erase(std::find(subscribers.begin(), subscribers.end(), ls));
-}
-
-
-// ----------------------------------------------------------------------
-// Printing functions
-// ----------------------------------------------------------------------
-
-
-void CLogOutput::Print(CLogSubsystem& subsystem, const char* fmt, ...)
-{
-	// if logOutput isn't initialized then subsystem.enabled still has it's default value
-	if (initialized && !subsystem.enabled) return;
-
-	va_list argp;
-
-	va_start(argp, fmt);
-	Printv(subsystem, fmt, argp);
-	va_end(argp);
-}
-
-
-void CLogOutput::Printv(CLogSubsystem& subsystem, const char* fmt, va_list argp)
-{
-	// if logOutput isn't initialized then subsystem.enabled still has it's default value
-	if (initialized && !subsystem.enabled) return;
-
-	char text[BUFFER_SIZE];
-
-	VSNPRINTF(text, sizeof(text), fmt, argp);
-	Output(subsystem, std::string(text));
-}
-
-
-void CLogOutput::Print(const char* fmt, ...)
-{
-	va_list argp;
-
-	va_start(argp, fmt);
-	Printv(LOG_DEFAULT, fmt, argp);
-	va_end(argp);
-}
-
-
-void CLogOutput::Print(const std::string& text)
-{
-	Output(LOG_DEFAULT, text);
-}
-
-
-void CLogOutput::Prints(const CLogSubsystem& subsystem, const std::string& text)
-{
-	Output(subsystem, text);
-}
-
-
-CLogSubsystem& CLogOutput::GetDefaultLogSubsystem()
-{
-	return LOG_DEFAULT;
-}
-
-void CLogOutput::ToStdout(const CLogSubsystem& subsystem, const std::string message)
-{
-	if (message.empty())
-		return;
-	const bool newline = (message.at(message.size() -1) != '\n');
-
-	if (subsystem.name && *subsystem.name) {
-		std::cout << subsystem.name << ": ";
-	}
-	std::cout << message;
-	if (newline)
-		std::cout << std::endl;
-	else
-		std::cout.flush();
-}
-
-void CLogOutput::ToFile(const CLogSubsystem& subsystem, const std::string message)
-{
-	if (message.empty())
-		return;
-	const bool newline = (message.at(message.size() -1) != '\n');
-
-#if !defined UNITSYNC && !defined DEDICATED
-	if (gs) {
-		(*filelog) << IntToString(gs->frameNum, "[%7d] ");
-	}
-#endif
-	if (subsystem.name && *subsystem.name)
-		(*filelog) << subsystem.name << ": ";
-	(*filelog) << message;
-	if (newline)
-		(*filelog) << std::endl;
-	else
-		filelog->flush();
-}

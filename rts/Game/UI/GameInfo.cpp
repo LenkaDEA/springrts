@@ -1,10 +1,7 @@
-#include "StdAfx.h"
-#include <string>
-#include <vector>
-#include <SDL_keysym.h>
-#include <cstdio>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+
+#include "System/mmgr.h"
 
 #include "GameInfo.h"
 #include "MouseHandler.h"
@@ -20,8 +17,13 @@
 #include "System/FileSystem/FileSystem.h"
 #include "System/Util.h"
 
+#include <string>
+#include <vector>
+#include <SDL_keysym.h>
+#include <cstdio>
 
-using namespace std;
+using std::string;
+using std::vector;
 
 
 CGameInfo* CGameInfo::instance = NULL;
@@ -85,8 +87,8 @@ struct FontString {
 	FontString(bool b)	: msg(boolString(b))  { CalcDimensions(); }
 	FontString(float f)	: msg(floatString(f)) { CalcDimensions(); }
 	void CalcDimensions() {
-		width  = font->GetSize() * font->GetTextWidth(msg) * gu->pixelX;
-		height = font->GetSize() * font->GetLineHeight() * gu->pixelY;
+		width  = font->GetSize() * font->GetTextWidth(msg) * globalRendering->pixelX;
+		height = font->GetSize() * font->GetLineHeight() * globalRendering->pixelY;
 	}
 	string msg;
 	float width;
@@ -164,22 +166,19 @@ void CGameInfo::Draw()
 
 	if (gameSetup && gameSetup->hostDemo) {
 		labels.push_back("Playback:");
-		values.push_back(filesystem.GetBasename(gameSetup->demoName));
+		values.push_back(FileSystem::GetBasename(gameSetup->demoName));
 	}
 
-	labels.push_back("Game Version:");
+	labels.push_back("Spring Version:");
 	values.push_back(SpringVersion::GetFull());
 
 #ifdef USE_GML
 	labels.push_back("MT Threads:");
-	values.push_back(IntToString(gmlThreadCount));
+	values.push_back(IntToString(GML::ThreadCount()));
 #endif
 
 	labels.push_back("Game Speed:");
 	values.push_back(gs->speedFactor);
-
-	labels.push_back("Commander Ends:");
-	values.push_back(gameSetup->gameMode > 0 ? true : false);
 
 	labels.push_back("Gravity:");
 	values.push_back(-(mapInfo->map.gravity * GAME_SPEED * GAME_SPEED));
@@ -193,12 +192,6 @@ void CGameInfo::Draw()
 	labels.push_back("Max Wind:");
 	values.push_back(wind.GetMaxWind());
 
-	labels.push_back("Limited DGun:");
-	values.push_back(gameSetup->limitDgun);
-
-	labels.push_back("Diminishing Metal:");
-	values.push_back(gameSetup->diminishingMMs);
-
 	labels.push_back("Map Size:");
 	sprintf(buf, "%ix%i", readmap->width / 64, readmap->height / 64);
 	values.push_back(buf);
@@ -206,7 +199,7 @@ void CGameInfo::Draw()
 	labels.push_back("Map Name:");
 	values.push_back(gameSetup->mapName);
 
-	labels.push_back("Mod Name:");
+	labels.push_back("Game Name:");
 	values.push_back(gameSetup->modName);
 
 	if (gs->cheatEnabled) {
@@ -215,9 +208,9 @@ void CGameInfo::Draw()
 	}
 
 	// in screen fractions
-	const float split = 10.0f / (float)gu->viewSizeX;
-	const float xBorder = 5.0f / (float)gu->viewSizeX;
-	const float yBorder = 5.0f / (float)gu->viewSizeY;
+	const float split = 10.0f / (float)globalRendering->viewSizeX;
+	const float xBorder = 5.0f / (float)globalRendering->viewSizeX;
+	const float yBorder = 5.0f / (float)globalRendering->viewSizeY;
 
 	float labelsWidth, labelsHeight;
 	float valuesWidth, valuesHeight;

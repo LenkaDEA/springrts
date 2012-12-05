@@ -1,27 +1,31 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+#include <boost/cstdint.hpp>
 #include <SDL_keysym.h>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "TWController.h"
-
-#include "ConfigHandler.h"
 #include "Game/Camera.h"
-#include "LogOutput.h"
 #include "Map/Ground.h"
 #include "Game/UI/MouseHandler.h"
-#include "GlobalUnsynced.h"
-#include <boost/cstdint.hpp>
+#include "Rendering/GlobalRendering.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Log/ILog.h"
+#include "System/myMath.h"
+#include "System/Input/KeyInput.h"
 
-extern boost::uint8_t *keys;
+CONFIG(int, TWScrollSpeed).defaultValue(10);
+CONFIG(bool, TWEnabled).defaultValue(true);
+CONFIG(float, TWFOV).defaultValue(45.0f);
 
 
 CTWController::CTWController()
 {
-	scrollSpeed = configHandler->Get("TWScrollSpeed",10) * 0.1f;
-	enabled = !!configHandler->Get("TWEnabled",1);
-	fov = configHandler->Get("TWFOV", 45.0f);
+	scrollSpeed = configHandler->GetInt("TWScrollSpeed") * 0.1f;
+	enabled = configHandler->GetBool("TWEnabled");
+	fov = configHandler->GetFloat("TWFOV");
+	UpdateVectors();
 }
 
 
@@ -31,28 +35,29 @@ void CTWController::KeyMove(float3 move)
 	flatForward.y=0;
 	flatForward.ANormalize();
 
-	move*=sqrt(move.z)*200;
-	pos+=(flatForward*move.y+camera->right*move.x)*scrollSpeed;
+	move *= math::sqrt(move.z) * 200;
+	pos  += (camera->right * move.x + flatForward * move.y) * scrollSpeed;
+	UpdateVectors();
 }
 
 
 void CTWController::MouseMove(float3 move)
 {
-	float dist=-camera->rot.x*1500;
-	float pixelsize=camera->GetTanHalfFov()*2/gu->viewSizeY*dist*2;
-	move*=(1+keys[SDLK_LSHIFT]*3)*pixelsize;
-	float3 flatForward=camera->forward;
-	flatForward.y=0;
+	move *= (1 + keyInput->GetKeyState(SDLK_LSHIFT) * 3) * pixelSize;
+
+	float3 flatForward = camera->forward;
+	flatForward.y = 0;
 	flatForward.ANormalize();
 
-	pos+=-(flatForward*move.y-camera->right*move.x)*scrollSpeed;
+	pos += (camera->right * move.x - flatForward * move.y) * scrollSpeed;
+	UpdateVectors();
 }
 
 
 void CTWController::ScreenEdgeMove(float3 move)
 {
-	if(mouse->lasty<gu->viewSizeY/3){
-		camera->rot.y-=move.x*gu->lastFrameTime*0.5f*200;
+	if(mouse->lasty<globalRendering->viewSizeY/3){
+		camera->rot.y-=move.x*globalRendering->lastFrameTime*0.5f*200;
 		move.x=0;
 	}
 	KeyMove(move);
@@ -62,54 +67,47 @@ void CTWController::ScreenEdgeMove(float3 move)
 void CTWController::MouseWheelMove(float move)
 {
 	camera->rot.x-=move*0.001f;
+	UpdateVectors();
 }
+
+
+void CTWController::UpdateVectors()
+{
+	pos.x = Clamp(pos.x, 0.01f, gs->mapx * SQUARE_SIZE - 0.01f);
+	pos.z = Clamp(pos.z, 0.01f, gs->mapy * SQUARE_SIZE - 0.01f);
+	pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false);
+
+	camera->rot.x = Clamp(camera->rot.x, -PI * 0.4f, -0.1f);
+
+	dir.x = math::sin(camera->rot.y) * math::cos(camera->rot.x);
+	dir.y = math::sin(camera->rot.x);
+	dir.z = math::cos(camera->rot.y) * math::cos(camera->rot.x);
+	dir.ANormalize();
+}
+
 
 void CTWController::Update()
 {
+	pixelSize = (camera->GetTanHalfFov() * 2.0f) / globalRendering->viewSizeY * (-camera->rot.x * 1500) * 2.0f;
 }
 
-float3 CTWController::GetPos()
+
+float3 CTWController::GetPos() const
 {
-	if(pos.x<0.01f)
-		pos.x=0.01f;
-	if(pos.z<0.01f)
-		pos.z=0.01f;
-	if(pos.x>(gs->mapx)*SQUARE_SIZE-0.01f)
-		pos.x=(gs->mapx)*SQUARE_SIZE-0.01f;
-	if(pos.z>(gs->mapy)*SQUARE_SIZE-0.01f)
-		pos.z=(gs->mapy)*SQUARE_SIZE-0.01f;
-	if(camera->rot.x>-0.1f)
-		camera->rot.x=-0.1f;
-	if(camera->rot.x<-PI*0.4f)
-		camera->rot.x=-PI*0.4f;
+	float dist = -camera->rot.x * 1500;
 
-	pos.y=ground->GetHeight(pos.x,pos.z);
-
-	float3 dir;
-	dir.x=(float)(sin(camera->rot.y)*cos(camera->rot.x));
-	dir.y=(float)(sin(camera->rot.x));
-	dir.z=(float)(cos(camera->rot.y)*cos(camera->rot.x));
-	dir.ANormalize();
-
-	float dist=-camera->rot.x*1500;
-
-	float3 cpos=pos-dir*dist;
-
-	if(cpos.y<ground->GetHeight(cpos.x,cpos.z)+5)
-		cpos.y=ground->GetHeight(cpos.x,cpos.z)+5;
+	float3 cpos = pos - dir * dist;
+	if (cpos.y < ground->GetHeightAboveWater(cpos.x, cpos.z, false) + 5)
+		cpos.y = ground->GetHeightAboveWater(cpos.x, cpos.z, false) + 5;
 
 	return cpos;
 }
 
 
-float3 CTWController::GetDir()
+void CTWController::SetPos(const float3& newPos)
 {
-	float3 dir;
-	dir.x=(float)(sin(camera->rot.y)*cos(camera->rot.x));
-	dir.y=(float)(sin(camera->rot.x));
-	dir.z=(float)(cos(camera->rot.y)*cos(camera->rot.x));
-	dir.ANormalize();
-	return dir;
+	pos = newPos;
+	UpdateVectors();
 }
 
 
@@ -122,7 +120,7 @@ float3 CTWController::SwitchFrom() const
 void CTWController::SwitchTo(bool showText)
 {
 	if (showText) {
-		logOutput.Print("Switching to Total War style camera");
+		LOG("Switching to Total War style camera");
 	}
 }
 

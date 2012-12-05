@@ -1,38 +1,35 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "MetalMap.h"
 #include "ReadMap.h"
-#include "ConfigHandler.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/myMath.h"
+
+CONFIG(bool, MetalMapPalette).defaultValue(false);
 
 CR_BIND(CMetalMap,(NULL, 0, 0, 0.0f));
 
 CR_REG_METADATA(CMetalMap,(
-				CR_MEMBER(extractionMap)
-				));
+	CR_MEMBER(extractionMap)
+));
 
-/*
-Constructor
-Receiving a map over all metal, and creating a map over extraction.
-*/
-CMetalMap::CMetalMap(unsigned char* map,
-                     int _sizeX, int _sizeZ, float _metalScale):
-	metalMap(map),
-	metalScale(_metalScale),
-	sizeX(_sizeX),
-	sizeZ(_sizeZ)
+CMetalMap::CMetalMap(const unsigned char* map, int _sizeX, int _sizeZ, float _metalScale)
+	: metalScale(_metalScale)
+	, sizeX(_sizeX)
+	, sizeZ(_sizeZ)
 {
-	// Creating an empty map over extraction.
-//	extractionMap = new float[sizeX * sizeZ];
 	extractionMap.resize(sizeX * sizeZ, 0.0f);
-//	int i;
-//	for(i = 0; i < (sizeX * sizeZ); i++) {
-//		extractionMap[i] = 0.0f;
-//	}
+	metalMap.resize(sizeX * sizeZ, 0);
 
-	int whichPalette = configHandler->Get("MetalMapPalette", 0);
+	if (map != NULL) {
+		memcpy(&metalMap[0], map, sizeX * sizeZ);
+	} else {
+		metalScale = 1.0f;
+	}
 
-	if (whichPalette == 1){
+	if (configHandler->GetBool("MetalMapPalette")) {
 		/* Swap the green and blue channels. making metal go
 		   black -> blue -> cyan,
 		   rather than the usual black -> green -> cyan. */
@@ -41,9 +38,8 @@ CMetalMap::CMetalMap(unsigned char* map,
 			metalPal[a * 3 + 1] = std::max(0, a * 2 - 255);
 			metalPal[a * 3 + 2] = std::min(255, a * 2);
 		}
-	}
-	else {
-		for(int a = 0; a < 256; ++a) {
+	} else {
+		for (int a = 0; a < 256; ++a) {
 			metalPal[a * 3 + 0] = a;
 			metalPal[a * 3 + 1] = std::min(255, a * 2);
 			metalPal[a * 3 + 2] = std::max(0, a * 2 - 255);
@@ -53,14 +49,8 @@ CMetalMap::CMetalMap(unsigned char* map,
 }
 
 
-/*
-Destructor
-Free the memory used by maps.
-*/
-CMetalMap::~CMetalMap(void)
+CMetalMap::~CMetalMap()
 {
-	delete[] metalMap;
-//	delete[] extractionMap;
 }
 
 
@@ -74,9 +64,6 @@ static inline void ClampInt(int& var, int min, int maxPlusOne)
 }
 
 
-/*
-Gives the amount of metal over an area.
-*/
 float CMetalMap::GetMetalAmount(int x1, int z1, int x2, int z2)
 {
 	ClampInt(x1, 0, sizeX);
@@ -95,9 +82,6 @@ float CMetalMap::GetMetalAmount(int x1, int z1, int x2, int z2)
 }
 
 
-/*
-Gives the amount of metal on a single square.
-*/
 float CMetalMap::GetMetalAmount(int x, int z)
 {
 	ClampInt(x, 0, sizeX);
@@ -107,14 +91,15 @@ float CMetalMap::GetMetalAmount(int x, int z)
 }
 
 
-/*
-Makes a request for extracting metal from a given square.
-If there is metal left to extract to the requested depth,
-the amount available will be returned and the requested
-depth will be sat as new extraction-depth on the extraction-map.
-If the requested depth is greater than the current
-extraction-depth 0.0 will be returned and nothing changed.
-*/
+void CMetalMap::SetMetalAmount(int x, int z, float m)
+{
+	ClampInt(x, 0, sizeX);
+	ClampInt(z, 0, sizeZ);
+
+	metalMap[(z * sizeX) + x] = (metalScale == 0.0f) ? 0 : Clamp((int)(m / metalScale), 0, 255);
+}
+
+
 float CMetalMap::RequestExtraction(int x, int z, float toDepth)
 {
 	ClampInt(x, 0, sizeX);
@@ -134,15 +119,19 @@ float CMetalMap::RequestExtraction(int x, int z, float toDepth)
 }
 
 
-/*
-When a extraction ends, the digged depth should be left
-back to the extraction-map. To be available for other
-extractors to use.
-*/
 void CMetalMap::RemoveExtraction(int x, int z, float depth)
 {
 	ClampInt(x, 0, sizeX);
 	ClampInt(z, 0, sizeZ);
 
 	extractionMap[(z * sizeX) + x] -= depth;
+}
+
+
+int CMetalMap::GetMetalExtraction(int x, int z)
+{
+	ClampInt(x, 0, sizeX);
+	ClampInt(z, 0, sizeZ);
+
+	return extractionMap[(z * sizeX) + x];
 }

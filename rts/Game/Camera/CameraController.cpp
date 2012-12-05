@@ -1,27 +1,30 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "CameraController.h"
+#include "Sim/Misc/GlobalConstants.h"
+#include "Sim/Misc/GlobalSynced.h"
+#include "System/Config/ConfigHandler.h"
 
-#include "ConfigHandler.h"
+
+CONFIG(float, UseDistToGroundForIcons).defaultValue(0.95f);
 
 
-CCameraController::CCameraController() : pos(2000, 70, 1800)
+CCameraController::CCameraController()
 {
 	// switchVal:
 	// * 1.0 = 0 degree  = overview
 	// * 0.0 = 90 degree = first person
-	switchVal = configHandler->Get("UseDistToGroundForIcons", 0.95f);
-	mouseScale = configHandler->Get("FPSMouseScale", 0.01f);
+	switchVal = configHandler->GetFloat("UseDistToGroundForIcons");
 	scrollSpeed = 1;
 	fov = 45.0f;
+	pixelSize = 1.0f;
 	enabled = true;
+	pos = float3(gs->mapx * 0.5f * SQUARE_SIZE, 1000.f, gs->mapy * 0.5f * SQUARE_SIZE); // center map
+	dir = float3(0.0f,0.0f,1.0f);
 }
 
-
-CCameraController::~CCameraController(void)
-{
-}
 
 
 bool CCameraController::SetStateBool(const StateMap& sm,
@@ -56,7 +59,7 @@ bool CCameraController::SetStateFloat(const StateMap& sm,
 bool CCameraController::GetUseDistToGroundForIcons() {
 
 	const float3& dir     = GetDir().UnsafeNormalize();
-	const float dot       = std::min(1.0f, std::max(0.0f, fabs(dir.dot(UpVector))));
+	const float dot       = std::min(1.0f, std::max(0.0f, math::fabs(dir.dot(UpVector))));
 
 	if (dot < switchVal) {
 		// flat angle (typical for first person camera)

@@ -1,22 +1,7 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#ifndef _IAILIBRARYMANAGER_H
-#define _IAILIBRARYMANAGER_H
+#ifndef I_AI_LIBRARY_MANAGER_H
+#define I_AI_LIBRARY_MANAGER_H
 
 #include "AIInterfaceLibraryInfo.h"
 #include "SkirmishAILibraryInfo.h"
@@ -34,8 +19,8 @@ class CSkirmishAILibrary;
  * @see CAILibraryManager
  */
 class IAILibraryManager {
-
 public:
+	IAILibraryManager() {}
 	virtual ~IAILibraryManager() {}
 
 	typedef std::set<AIInterfaceKey> T_interfaceSpecs;
@@ -56,17 +41,23 @@ public:
 	typedef std::map<const SkirmishAIKey, std::set<std::string> >
 			T_dupSkirm;
 
-	// The following three methods return sets of files which contain duplicate
-	// infos. These methods can be used for issueing warnings.
+	/**
+	 * Returns a set of files which contain duplicate AI Interface infos.
+	 * This can be used for issueing warnings.
+	 */
 	virtual const T_dupInt& GetDuplicateInterfaceInfos() const = 0;
+	/**
+	 * Returns a set of files which contain duplicate Skirmish AI infos.
+	 * This can be used for issueing warnings.
+	 */
 	virtual const T_dupSkirm& GetDuplicateSkirmishAIInfos() const = 0;
-
+	/**
+	 * Returns a resolved aikey
+	 * @see SkirmishAIKey::IsUnspecified()
+	 */
 	SkirmishAIKey ResolveSkirmishAIKey(const SkirmishAIKey& skirmishAIKey)
 			const;
-protected:
-	virtual std::vector<SkirmishAIKey> FittingSkirmishAIKeys(
-			const SkirmishAIKey& skirmishAIKey) const = 0;
-public:
+
 	/**
 	 * A Skirmish AI (its library) is only really loaded when it is not yet
 	 * loaded.
@@ -80,19 +71,18 @@ public:
 	 * is handled internally/automatically.
 	 */
 	virtual void ReleaseSkirmishAILibrary(const SkirmishAIKey& skirmishAIKey) = 0;
-	/** Unloads all currently Skirmish loaded AIs. */
-	virtual void ReleaseAllSkirmishAILibraries() = 0;
 
-	/** Unloads all currently loaded AIs and interfaces. */
-	virtual void ReleaseEverything() = 0;
-
-public:
 	/** Guaranteed to not return NULL. */
 	static IAILibraryManager* GetInstance();
+	/** Should only be called at end of game/process */
+	static void Destroy();
 	static void OutputAIInterfacesInfo();
 	static void OutputSkirmishAIInfo();
 
 protected:
+	virtual std::vector<SkirmishAIKey> FittingSkirmishAIKeys(
+			const SkirmishAIKey& skirmishAIKey) const = 0;
+
 	/**
 	 * Compares two version strings.
 	 * Splits the version strings at the '.' signs, and compares the parts.
@@ -121,4 +111,4 @@ private:
 
 #define aiLibManager IAILibraryManager::GetInstance()
 
-#endif // _IAILIBRARYMANAGER_H
+#endif // I_AI_LIBRARY_MANAGER_H

@@ -1,7 +1,9 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef MATRIX44F_H
 #define MATRIX44F_H
 
-#include "float3.h"
+#include "System/float3.h"
 
 class CMatrix44f
 {
@@ -9,40 +11,56 @@ public:
 	CR_DECLARE_STRUCT(CMatrix44f);
 
 	CMatrix44f();
+
 	CMatrix44f(const float3& pos, const float3& x, const float3& y, const float3& z);
 	CMatrix44f(const float& rotX, const float& rotY, const float& rotZ);
 	explicit CMatrix44f(const float3& pos);
-
-	CMatrix44f(const CMatrix44f& n);
-	CMatrix44f& operator=(const CMatrix44f& n);
 
 	void LoadIdentity();
 
 	float& operator[](int a) { return m[a]; }
 	float operator[](int a) const { return m[a]; }
 
+	void SetUpVector(const float3& up);
 	void RotateX(float rad);
 	void RotateY(float rad);
 	void RotateZ(float rad);
-	void Rotate(float rad, const float3& axis);	//axis assumed normalized
+	void Rotate(float rad, const float3& axis); //! axis is assumed to be normalized
 	void Translate(float x, float y, float z);
-	CMatrix44f Mul(const CMatrix44f& other) const;
-
-	CMatrix44f& InvertInPlace();
-	CMatrix44f Invert() const;
+	void Translate(const float3& pos);
+	void SetPos(float x, float y, float z);
+	void SetPos(const float3& pos);
+	float3 GetPos() const { return float3(m[12], m[13], m[14]); }
 
 	float3 Mul(const float3& vect) const;
-	float3 GetPos(void) const { return float3(m[12], m[13], m[14]); }
 
-	void SetUpVector(float3& up);
-	void Translate(const float3& pos);
+	void Transpose();
 
-	/// OpenGL ordered (ie. column-major)
-	float m[16];
+	CMatrix44f operator* (const CMatrix44f& other) const;
+	CMatrix44f& operator*= (const CMatrix44f& other);
+	inline void operator*= (const float a) {
+		for (size_t i=0; i < 16; ++i)
+			m[i] *= a;
+	}
+
+	//! affine matrix inversion
+	CMatrix44f& InvertAffineInPlace();
+	CMatrix44f InvertAffine() const;
+
+	//! general matrix inversion
+	bool InvertInPlace();
+	CMatrix44f Invert(bool* status = NULL) const;
 
 	/// Allows implicit conversion to float* (for passing to gl functions)
 	operator const float* () const { return m; }
 	operator float* () { return m; }
+
+public:
+	/// OpenGL ordered (ie. column-major)
+	union {
+		float m[16];
+		float md[4][4]; //! WARNING: it still is column-major, means md[j][i]!!!
+	};
 };
 
 

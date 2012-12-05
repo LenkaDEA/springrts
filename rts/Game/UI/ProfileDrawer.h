@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef PROFILE_DRAWER
 #define PROFILE_DRAWER
 
@@ -6,8 +8,8 @@
 class ProfileDrawer : public CInputReceiver
 {
 public:
-	static void Enable();
-	static void Disable();
+	static void SetEnabled(bool enable);
+	static bool IsEnabled();
 
 	virtual void Draw();
 	virtual bool MousePress(int x, int y, int button);
@@ -19,6 +21,5 @@ private:
 
 	static ProfileDrawer* instance;
 };
-
 
 #endif // PROFILE_DRAWER

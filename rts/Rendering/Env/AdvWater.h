@@ -1,23 +1,23 @@
-// DrawWater.h: interface for the CDrawWater class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef __ADV_WATER_H__
-#define __ADV_WATER_H__
+#ifndef ADV_WATER_H
+#define ADV_WATER_H
 
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/myGL.h"
-#include "BaseWater.h"
+#include "IWater.h"
 
-class CAdvWater : public CBaseWater
+class CAdvWater : public IWater
 {
 public:
-	void UpdateWater(CGame* game);
-	void Draw();
-	void Draw(bool useBlending);
-	CAdvWater(bool loadShader=true);
+	CAdvWater(bool loadShader = true);
 	virtual ~CAdvWater();
-	virtual int GetID() const { return 1; }
+	virtual int GetID() const { return WATER_RENDERER_REFLECTIVE; }
+	virtual const char* GetName() const { return "reflective"; }
+
+	virtual void Draw();
+	void Draw(bool useBlending);
+	void UpdateWater(CGame* game);
 
 protected:
 	FBO reflectFBO;
@@ -31,4 +31,4 @@ protected:
 	unsigned int waterFP;
 };
 
-#endif // __ADV_WATER_H__
+#endif // ADV_WATER_H

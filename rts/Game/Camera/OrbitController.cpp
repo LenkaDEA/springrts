@@ -1,4 +1,6 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include <boost/cstdint.hpp>
 
 #include <SDL_mouse.h>
 #include <SDL_keysym.h>
@@ -7,11 +9,14 @@
 #include "Game/Camera.h"
 #include "Game/UI/MouseHandler.h"
 #include "Map/Ground.h"
-#include "LogOutput.h"
-#include "ConfigHandler.h"
-#include <boost/cstdint.hpp>
+#include "System/Log/ILog.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Input/KeyInput.h"
 
-extern boost::uint8_t* keys;
+CONFIG(bool, OrbitControllerEnabled).defaultValue(true);
+CONFIG(float, OrbitControllerOrbitSpeed).defaultValue(0.25f).minimumValue(0.1f).maximumValue(10.0f);
+CONFIG(float, OrbitControllerPanSpeed).defaultValue(2.00f).minimumValue(0.1f).maximumValue(10.0f);
+CONFIG(float, OrbitControllerZoomSpeed).defaultValue(5.00f).minimumValue(0.1f).maximumValue(10.0f);
 
 #define DEG2RAD(a) ((a) * (3.141592653f / 180.0f))
 #define RAD2DEG(a) ((a) * (180.0f / 3.141592653f))
@@ -26,15 +31,11 @@ COrbitController::COrbitController():
 	rotation(0.0f), cRotation(0.0f),
 	elevation(0.0f), cElevation(0.0f)
 {
-	enabled = !!configHandler->Get("OrbitControllerEnabled", 1);
+	enabled = configHandler->GetBool("OrbitControllerEnabled");
 
-	orbitSpeedFact = configHandler->Get("OrbitControllerOrbitSpeed", 0.25f);
-	panSpeedFact   = configHandler->Get("OrbitControllerPanSpeed",   2.00f);
-	zoomSpeedFact  = configHandler->Get("OrbitControllerZoomSpeed",  5.00f);
-
-	orbitSpeedFact = std::max(0.1f, std::min(10.0f, orbitSpeedFact));
-	panSpeedFact   = std::max(0.1f, std::min(10.0f, panSpeedFact));
-	zoomSpeedFact  = std::max(0.1f, std::min(10.0f, zoomSpeedFact));
+	orbitSpeedFact = configHandler->GetFloat("OrbitControllerOrbitSpeed");
+	panSpeedFact   = configHandler->GetFloat("OrbitControllerPanSpeed");
+	zoomSpeedFact  = configHandler->GetFloat("OrbitControllerZoomSpeed");
 }
 
 void COrbitController::Init(const float3& p, const float3& tar)
@@ -42,7 +43,7 @@ void COrbitController::Init(const float3& p, const float3& tar)
 	CCamera* cam = camera;
 
 	const float l = (tar == ZeroVector)?
-		std::max(ground->LineGroundCol(p, p + cam->forward * 1024.0f), 512.0f):
+		std::max(ground->LineGroundCol(p, p + cam->forward * 1024.0f, false), 512.0f):
 		(p - tar).Length();
 
 	const float3 t = (tar == ZeroVector)? (p + cam->forward * l): tar;
@@ -50,8 +51,8 @@ void COrbitController::Init(const float3& p, const float3& tar)
 	const float3 w = (v / v.Length()); // do not normalize v in-place
 
 	const float d = v.Length();
-	const float e = RAD2DEG(acos(v.Length2D() / d));
-	const float r = RAD2DEG(acos(w.x));
+	const float e = RAD2DEG(math::acos(v.Length2D() / d));
+	const float r = RAD2DEG(math::acos(w.x));
 
 	distance  = cDistance = d;
 	elevation = cElevation = e;
@@ -63,7 +64,7 @@ void COrbitController::Init(const float3& p, const float3& tar)
 
 void COrbitController::Update()
 {
-	if (!keys[SDLK_LMETA]) {
+	if (!keyInput->IsKeyPressed(SDLK_LMETA)) {
 		return;
 	}
 
@@ -145,14 +146,24 @@ void COrbitController::MyMouseMove(int dx, int dy, int rdx, int rdy, int button)
 	}
 }
 
+float3 COrbitController::GetPos() const
+{
+	return camera->pos;
+}
 
+float3 COrbitController::GetDir() const
+{
+	float3 dir = cen - camera->pos;
+	dir.ANormalize();
+	return dir;
+}
 
 void COrbitController::Orbit()
 {
 	CCamera* cam = camera;
 
 	cam->pos = cen + GetOrbitPos();
-	cam->pos.y = std::max(cam->pos.y, ground->GetHeight2(cam->pos.x, cam->pos.z));
+	cam->pos.y = std::max(cam->pos.y, ground->GetHeightReal(cam->pos.x, cam->pos.z, false));
 	cam->forward = (cen - cam->pos).ANormalize();
 	cam->up = YVEC;
 }
@@ -171,8 +182,8 @@ void COrbitController::Pan(int rdx, int rdy)
 
 
 	// don't allow orbit center or ourselves to drop below the terrain
-	const float camGH = ground->GetHeight2(cam->pos.x, cam->pos.z);
-	const float cenGH = ground->GetHeight2(cen.x, cen.z);
+	const float camGH = ground->GetHeightReal(cam->pos.x, cam->pos.z, false);
+	const float cenGH = ground->GetHeightReal(cen.x, cen.z, false);
 
 	if (cam->pos.y < camGH) {
 		cam->pos.y = camGH;
@@ -209,16 +220,9 @@ void COrbitController::MouseWheelMove(float move)
 {
 }
 
-
-
-float3 COrbitController::GetPos()
-{
-	return camera->pos;
-}
-
 void COrbitController::SetPos(const float3& newPos)
 {
-	if (keys[SDLK_LMETA]) {
+	if (keyInput->IsKeyPressed(SDLK_LMETA)) {
 		return;
 	}
 
@@ -228,17 +232,12 @@ void COrbitController::SetPos(const float3& newPos)
 
 	cen.x += dx;
 	cen.z += dz;
-	cen.y = ground->GetHeight2(cen.x, cen.z);
+	cen.y = ground->GetHeightReal(cen.x, cen.z, false);
 
 	camera->pos.x += dx;
 	camera->pos.z += dz;
 
 	Init(camera->pos, cen);
-}
-
-float3 COrbitController::GetDir()
-{
-	return (cen - camera->pos).ANormalize();
 }
 
 float3 COrbitController::GetOrbitPos() const
@@ -252,12 +251,12 @@ float3 COrbitController::GetOrbitPos() const
 	float tx = cx;
 
 	tx = cx;
-	cx = cx * cos(beta) + cy * sin(beta);
-	cy = tx * sin(beta) + cy * cos(beta);
+	cx = cx * math::cos(beta) + cy * math::sin(beta);
+	cy = tx * math::sin(beta) + cy * math::cos(beta);
 
 	tx = cx;
-	cx = cx * cos(gamma) - cz * sin(gamma);
-	cz = tx * sin(gamma) + cz * cos(gamma);
+	cx = cx * math::cos(gamma) - cz * math::sin(gamma);
+	cz = tx * math::sin(gamma) + cz * math::cos(gamma);
 
 	return float3(cx, cy, cz);
 }
@@ -272,7 +271,7 @@ float3 COrbitController::SwitchFrom() const
 void COrbitController::SwitchTo(bool showText)
 {
 	if (showText) {
-		logOutput.Print("Switching to Orbit style camera");
+		LOG("Switching to Orbit style camera");
 	}
 
 	Init(camera->pos, ZeroVector);

@@ -1,20 +1,18 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "Feature.h"
 #include "FeatureHandler.h"
-#include "LogOutput.h"
+#include "Game/GlobalUnsynced.h"
 #include "Lua/LuaRules.h"
 #include "Map/Ground.h"
 #include "Map/ReadMap.h"
 #include "Map/MapInfo.h"
-#include "myMath.h"
 #include "Sim/Misc/DamageArray.h"
 #include "Sim/Misc/QuadField.h"
-#include "Rendering/Env/BaseTreeDrawer.h"
-#include "Rendering/UnitModels/3DOParser.h"
-#include "Rendering/UnitModels/FeatureDrawer.h"
-#include "Rendering/UnitModels/UnitDrawer.h"
+#include "Rendering/Env/ITreeDrawer.h"
+#include "Rendering/Models/3DModel.h"
 #include "Sim/Misc/CollisionVolume.h"
 #include "Sim/Misc/ModInfo.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -24,64 +22,60 @@
 #include "Sim/Projectiles/Unsynced/SmokeProjectile.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/Unit.h"
-#include "GlobalUnsynced.h"
+#include "System/EventHandler.h"
+#include "System/Log/ILog.h"
+#include "System/myMath.h"
 #include <assert.h>
 
 CR_BIND_DERIVED(CFeature, CSolidObject, )
 
 CR_REG_METADATA(CFeature, (
-				//CR_MEMBER(model),
-				CR_MEMBER(createdFromUnit),
-				CR_MEMBER(isRepairingBeforeResurrect),
-				CR_MEMBER(resurrectProgress),
-				CR_MEMBER(health),
-				CR_MEMBER(reclaimLeft),
-				CR_MEMBER(allyteam),
-				CR_MEMBER(team),
-				CR_MEMBER(noSelect),
-				CR_MEMBER(tempNum),
-				CR_MEMBER(lastReclaim),
-//				CR_MEMBER(def),
-				CR_MEMBER(defName),
-				CR_MEMBER(transMatrix),
-				CR_MEMBER(inUpdateQue),
-				CR_MEMBER(drawQuad),
-				CR_MEMBER(finalHeight),
-				CR_MEMBER(myFire),
-				CR_MEMBER(fireTime),
-				CR_MEMBER(emitSmokeTime),
-				CR_RESERVED(64),
-				CR_POSTLOAD(PostLoad)
-				));
+	// CR_MEMBER(model),
+	CR_MEMBER(defID),
+	CR_MEMBER(isRepairingBeforeResurrect),
+	CR_MEMBER(resurrectProgress),
+	CR_MEMBER(reclaimLeft),
+	CR_MEMBER(tempNum),
+	CR_MEMBER(lastReclaim),
+	// CR_MEMBER(def),
+	// CR_MEMBER(udef),
+	CR_MEMBER(transMatrix),
+	CR_MEMBER(inUpdateQue),
+	CR_MEMBER(drawQuad),
+	CR_MEMBER(finalHeight),
+	CR_MEMBER(myFire),
+	CR_MEMBER(fireTime),
+	CR_MEMBER(emitSmokeTime),
+	CR_RESERVED(64),
+	CR_POSTLOAD(PostLoad)
+));
 
 
-CFeature::CFeature():
-	model(NULL),
+CFeature::CFeature() : CSolidObject(),
+	defID(-1),
 	isRepairingBeforeResurrect(false),
-	resurrectProgress(0),
-	health(0),
-	reclaimLeft(1),
-	allyteam(0),
-	team(0),
-	noSelect(false),
+	resurrectProgress(0.0f),
+	reclaimLeft(1.0f),
 	tempNum(0),
 	lastReclaim(0),
-	def(0),
-	collisionVolume(0),
+	def(NULL),
+	udef(NULL),
 	inUpdateQue(false),
 	drawQuad(-2),
-	finalHeight(0),
-	reachedFinalPos(false),
-	myFire(0),
+	finalHeight(0.0f),
+	reachedFinalPos(true),
+	myFire(NULL),
 	fireTime(0),
 	emitSmokeTime(0),
-	solidOnTop(0)
+	solidOnTop(NULL)
 {
-	immobile=true;
+	crushable = true;
+	immobile = true;
+
 	physicalState = OnGround;
 }
 
-CFeature::~CFeature(void)
+CFeature::~CFeature()
 {
 	if (blocking) {
 		UnBlock();
@@ -89,7 +83,7 @@ CFeature::~CFeature(void)
 
 	qf->RemoveFeature(this);
 
-	if (def->drawType >= DRAWTYPE_TREE) {
+	if (def->drawType >= DRAWTYPE_TREE && treeDrawer) {
 		treeDrawer->DeleteTree(pos);
 	}
 
@@ -101,28 +95,24 @@ CFeature::~CFeature(void)
 	if (def->geoThermal) {
 		CGeoThermSmokeProjectile::GeoThermDestroyed(this);
 	}
-
-	delete collisionVolume; collisionVolume = NULL;
 }
 
 void CFeature::PostLoad()
 {
-	def = featureHandler->GetFeatureDef(defName);
+	def = featureHandler->GetFeatureDefByID(defID);
+
+	//FIXME is this really needed (aren't all those tags saved via creg?)
 	if (def->drawType == DRAWTYPE_MODEL) {
-		model = LoadModel(def);
-		height = model->height;
-		SetRadius(model->radius);
-		midPos = pos + model->relMidPos;
+		model = def->LoadModel();
+
+		SetMidAndAimPos(model->relMidPos, model->relMidPos, true);
+		SetRadiusAndHeight(model->radius, model->height);
 	} else if (def->drawType >= DRAWTYPE_TREE) {
-		midPos = pos + (UpVector * TREE_RADIUS);
-		height = 2 * TREE_RADIUS;
-	} else {
-		midPos = pos;
+		SetMidAndAimPos(UpVector * TREE_RADIUS, UpVector * TREE_RADIUS, true);
+		SetRadiusAndHeight(TREE_RADIUS, TREE_RADIUS * 2.0f);
 	}
 
-	if (def->drawType >= DRAWTYPE_TREE) {
-		treeDrawer->AddTree(def->drawType - 1, pos, 1);
-	}
+	UpdateMidAndAimPos();
 }
 
 
@@ -139,96 +129,84 @@ void CFeature::ChangeTeam(int newTeam)
 
 
 void CFeature::Initialize(const float3& _pos, const FeatureDef* _def, short int _heading,
-	int facing, int _team, int _allyteam, std::string fromUnit, const float3& speed, int _smokeTime)
+	int facing, int _team, int _allyteam, const UnitDef* _udef, const float3& speed, int _smokeTime)
 {
-	pos = _pos;
 	def = _def;
-	defName = def->myName;
+	udef = _udef;
+	defID = def->id;
 	heading = _heading;
 	buildFacing = facing;
 	team = _team;
 	allyteam = _allyteam;
 	emitSmokeTime = _smokeTime;
-	createdFromUnit = fromUnit;
 
-	ChangeTeam(team); // maybe should not be here, but it prevents crashes caused by team = -1
-
-	pos.CheckInBounds();
+	mass = def->mass;
+	crushResistance = def->crushResistance;
 
 	health   = def->maxHealth;
 	blocking = def->blocking;
+
 	xsize    = ((facing & 1) == 0) ? def->xsize : def->zsize;
 	zsize    = ((facing & 1) == 1) ? def->xsize : def->zsize;
-	mass     = def->mass;
+
 	noSelect = def->noSelect;
 
+	// set position before mid-position
+	Move3D(_pos.cClampInMap(), false);
+
 	if (def->drawType == DRAWTYPE_MODEL) {
-		model = LoadModel(def);
-		if (!model) {
-			logOutput.Print("Features: Couldn't load model for " + defName);
-			SetRadius(0.0f);
-			midPos = pos;
+		if ((model = def->LoadModel()) == NULL) {
+			LOG_L(L_ERROR, "Features: Couldn't load model for %s", def->name.c_str());
 		} else {
-			height = model->height;
-			SetRadius(model->radius);
-			midPos = pos + model->relMidPos;
-			collisionVolume = new CollisionVolume(def->collisionVolume, model->radius);
+			SetMidAndAimPos(model->relMidPos, model->relMidPos, true);
+			SetRadiusAndHeight(model->radius, model->height);
+		}
+	} else {
+		if (def->drawType >= DRAWTYPE_TREE) {
+			// LoadFeaturesFromMap() doesn't set a scale for trees
+			SetMidAndAimPos(UpVector * TREE_RADIUS, UpVector * TREE_RADIUS, true);
+			SetRadiusAndHeight(TREE_RADIUS, TREE_RADIUS * 2.0f);
 		}
 	}
-	else if (def->drawType >= DRAWTYPE_TREE) {
-		SetRadius(TREE_RADIUS);
-		midPos = pos + (UpVector * TREE_RADIUS);
-		height = 2 * TREE_RADIUS;
 
-		// LoadFeaturesFromMap() doesn't set a scale for trees
-		collisionVolume = new CollisionVolume(def->collisionVolume, TREE_RADIUS);
-	}
-	else {
-		// geothermal (no collision volume)
-		SetRadius(0.0f);
-		midPos = pos;
-	}
+	UpdateMidAndAimPos();
+	CalculateTransform();
+
+	// note: gets deleted in ~CSolidObject
+	collisionVolume = new CollisionVolume(def->collisionVolume, radius);
 
 	featureHandler->AddFeature(this);
 	qf->AddFeature(this);
 
-	CalculateTransform();
+	// maybe should not be here, but it prevents crashes caused by team = -1
+	ChangeTeam(team);
 
 	if (blocking) {
 		Block();
 	}
 
 	if (def->floating) {
-		finalHeight = ground->GetHeight(pos.x, pos.z);
+		finalHeight = ground->GetHeightAboveWater(pos.x, pos.z);
 	} else {
-		finalHeight = ground->GetHeight2(pos.x, pos.z);
+		finalHeight = ground->GetHeightReal(pos.x, pos.z);
 	}
-
-	if (def->drawType >= DRAWTYPE_TREE) {
-		treeDrawer->AddTree(def->drawType - 1, pos, 1);
-	}
-
 
 	if (speed != ZeroVector) {
 		deathSpeed = speed;
 	}
+
+	reachedFinalPos = (speed == ZeroVector && pos.y == finalHeight);
 }
 
 
 void CFeature::CalculateTransform()
 {
-	float3 frontDir = GetVectorFromHeading(heading);
-	float3 upDir;
+	updir    = (!def->upright)? ground->GetNormal(pos.x, pos.z): UpVector;
+	frontdir = GetVectorFromHeading(heading);
+	rightdir = (frontdir.cross(updir)).Normalize();
+	frontdir = (updir.cross(rightdir)).Normalize();
 
-	if (def->upright) upDir = float3(0.0f, 1.0f, 0.0f);
-	else upDir = ground->GetNormal(pos.x, pos.z);
-
-	float3 rightDir = frontDir.cross(upDir);
-	rightDir.Normalize();
-	frontDir = upDir.cross(rightDir);
-	frontDir.Normalize ();
-
-	transMatrix = CMatrix44f(pos, -rightDir, upDir, frontDir);
+	transMatrix = CMatrix44f(pos, -rightdir, updir, frontdir);
 }
 
 
@@ -238,7 +216,7 @@ bool CFeature::AddBuildPower(float amount, CUnit* builder)
 
 	if (amount > 0.0f) {
 		// Check they are trying to repair a feature that can be resurrected
-		if (createdFromUnit == "") {
+		if (udef == NULL) {
 			return false;
 		}
 
@@ -364,7 +342,7 @@ bool CFeature::AddBuildPower(float amount, CUnit* builder)
 }
 
 
-void CFeature::DoDamage(const DamageArray& damages, CUnit* attacker,const float3& impulse)
+void CFeature::DoDamage(const DamageArray& damages, const float3& impulse, CUnit*, int)
 {
 	if (damages.paralyzeDamageTime) {
 		return; // paralyzers do not damage features
@@ -376,7 +354,7 @@ void CFeature::DoDamage(const DamageArray& damages, CUnit* attacker,const float3
 	if (health <= 0 && def->destructable) {
 		CFeature* deathFeature = featureHandler->CreateWreckage(
 			pos, def->deathFeature, heading,
-			buildFacing, 1, team, -1, false, ""
+			buildFacing, 1, team, -1, false, NULL
 		);
 
 		if (deathFeature) {
@@ -397,11 +375,6 @@ void CFeature::DoDamage(const DamageArray& damages, CUnit* attacker,const float3
 	}
 }
 
-
-void CFeature::Kill(float3& impulse) {
-	DamageArray damage;
-	DoDamage(damage * (health + 1), 0, impulse);
-}
 
 
 void CFeature::DependentDied(CObject *o)
@@ -425,28 +398,18 @@ void CFeature::ForcedMove(const float3& newPos, bool snapToGround)
 		treeDrawer->DeleteTree(pos);
 	}
 
-	pos = newPos;
+	Move3D(newPos - pos, true);
+	eventHandler.FeatureMoved(this);
 
-	featureDrawer->UpdateDrawPos(this);
-
-	// setup finalHeight
+	// setup finalHeight (pos == newPos now)
 	if (snapToGround) {
 		if (def->floating) {
-			finalHeight = ground->GetHeight(pos.x, pos.z);
+			finalHeight = ground->GetHeightAboveWater(pos.x, pos.z);
 		} else {
-			finalHeight = ground->GetHeight2(pos.x, pos.z);
+			finalHeight = ground->GetHeightReal(pos.x, pos.z);
 		}
 	} else {
-		finalHeight = newPos.y;
-	}
-
-	// setup midPos
-	if (def->drawType == DRAWTYPE_MODEL) {
-		midPos = pos + model->relMidPos;
-	} else if (def->drawType >= DRAWTYPE_TREE) {
-		midPos = pos + (UpVector * TREE_RADIUS);
-	} else {
-		midPos = pos;
+		finalHeight = pos.y;
 	}
 
 	// setup the visual transformation matrix
@@ -466,15 +429,6 @@ void CFeature::ForcedMove(const float3& newPos, bool snapToGround)
 
 void CFeature::ForcedSpin(const float3& newDir)
 {
-/*
-	heading = GetHeadingFromVector(newDir.x, newDir.z);
-	CalculateTransform();
-	if (def->drawType >= DRAWTYPE_TREE) {
-		treeDrawer->DeleteTree(pos);
-		treeDrawer->AddTree(def->drawType - 1, pos, 1.0f);
-	}
-*/
-
 	float3 updir = UpVector;
 	if (updir == newDir) {
 		//FIXME perhaps save the old right,up,front directions, so we can
@@ -490,42 +444,37 @@ void CFeature::ForcedSpin(const float3& newDir)
 
 bool CFeature::UpdatePosition()
 {
-	bool finishedUpdate = true;
-
-	if (!createdFromUnit.empty()) {
+	if (udef != NULL) {
 		// we are a wreck of a dead unit
 		if (!reachedFinalPos) {
-			bool haveForwardSpeed = false;
-			bool haveVerticalSpeed = false;
-			bool inBounds = false;
+			// def->floating is unreliable (true for land unit wrecks),
+			// so just assume wrecks always sink even if their "owner"
+			// was a floating object (as is the case for ships anyway)
+			const float realGroundHeight = ground->GetHeightReal(pos.x, pos.z);
+			const bool reachedWater  = ( pos.y                     <= 0.1f);
+			const bool reachedGround = ((pos.y - realGroundHeight) <= 0.1f);
 
-			// NOTE: apply more drag if we were a tank or bot?
-			// (would require passing extra data to Initialize())
-			deathSpeed *= 0.95f;
+			deathSpeed *= 0.999999f;
+			deathSpeed *= (1.0f - (int(reachedWater ) * 0.05f));
+			deathSpeed *= (1.0f - (int(reachedGround) * 0.10f));
 
 			if (deathSpeed.SqLength2D() > 0.01f) {
 				UnBlock();
 				qf->RemoveFeature(this);
 
 				// update our forward speed (and quadfield
-				// position) if it's still greater than 0
-				pos += deathSpeed;
-				midPos += deathSpeed;
-
-				haveForwardSpeed = true;
+				// position) if it is still greater than 0
+				Move3D(deathSpeed, true);
 
 				qf->AddFeature(this);
 				Block();
+			} else {
+				deathSpeed.x = 0.0f;
+				deathSpeed.z = 0.0f;
 			}
 
-			// def->floating is unreliable (true for land unit wrecks),
-			// just assume wrecks always sink even if their "owner" was
-			// a floating object (as is the case for ships anyway)
-			float realGroundHeight = ground->GetHeight2(pos.x, pos.z);
-			bool reachedGround = (pos.y <= realGroundHeight);
-
 			if (!reachedGround) {
-				if (pos.y > 0.0f) {
+				if (!reachedWater) {
 					// quadratic acceleration if not in water
 					deathSpeed.y += mapInfo->map.gravity;
 				} else {
@@ -533,80 +482,77 @@ bool CFeature::UpdatePosition()
 					deathSpeed.y = mapInfo->map.gravity;
 				}
 
-				pos.y += deathSpeed.y;
-				midPos.y += deathSpeed.y;
-				haveVerticalSpeed = true;
+				Move1D(deathSpeed.y, 1, true);
 			} else {
+				deathSpeed.y = 0.0f;
+
 				// last Update() may have sunk us into
 				// ground if pos.y was only marginally
 				// larger than ground height, correct
-				pos.y = realGroundHeight;
-				midPos.y = pos.y + model->relMidPos.y;
-				deathSpeed.y = 0.0f;
+				Move1D(realGroundHeight, 1, false);
 			}
 
-			inBounds = pos.CheckInBounds();
-			reachedFinalPos = (!haveForwardSpeed && !haveVerticalSpeed);
-			// reachedFinalPos = ((!haveForwardSpeed && !haveVerticalSpeed) || !inBounds);
+			reachedFinalPos = (deathSpeed == ZeroVector);
 
-			if (!inBounds) {
+			if (!pos.IsInBounds()) {
+				pos.ClampInBounds();
 				// ensure that no more forward-speed updates are done
 				// (prevents wrecks floating in mid-air at edge of map
 				// due to gravity no longer being applied either)
 				deathSpeed = ZeroVector;
 			}
 
-			featureDrawer->UpdateDrawPos(this);
-
+			eventHandler.FeatureMoved(this);
 			CalculateTransform();
 		}
-
-		if (!reachedFinalPos)
-			finishedUpdate = false;
-	}else{
+	} else {
 		if (pos.y > finalHeight) {
-			//! feature is falling
-			if (def->drawType >= DRAWTYPE_TREE)
+			// feature is falling (note: gravity is negative)
+			if (def->drawType >= DRAWTYPE_TREE) {
 				treeDrawer->DeleteTree(pos);
+			}
 
 			if (pos.y > 0.0f) {
-				speed.y += mapInfo->map.gravity; //! gravity is negative
-			} else { //! fall slower in water
-				speed.y += mapInfo->map.gravity * 0.5;
+				speed.y += mapInfo->map.gravity;
+			} else {
+				speed.y = mapInfo->map.gravity;
 			}
-			pos.y += speed.y;
-			midPos.y += speed.y;
+
+			Move1D(speed.y, 1, true);
+
+			if (def->drawType >= DRAWTYPE_TREE) {
+				treeDrawer->AddTree(def->drawType - 1, pos, 1.0f);
+			}
+
 			transMatrix[13] += speed.y;
-
-			if (def->drawType >= DRAWTYPE_TREE)
-				treeDrawer->AddTree(def->drawType - 1, pos, 1.0f);
 		} else if (pos.y < finalHeight) {
-			//! if ground is restored, make sure feature does not get buried
-			if (def->drawType >= DRAWTYPE_TREE)
+			// if ground is restored, make sure feature does not get buried
+			if (def->drawType >= DRAWTYPE_TREE) {
 				treeDrawer->DeleteTree(pos);
+			}
 
-			float diff = finalHeight - pos.y;
-			pos.y = finalHeight;
-			midPos.y += diff;
-			transMatrix[13] += diff;
+			const float dy = finalHeight - pos.y;
+
 			speed.y = 0.0f;
+			transMatrix[13] += dy;
 
-			if (def->drawType >= DRAWTYPE_TREE)
+			Move1D(dy, 1, true);
+
+			if (def->drawType >= DRAWTYPE_TREE) {
 				treeDrawer->AddTree(def->drawType - 1, pos, 1.0f);
+			}
 		}
 
-		if (pos.y != finalHeight)
-			finishedUpdate = false;
+		reachedFinalPos = (pos.y == finalHeight);
 	}
 
 	isUnderWater = ((pos.y + height) < 0.0f);
-	return finishedUpdate;
+	return reachedFinalPos;
 }
 
-bool CFeature::Update(void)
+bool CFeature::Update()
 {
-	bool finishedUpdate = true;
-	finishedUpdate = UpdatePosition();
+	bool finishedUpdate = UpdatePosition();
 
 	if (emitSmokeTime != 0) {
 		--emitSmokeTime;
@@ -628,11 +574,11 @@ bool CFeature::Update(void)
 	if (def->geoThermal) {
 		if ((gs->frameNum + id % 5) % 5 == 0) {
 			// Find the unit closest to the geothermal
-			vector<CSolidObject*> objs = qf->GetSolidsExact(pos, 0.0f);
+			const vector<CSolidObject*> &objs = qf->GetSolidsExact(pos, 0.0f);
 			float bestDist2 = 0;
 			CSolidObject* so = NULL;
 
-			for (vector<CSolidObject*>::iterator oi = objs.begin(); oi != objs.end(); ++oi) {
+			for (vector<CSolidObject*>::const_iterator oi = objs.begin(); oi != objs.end(); ++oi) {
 				float dist2 = ((*oi)->pos - pos).SqLength();
 				if (!so || dist2 < bestDist2)  {
 					bestDist2 = dist2;
@@ -642,9 +588,9 @@ bool CFeature::Update(void)
 
 			if (so != solidOnTop) {
 				if (solidOnTop)
-					DeleteDeathDependence(solidOnTop);
+					DeleteDeathDependence(solidOnTop, DEPENDENCE_SOLIDONTOP);
 				if (so)
-					AddDeathDependence(so);
+					AddDeathDependence(so, DEPENDENCE_SOLIDONTOP);
 			}
 			solidOnTop = so;
 		}
@@ -668,7 +614,7 @@ bool CFeature::Update(void)
 }
 
 
-void CFeature::StartFire(void)
+void CFeature::StartFire()
 {
 	if (fireTime || !def->burnable)
 		return;
@@ -681,7 +627,7 @@ void CFeature::StartFire(void)
 
 int CFeature::ChunkNumber(float f)
 {
-	return (int) ceil(f * modInfo.reclaimMethod);
+	return (int) math::ceil(f * modInfo.reclaimMethod);
 }
 
 
@@ -699,7 +645,7 @@ float CFeature::RemainingResource(float res) const
 
 	// Otherwise we are doing chunk reclaiming
 	float chunkSize = res / modInfo.reclaimMethod; // resource/no_chunks
-	float chunksLeft = ceil(reclaimLeft * modInfo.reclaimMethod);
+	float chunksLeft = math::ceil(reclaimLeft * modInfo.reclaimMethod);
 	return chunkSize * chunksLeft;
 }
 
@@ -713,11 +659,4 @@ float CFeature::RemainingMetal() const
 float CFeature::RemainingEnergy() const
 {
 	return RemainingResource(def->energy);
-}
-
-
-
-void CFeature::DrawS3O()
-{
-	unitDrawer->DrawFeatureStatic(this);
 }

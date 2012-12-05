@@ -52,7 +52,7 @@
 
 namespace streflop {
 
-// We do not use libm, so let's copy a few flags and C99 functions
+// We do not use libm, so let's copy a few flags and C99 functions from fenv.h
 // Give warning in case these flags would be defined already, this is indication
 // of potential confusion!
 
@@ -136,7 +136,7 @@ enum FPU_RoundMode {
 #define STREFLOP_FLDCW(cw) do { short tmp = (cw); __asm { fclex }; __asm { fldcw tmp }; } while (0)
 #define STREFLOP_STMXCSR(cw) do { int tmp; __asm { stmxcsr tmp }; (cw) = tmp; } while (0)
 #define STREFLOP_LDMXCSR(cw) do { int tmp = (cw); __asm { ldmxcsr tmp }; } while (0)
-#else // defined(_MSC_VER)
+#else
 #define STREFLOP_FSTCW(cw) do { asm volatile ("fstcw %0" : "=m" (cw) : ); } while (0)
 #define STREFLOP_FLDCW(cw) do { asm volatile ("fclex \n fldcw %0" : : "m" (cw)); } while (0)
 #define STREFLOP_STMXCSR(cw) do { asm volatile ("stmxcsr %0" : "=m" (cw) : ); } while (0)
@@ -182,13 +182,13 @@ inline int fesetround(FPU_RoundMode roundMode) {
     return 0;
 }
 
-typedef short int fenv_t;
+typedef short int fpenv_t;
 
-/// Default env. Defined in Math.cpp to be 0, and initalized on first use to the permanent holder
-extern fenv_t FE_DFL_ENV;
+/// Default env. Defined in SMath.cpp to be 0, and initialized on first use to the permanent holder
+extern fpenv_t FE_DFL_ENV;
 
 /// Get FP env into the given structure
-inline int fegetenv(fenv_t *envp) {
+inline int fegetenv(fpenv_t *envp) {
     // check that default env exists, otherwise save it now
     if (!FE_DFL_ENV) STREFLOP_FSTCW(FE_DFL_ENV);
     // Now store env into argument
@@ -197,7 +197,7 @@ inline int fegetenv(fenv_t *envp) {
 }
 
 /// Sets FP env from the given structure
-inline int fesetenv(const fenv_t *envp) {
+inline int fesetenv(const fpenv_t *envp) {
     // check that default env exists, otherwise save it now
     if (!FE_DFL_ENV) STREFLOP_FSTCW(FE_DFL_ENV);
     // Now overwrite current env by argument
@@ -206,7 +206,7 @@ inline int fesetenv(const fenv_t *envp) {
 }
 
 /// get env and clear exceptions
-inline int feholdexcept(fenv_t *envp) {
+inline int feholdexcept(fpenv_t *envp) {
     fegetenv(envp);
     feclearexcept(FE_ALL_EXCEPT);
     return 0;
@@ -230,7 +230,10 @@ template<> inline void streflop_init<Simple>() {
     STREFLOP_FLDCW(fpu_mode);
 
     // Enable signaling nans if compiled with this option.
-#if defined(__SUPPORT_SNAN__) && !defined(USE_GML)
+#if defined(__SUPPORT_SNAN__)
+#if defined(USE_GML)
+	if (Threading::IsSimThread())
+#endif
     feraiseexcept(streflop::FPU_Exceptions(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW));
 #endif
 }
@@ -242,7 +245,10 @@ template<> inline void streflop_init<Double>() {
     fpu_mode |= 0x0200; // 64 bits internal operations
     STREFLOP_FLDCW(fpu_mode);
 
-#if defined(__SUPPORT_SNAN__) && !defined(USE_GML)
+#if defined(__SUPPORT_SNAN__)
+#if defined(USE_GML)
+	if (Threading::IsSimThread())
+#endif
     feraiseexcept(streflop::FPU_Exceptions(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW));
 #endif
 }
@@ -255,7 +261,10 @@ template<> inline void streflop_init<Extended>() {
     fpu_mode |= 0x0300; // 80 bits internal operations
     STREFLOP_FLDCW(fpu_mode);
 
-#if defined(__SUPPORT_SNAN__) && !defined(USE_GML)
+#if defined(__SUPPORT_SNAN__)
+#if defined(USE_GML)
+	if (Threading::IsSimThread())
+#endif
     feraiseexcept(streflop::FPU_Exceptions(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW));
 #endif
 }
@@ -313,16 +322,16 @@ inline int fesetround(FPU_RoundMode roundMode) {
 }
 
 /// stores both x87 and SSE words
-struct fenv_t {
+struct fpenv_t {
     int sse_mode;
     short int x87_mode;
 };
 
-/// Default env. Defined in Math.cpp, structs are initialized to 0
-extern fenv_t FE_DFL_ENV;
+/// Default env. Defined in SMath.cpp, structs are initialized to 0
+extern fpenv_t FE_DFL_ENV;
 
 /// Get FP env into the given structure
-inline int fegetenv(fenv_t *envp) {
+inline int fegetenv(fpenv_t *envp) {
     // check that default env exists, otherwise save it now
     if (!FE_DFL_ENV.x87_mode) STREFLOP_FSTCW(FE_DFL_ENV.x87_mode);
     // Now store env into argument
@@ -336,7 +345,7 @@ inline int fegetenv(fenv_t *envp) {
 }
 
 /// Sets FP env from the given structure
-inline int fesetenv(const fenv_t *envp) {
+inline int fesetenv(const fpenv_t *envp) {
     // check that default env exists, otherwise save it now
     if (!FE_DFL_ENV.x87_mode) STREFLOP_FSTCW(FE_DFL_ENV.x87_mode);
     // Now overwrite current env by argument
@@ -350,7 +359,7 @@ inline int fesetenv(const fenv_t *envp) {
 }
 
 /// get env and clear exceptions
-inline int feholdexcept(fenv_t *envp) {
+inline int feholdexcept(fpenv_t *envp) {
     fegetenv(envp);
     feclearexcept(FE_ALL_EXCEPT);
     return 0;
@@ -462,17 +471,17 @@ inline int fesetround(FPU_RoundMode roundMode) {
 }
 
 /// SoftFloat environment comprises non-volatile state variables
-struct fenv_t {
+struct fpenv_t {
     char tininess;
     char rounding_mode;
     int exception_realtraps;
 };
 
-/// Default env. Defined in Math.cpp, initialized to some invalid value for detection
-extern fenv_t FE_DFL_ENV;
+/// Default env. Defined in SMath.cpp, initialized to some invalid value for detection
+extern fpenv_t FE_DFL_ENV;
 
 /// Get FP env into the given structure
-inline int fegetenv(fenv_t *envp) {
+inline int fegetenv(fpenv_t *envp) {
     // check that default env exists, otherwise save it now
     if (FE_DFL_ENV.tininess==42) {
         // First use: save default environment now
@@ -488,7 +497,7 @@ inline int fegetenv(fenv_t *envp) {
 }
 
 /// Sets FP env from the given structure
-inline int fesetenv(const fenv_t *envp) {
+inline int fesetenv(const fpenv_t *envp) {
     // check that default env exists, otherwise save it now
     if (FE_DFL_ENV.tininess==42) {
         // First use: save default environment now
@@ -504,7 +513,7 @@ inline int fesetenv(const fenv_t *envp) {
 }
 
 /// get env and clear exceptions
-inline int feholdexcept(fenv_t *envp) {
+inline int feholdexcept(fpenv_t *envp) {
     fegetenv(envp);
     feclearexcept(FE_ALL_EXCEPT);
     return 0;

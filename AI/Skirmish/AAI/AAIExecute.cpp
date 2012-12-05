@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // AAI
 //
-// A skirmish AI for the TA Spring engine.
+// A skirmish AI for the Spring engine.
 // Copyright Alexander Seizinger
 //
 // Released under GPL license: see LICENSE.html for more information.
@@ -67,11 +67,11 @@ AAIExecute::~AAIExecute(void)
 //		for(int i = 0; i < numOfFactories; ++i)
 //			buildques[i].clear();
 
-//		delete [] buildques;
+//		SafeDeleteArray(buildques);
 //	}
 
 //	if(factory_table)
-//		delete [] factory_table;
+//		SafeDeleteArray(factory_table);
 }
 
 
@@ -375,7 +375,7 @@ float3 AAIExecute::GetBuildsite(int builder, int building, UnitCategory category
 
 float3 AAIExecute::GetUnitBuildsite(int builder, int unit)
 {
-	float3 builder_pos = cb->GetUnitPos(builder);
+//	float3 builder_pos = cb->GetUnitPos(builder);
 	float3 pos = ZeroVector, best_pos = ZeroVector;
 	float min_dist = 1000000, dist;
 
@@ -1210,7 +1210,7 @@ bool AAIExecute::BuildStorage()
 	float energy = 2 / (cb->GetEnergyStorage() + futureStoredMetal - cb->GetEnergy() + 1);
 
 	// urgency < 4
-	float urgency = 16.0 / (ai->ut->activeUnits[METAL_MAKER] + ai->ut->futureUnits[METAL_MAKER] + 4);
+//	float urgency = 16.0 / (ai->ut->activeUnits[METAL_MAKER] + ai->ut->futureUnits[METAL_MAKER] + 4);
 
 	for(list<AAISector*>::iterator sector = brain->sectors[0].begin(); sector != brain->sectors[0].end(); sector++)
 	{
@@ -1754,7 +1754,9 @@ bool AAIExecute::BuildFactory()
 		{
 			++factory_types_requested;
 
-			my_rating = bt->GetFactoryRating(*fac) / pow( (float) (1 + bt->units_dynamic[*fac].active), 2.0f);
+			const float activeFacsOfType = bt->units_dynamic[*fac].active;
+
+			my_rating = bt->GetFactoryRating(*fac) / pow(activeFacsOfType + 1.0f, 2.0f);
 			my_rating *= (1 + sqrt(2.0 + (float) GetBuildqueueOfFactory(*fac)->size()));
 
 			if(ut->activeFactories < 1)
@@ -2196,7 +2198,7 @@ void AAIExecute::UpdateRessources()
 	averageMetalSurplus /= 8.0f;
 
 	// increase counter
-	counter = (++counter)%8;
+	counter = (counter + 1) % 8;
 }
 
 void AAIExecute::CheckStationaryArty()

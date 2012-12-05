@@ -12,7 +12,8 @@
 #include "lobject.h"
 #include "ltm.h"
 #include "lzio.h"
-
+#include <boost/thread/recursive_mutex.hpp>
+struct luaContextData;
 
 
 struct lua_longjmp;  /* defined in ldo.c */
@@ -92,7 +93,7 @@ typedef struct global_State {
   struct Table *mt[NUM_TAGS];  /* metatables for basic types */
   TString *tmname[TM_N];  /* array with tag-method names */
 
-  /* SPRING additions */
+  //SPRING additions
   lua_Func_fopen  fopen_func;
   lua_Func_popen  popen_func;
   lua_Func_pclose pclose_func;
@@ -133,6 +134,8 @@ struct lua_State {
   GCObject *gclist;
   struct lua_longjmp *errorJmp;  /* current error recover point */
   ptrdiff_t errfunc;  /* current error handling function (stack index) */
+	boost::recursive_mutex *luamutex;
+	luaContextData *lcd;
 };
 
 

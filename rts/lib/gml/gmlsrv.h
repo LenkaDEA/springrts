@@ -1,5 +1,5 @@
 // GML - OpenGL Multithreading Library
-// for Spring http://spring.clan-sy.com
+// for Spring http://springrts.com
 // Author: Mattias "zerver" Radeskog
 // (C) Ware Zerver Tech. http://zerver.net
 // Ware Zerver Tech. licenses this library
@@ -11,15 +11,18 @@
 #define GMLSRV_H
 
 #ifdef USE_GML
-
+#include "System/OffscreenGLContext.h"
 #include <boost/thread/thread.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/bind.hpp>
 #include "System/Platform/errorhandler.h"
+#include "System/Platform/Watchdog.h"
 #include "lib/streflop/streflop_cond.h"
 #if !defined(_MSC_VER) && defined(_WIN32)
-#	include <windows.h>
+#	include "System/Platform/Win/win32.h"
 #endif
+
+extern COffscreenGLContext* ogc[GML_MAX_NUM_THREADS];
 
 EXTERN inline void gmlUpdateServers() {
 	gmlItemsConsumed=0;
@@ -56,7 +59,7 @@ struct gmlExecState {
 	int maxthreads;
 	BOOL_ syncmode;
 	int num_units;
-	GML_TYPENAME std::list<U> *iter;
+	const GML_TYPENAME std::set<U> *iter;
 	int limit1;
 	int limit2;
 	BOOL_ serverwork;
@@ -64,7 +67,7 @@ struct gmlExecState {
 
 	gmlCount UnitCounter;
 	gmlExecState(R (*wrk)(void *)=NULL,R (*wrka)(void *,A)=NULL,R (*wrki)(void *,U)=NULL,
-		void* cls=NULL,int mt=0,BOOL_ sm=FALSE,int nu=0,GML_TYPENAME std::list<U> *it=NULL,int l1=1,int l2=1,BOOL_ sw=FALSE,void (*swf)(void *)=NULL):
+		void* cls=NULL,int mt=0,BOOL_ sm=FALSE,int nu=0,const GML_TYPENAME std::set<U> *it=NULL,int l1=1,int l2=1,BOOL_ sw=FALSE,void (*swf)(void *)=NULL):
 	worker(wrk),workerarg(wrka),workeriter(wrki),workerclass(cls),maxthreads(mt),
 		syncmode(sm),num_units(nu),iter(it),limit1(l1),limit2(l2),serverwork(sw),serverfun(swf),UnitCounter(-1) {
 	}
@@ -74,7 +77,7 @@ struct gmlExecState {
 			(*serverfun)(workerclass);
 	}
 
-	void ExecAll(int &pos, typename std::list<U>::iterator &it) {
+	void ExecAll(int &pos, typename std::set<U>::const_iterator &it) {
 		int i=UnitCounter;
 		if(i>=num_units)
 			return;
@@ -96,7 +99,7 @@ struct gmlExecState {
 		UnitCounter%=num_units;
 	}
 
-	BOOL_ Exec(int &pos, typename std::list<U>::iterator &it) {
+	BOOL_ Exec(int &pos, typename std::set<U>::const_iterator &it) {
 		int i=++UnitCounter;
 		if(i>=num_units)
 			return FALSE;
@@ -139,15 +142,25 @@ public:
 	gmlCount AuxClientsReady;
 
 
-	gmlClientServer():threadcnt(0),ClientsReady(0),Barrier(GML_CPU_COUNT),ExecDepth(0),newwork(FALSE),
-				inited(FALSE),dorun(TRUE),auxinited(FALSE),auxworker(NULL),AuxBarrier(2),AuxClientsReady(0) {
+	gmlClientServer()
+		: ExecDepth(0)
+		, Barrier(GML_CPU_COUNT)
+		, dorun(TRUE)
+		, inited(FALSE)
+		, threadcnt(0)
+		, ClientsReady(0)
+		, newwork(FALSE)
+		, auxinited(FALSE)
+		, auxworker(NULL)
+		, AuxBarrier(2)
+		, AuxClientsReady(0) {
 	}
 
 	~gmlClientServer() {
 		if(inited) {
 			GML_TYPENAME gmlExecState<R,A,U> *ex=ExecState+ExecDepth;
 			BOOL_ dowait=TRUE;
-			for(int i=1; i<gmlThreadCount; ++i) {
+			for(int i=3; i<=gmlThreadCount+1; ++i) {
 				if(!threads[i]->joinable() || threads[i]->timed_join(boost::posix_time::milliseconds(10)))
 					dowait=FALSE;
 			}
@@ -155,7 +168,7 @@ public:
 			dorun=FALSE;
 			if(dowait)
 				Barrier.wait();
-			for(int i=1; i<gmlThreadCount; ++i) {
+			for(int i=3; i<=gmlThreadCount+1; ++i) {
 				if(threads[i]->joinable()) {
 					if(dowait)
 						threads[i]->join();
@@ -166,18 +179,19 @@ public:
 			}
 		}
 		if(auxinited) {
-			BOOL_ dowait=threads[gmlThreadCount]->joinable() && !threads[gmlThreadCount]->timed_join(boost::posix_time::milliseconds(10));
+			boost::thread *simthread = threads[GML_SIM_THREAD_NUM];
+			BOOL_ dowait=simthread->joinable() && !simthread->timed_join(boost::posix_time::milliseconds(10));
 			auxworker=NULL;
 			dorun=FALSE;
 			if(dowait)
 				AuxBarrier.wait();
-			if(threads[gmlThreadCount]->joinable()) {
+			if(simthread->joinable()) {
 				if(dowait)
-					threads[gmlThreadCount]->join();
-				else if(!threads[gmlThreadCount]->timed_join(boost::posix_time::milliseconds(100)))
-					threads[gmlThreadCount]->interrupt();
+					simthread->join();
+				else if(!simthread->timed_join(boost::posix_time::milliseconds(100)))
+					simthread->interrupt();
 			}
-			delete threads[gmlThreadCount];
+			delete simthread;
 		}
 	}
 
@@ -198,19 +212,19 @@ public:
 			if(execswf)
 				ex->ExecServerFun();
 
-			typename std::list<U>::iterator it;
+			typename std::set<U>::const_iterator it;
 			if(ex->workeriter)
 				it=ex->iter->begin();
 			int pos=0;
 //			int nproc=0;
 			int updsrv=0;
 			if(ex->maxthreads>1) {
-				while(ClientsReady<=gmlThreadCount+1) {
-					if((updsrv++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL)
+				while(ClientsReady < gmlThreadCount - 1) {
+					if(!gmlShareLists && ((updsrv++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL))
 						gmlUpdateServers();
 					BOOL_ processed=FALSE;
 
-					for(int i=1; i<gmlThreadCount; ++i) {
+					for(int i=3; i<=gmlThreadCount+1; ++i) {
 						gmlQueue *qd=&gmlQueues[i];
 						if(qd->Reloc)
 							qd->Realloc();
@@ -229,9 +243,6 @@ public:
 							//						++nproc;
 						}
 					}
-
-					if(ClientsReady>=gmlThreadCount-1)
-						++ClientsReady;
 				}
 			}
 			else {
@@ -251,24 +262,24 @@ public:
 //		set_threadnum(0);
 		gmlInit();
 
-		for(int i=1; i<gmlThreadCount; ++i)
+		for(int i=3; i<=gmlThreadCount+1; ++i)
 			threads[i]=new boost::thread(boost::bind<void, gmlClientServer, gmlClientServer*>(&gmlClientServer::gmlClient, this));
 #if GML_ENABLE_TLS_CHECK
 		for(int i=0; i<GML_MAX_NUM_THREADS; ++i)
 			boost::thread::yield();
-		if(gmlThreadNumber!=0) {
+		if(gmlThreadNumber != GML_DRAW_THREAD_NUM) {
 			handleerror(NULL, "Thread Local Storage test failed", "GML error:", MBF_OK | MBF_EXCL);
 		}
 #endif
 		inited=TRUE;
 	}
 
-	void Work(R (*wrk)(void *),R (*wrka)(void *,A), R (*wrkit)(void *,U),void *cls,int mt,BOOL_ sm, GML_TYPENAME std::list<U> *it,int nu,int l1,int l2,BOOL_ sw,void (*swf)(void *)=NULL) {
+	void Work(R (*wrk)(void *),R (*wrka)(void *,A), R (*wrkit)(void *,U),void *cls,int mt,BOOL_ sm, const GML_TYPENAME std::set<U> *it,int nu,int l1,int l2,BOOL_ sw,void (*swf)(void *)=NULL) {
 		if(!inited)
 			WorkInit();
 		if(auxworker)
 			--mt;
-		if(gmlThreadNumber!=0) {
+		if(gmlThreadNumber != GML_DRAW_THREAD_NUM) {
 			NewWork(wrk,wrka,wrkit,cls,mt,sm,it,nu,l1,l2,sw,swf);
 			return;
 		}
@@ -277,7 +288,7 @@ public:
 		gmlServer();
 	}
 
-	void NewWork(R (*wrk)(void *),R (*wrka)(void *,A), R (*wrkit)(void *,U),void *cls,int mt,BOOL_ sm, GML_TYPENAME std::list<U> *it,int nu,int l1,int l2,BOOL_ sw,void (*swf)(void *)=NULL) {
+	void NewWork(R (*wrk)(void *),R (*wrka)(void *,A), R (*wrkit)(void *,U),void *cls,int mt,BOOL_ sm, const GML_TYPENAME std::set<U> *it,int nu,int l1,int l2,BOOL_ sw,void (*swf)(void *)=NULL) {
 		gmlQueue *qd=&gmlQueues[gmlThreadNumber];
 		qd->ReleaseWrite();
 
@@ -285,6 +296,8 @@ public:
 		new (ex+1) GML_TYPENAME gmlExecState<R,A,U>(wrk,wrka,wrkit,cls,mt,sm,nu,it,l1,l2,sw,swf);
 		newwork=TRUE;
 
+		while(!qd->Empty())
+			boost::thread::yield();
 		++ClientsReady;	
 		gmlClientSub();
 
@@ -302,14 +315,14 @@ public:
 		GML_TYPENAME gmlExecState<R,A,U> *ex=ExecState+ExecDepth;
 		
 		int thread=gmlThreadNumber;
-		if(thread>=ex->maxthreads) {
+		if(thread>=ex->maxthreads+2) {
 			++ClientsReady;	
 			return;
 		}
 
-		typename std::list<U>::iterator it;
+		typename std::set<U>::iterator it;
 		if(ex->workeriter)
-			it=((GML_TYPENAME std::list<U> *)*(GML_TYPENAME std::list<U> * volatile *)&ex->iter)->begin();
+			it=((GML_TYPENAME std::set<U> *)*(GML_TYPENAME std::set<U> * volatile *)&ex->iter)->begin();
 		int pos=0;
 
 		int processed=0;
@@ -337,19 +350,28 @@ public:
 //			}
 		}
 		qd->ReleaseWrite();
+		while(!qd->Empty())
+			boost::thread::yield();
 		++ClientsReady;	
 	}
 
 	void gmlClient() {
-		set_threadnum(++threadcnt);
-		streflop_init<streflop::Simple>();
+		long thr = ++threadcnt;
+		set_threadnum(thr + 2);
+		if (gmlShareLists) {
+			ogc[thr]->WorkerThreadPost();
+		}
+		streflop::streflop_init<streflop::Simple>();
 		while(dorun) {
 			gmlClientSub();
+		}
+		if (gmlShareLists) {
+			ogc[thr]->WorkerThreadFree();
 		}
 	}
 
 	void GetQueue() {
-		gmlQueue *qd=&gmlQueues[gmlThreadCount];
+		gmlQueue *qd=&gmlQueues[GML_SIM_THREAD_NUM];
 
 		if(!qd->WasSynced && qd->Write==qd->WritePos)
 			return;
@@ -359,22 +381,24 @@ public:
 		qd->GetWrite(qd->WasSynced?2:TRUE);
 
 		if(isq1) {
-			while(!qd->Locked1 && *(BYTE * volatile *)&qd->Pos1!=qd->Queue1)
+			while(!qd->Locked1 && !qd->Empty(1))
 				boost::thread::yield();
 		}
 		else {
-			while(!qd->Locked2 && *(BYTE * volatile *)&qd->Pos2!=qd->Queue2)
+			while(!qd->Locked2 && !qd->Empty(2))
 				boost::thread::yield();
 		}
 	}
 
 	BOOL_ PumpAux() {
+		if(!threads[GML_SIM_THREAD_NUM]->joinable())
+			return TRUE;
 		static int updsrvaux=0;
-		if((updsrvaux++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL)
+		if(!gmlShareLists && ((updsrvaux++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL))
 			gmlUpdateServers();
 
 		while(AuxClientsReady<=3) {
-			gmlQueue *qd=&gmlQueues[gmlThreadCount];
+			gmlQueue *qd=&gmlQueues[GML_SIM_THREAD_NUM];
 			if(qd->Reloc)
 				qd->Realloc();
 			if(qd->GetRead()) {
@@ -399,7 +423,7 @@ public:
 		if(!auxinited) {
 			if(!inited)
 				WorkInit();
-			threads[gmlThreadCount]=new boost::thread(boost::bind<void, gmlClientServer, gmlClientServer*>(&gmlClientServer::gmlClientAux, this));
+			threads[GML_SIM_THREAD_NUM]=new boost::thread(boost::bind<void, gmlClientServer, gmlClientServer*>(&gmlClientServer::gmlClientAux, this));
 			auxinited=TRUE;
 		}
 		AuxBarrier.wait();
@@ -412,7 +436,7 @@ public:
 		if(!auxworker)
 			return;
 		
-		gmlQueue *qd=&gmlQueues[gmlThreadCount];
+		gmlQueue *qd=&gmlQueues[GML_SIM_THREAD_NUM];
 
 		qd->GetWrite(TRUE); 
 
@@ -420,18 +444,15 @@ public:
 
 		qd->ReleaseWrite();
 
-		++AuxClientsReady;	
+		++AuxClientsReady;
 		auxworker=NULL;
 	}
 
 	void gmlClientAux() {
-#ifdef _WIN32
-		extern HANDLE simthread; // from System/Platform/Win/CrashHandler.cpp
-		DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(),
-						&simthread, 0, TRUE, DUPLICATE_SAME_ACCESS);
-#endif
-		set_threadnum(gmlThreadCount);
-		streflop_init<streflop::Simple>();
+		Threading::SetThreadName("sim");
+		Watchdog::RegisterThread(WDT_SIM, true);
+		set_threadnum(GML_SIM_THREAD_NUM);
+		streflop::streflop_init<streflop::Simple>();
 		while(dorun) {
 			gmlClientAuxSub();
 		}

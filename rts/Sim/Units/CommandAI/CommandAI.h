@@ -1,19 +1,20 @@
-#ifndef __COMMAND_AI_H__
-#define __COMMAND_AI_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _COMMAND_AI_H
+#define _COMMAND_AI_H
 
 #include <vector>
-#include <deque>
 #include <set>
 
-#include "Object.h"
-#include "Command.h"
+#include "System/Object.h"
 #include "CommandQueue.h"
-#include "float3.h"
+#include "System/float3.h"
 
 class CUnit;
 class CFeature;
 class CWeapon;
 class CLoadSaveInterface;
+struct Command;
 
 class CCommandAI : public CObject
 {
@@ -22,36 +23,65 @@ class CCommandAI : public CObject
 public:
 	CCommandAI(CUnit* owner);
 	CCommandAI();
-	virtual ~CCommandAI(void);
-	void PostLoad();
-
+	virtual ~CCommandAI();
+	void PostLoad() {}
 	void DependentDied(CObject* o);
+	inline void SetOrderTarget(CUnit* o);
+
+	void SetScriptMaxSpeed(float speed, bool persistent);
+	void SlowUpdateMaxSpeed();
+
+	virtual void AddDeathDependence(CObject* o, DependenceType dep);
+	virtual void DeleteDeathDependence(CObject* o, DependenceType dep);
+	void AddCommandDependency(const Command &c);
+	void ClearCommandDependencies();
 	/// feeds into GiveCommandReal()
 	void GiveCommand(const Command& c, bool fromSynced = true);
 	virtual int GetDefaultCmd(const CUnit* pointed, const CFeature* feature);
 	virtual void SlowUpdate();
 	virtual void GiveCommandReal(const Command& c, bool fromSynced = true);
 	virtual std::vector<CommandDescription>& GetPossibleCommands();
-	virtual void DrawCommands(void);
-	virtual void FinishCommand(void);
-	virtual void WeaponFired(CWeapon* weapon);
-	virtual void BuggerOff(float3 pos, float radius);
+	virtual void FinishCommand();
+	virtual void WeaponFired(CWeapon* weapon, bool mainWeapon, bool lastSalvo);
+	virtual void BuggerOff(const float3& pos, float radius) {}
 	virtual void LoadSave(CLoadSaveInterface* file, bool loading);
-	virtual bool WillCancelQueued(Command &c);
+	/**
+	 * @brief Determines if c will cancel a queued command
+	 * @return true if c will cancel a queued command
+	 */
+	virtual bool WillCancelQueued(const Command& c);
 	virtual bool CanSetMaxSpeed() const { return false; }
 	virtual void StopMove() { return; }
 	virtual bool HasMoreMoveCommands();
+	/**
+	 * Removes attack commands targeted at our new ally.
+	 */
 	virtual void StopAttackingAllyTeam(int ally);
 
-	int CancelCommands(const Command &c, CCommandQueue& queue, bool& first);
-	CCommandQueue::iterator GetCancelQueued(const Command &c,
+	int CancelCommands(const Command& c, CCommandQueue& queue, bool& first);
+	/**
+	 * @brief Finds the queued command that would be canceled by the Command c
+	 * @return An iterator pointing at the command, or commandQue.end(),
+	 *   if no such queued command exists
+	 */
+	CCommandQueue::iterator GetCancelQueued(const Command& c,
 	                                        CCommandQueue& queue);
-	std::vector<Command> GetOverlapQueued(const Command &c);
-	std::vector<Command> GetOverlapQueued(const Command &c,
+	/**
+	 * @brief Returns commands that overlap c, but will not be canceled by c
+	 * @return a vector containing commands that overlap c
+	 */
+	std::vector<Command> GetOverlapQueued(const Command& c);
+	std::vector<Command> GetOverlapQueued(const Command& c,
 	                                      CCommandQueue& queue);
-	virtual void ExecuteAttack(Command &c);
-	virtual void ExecuteDGun(Command &c);
-	virtual void ExecuteStop(Command &c);
+	/**
+	 * @brief Causes this CommandAI to execute the attack order c
+	 */
+	virtual void ExecuteAttack(Command& c);
+
+	/**
+	 * @brief executes the stop command c
+	 */
+	virtual void ExecuteStop(Command& c);
 
 	void SetCommandDescParam0(const Command& c);
 	bool ExecuteStateCommand(const Command& c);
@@ -61,8 +91,9 @@ public:
 
 	void AddStockpileWeapon(CWeapon* weapon);
 	void StockpileChanged(CWeapon* weapon);
-	void UpdateStockpileIcon(void);
+	void UpdateStockpileIcon();
 	bool CanChangeFireState();
+
 	CWeapon* stockpileWeapon;
 
 	std::vector<CommandDescription> possibleCommands;
@@ -77,34 +108,53 @@ public:
 	int lastFinishCommand;
 
 	CUnit* owner;
-
 	CUnit* orderTarget;
+
 	bool targetDied;
 	bool inCommand;
-	bool selected;
 	bool repeatOrders;
 	int lastSelectedCommandPage;
 	bool unimportantMove;
 
 protected:
-	bool isTrackable(const CUnit* unit) const;
-	bool isAttackCapable() const;
-	virtual bool AllowedCommand(const Command &c, bool fromSynced);
+	virtual bool AllowedCommand(const Command& c, bool fromSynced);
+	virtual void SelectNewAreaAttackTargetOrPos(const Command& ac) {}
+
+	bool IsAttackCapable() const;
 	bool SkipParalyzeTarget(const CUnit* target);
 	void GiveAllowedCommand(const Command& c, bool fromSynced = true);
 	void GiveWaitCommand(const Command& c);
+	/**
+	 * @brief Returns the command that keeps the unit close to the path
+	 * @return a Fight Command with 6 arguments, the first three being where to
+	 *   return to (the current position of the unit), and the second being
+	 *   the location of the original command.
+	 */
 	void PushOrUpdateReturnFight(const float3& cmdPos1, const float3& cmdPos2);
-	int UpdateTargetLostTimer(int unitid);
-	void DrawWaitIcon(const Command& cmd) const;
+	int UpdateTargetLostTimer(int unitID);
 	void DrawDefaultCommand(const Command& c) const;
 
 private:
+	std::set<CObject*> commandDeathDependences;
 	/**
-	 * continously set to some non-zero value while target is in radar
-	 * decremented every frame, command is canceled if it reaches 0
+	 * continuously set to some non-zero value while target is in radar
+	 * decremented by 1 every SlowUpdate (!), command is canceled when
+	 * timer reaches 0
 	 */
 	int targetLostTimer;
 };
 
+inline void CCommandAI::SetOrderTarget(CUnit* o) {
+	if (orderTarget != NULL) {
+		// NOTE As we do not include Unit.h,
+		//   the compiler does not know that CUnit derives from CObject,
+		//   and thus we can not use static_cast<CObject*>(...) here.
+		DeleteDeathDependence((CObject*)orderTarget, DEPENDENCE_ORDERTARGET);
+	}
+	orderTarget = o;
+	if (orderTarget != NULL) {
+		AddDeathDependence((CObject*)orderTarget, DEPENDENCE_ORDERTARGET);
+	}
+}
 
-#endif // __COMMAND_AI_H__
+#endif // _COMMAND_AI_H

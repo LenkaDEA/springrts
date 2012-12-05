@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_GAIA_H
 #define LUA_GAIA_H
-// LuaGaia.h: interface for the CLuaGaia class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 using std::string;
@@ -16,22 +15,13 @@ class CLuaGaia : public CLuaHandleSynced
 		static void LoadHandler();
 		static void FreeHandler();
 
-		static bool SetConfigString(const string& cfg);
-		static const string& GetConfigString() { return configString; }
-
 	protected:
-		bool AddSyncedCode();
-		bool AddUnsyncedCode();
+		bool AddSyncedCode(lua_State *L);
+		bool AddUnsyncedCode(lua_State *L);
 
 	private:
 		CLuaGaia();
 		~CLuaGaia();
-
-	private: // call-outs
-		static int GetConfigString(lua_State* L);
-
-	private:
-		static string configString;
 };
 
 

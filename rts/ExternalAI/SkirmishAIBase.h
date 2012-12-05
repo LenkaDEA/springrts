@@ -1,27 +1,13 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#ifndef __SKIRMISH_AI_BASE_H
-#define __SKIRMISH_AI_BASE_H
+#ifndef SKIRMISH_AI_BASE_H
+#define SKIRMISH_AI_BASE_H
 
 #include "Game/TeamController.h"
 
 #include <string>
 #include <map>
+
 
 /**
  * Possible live-cycle stati of a Skirmish AI instance.
@@ -49,8 +35,8 @@ public:
 	/**
 	 * @brief Constructor assigning default values.
 	 */
-	SkirmishAIBase() :
-		  TeamController()
+	SkirmishAIBase()
+		: TeamController()
 		, hostPlayer(-1)
 		, status(SKIRMAISTATE_CONSTRUCTED)
 		{}
@@ -68,8 +54,8 @@ public:
 	/**
 	 * @brief Constructor assigning default values.
 	 */
-	SkirmishAIStatistics() :
-		  TeamControllerStatistics()
+	SkirmishAIStatistics()
+		: TeamControllerStatistics()
 		, cpuTime(0)
 		{}
 
@@ -80,4 +66,4 @@ public:
 	void swab();
 };
 
-#endif // __SKIRMISH_AI_BASE_H
+#endif // SKIRMISH_AI_BASE_H

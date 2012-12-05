@@ -18,10 +18,12 @@
 #ifndef _CUTILS_UTIL_H
 #define _CUTILS_UTIL_H
 
-#include "cutilsdefines.h"
-
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#ifndef _MSC_VER
+	#include <stdbool.h>
 #endif
 
 // BEGINN: String realated functions
@@ -155,7 +157,7 @@ bool util_getParentDir(char* path);
  * and saves the resulting path in absoluteFilePath.
  * If searchOnlyWriteable is set, only the first entry in dirs
  * is used for the search, as it is assumed to contain
- * the writeable directory.
+ * the writable directory.
  *
  * @return  true if the file exists
  */
@@ -168,7 +170,7 @@ bool util_findFile(const char* dirs[], unsigned int numDirs,
  * and saves the resulting path in absoluteDirPath.
  * If searchOnlyWriteable is set, only the first entry in dirs
  * is used for the search, as it is assumed to contain
- * the writeable directory.
+ * the writable directory.
  *
  * @return  true if the file existed or was created
  */
@@ -181,8 +183,8 @@ bool util_findDir(const char* dirs[], unsigned int numDirs,
  * Lines that contain only white-spaces and lines beginning
  * with '#' or ';' are ignored.
  * Regex for a valid property:
- * ^[\w]*[^;#][^=]*=.+$
- * The strings in the <keys> and <values> arrays have to
+ * ^[\\w]*[^;#][^=]*=.+$
+ * The strings in the \<keys\> and \<values\> arrays have to
  * be freed by the callee.
  */
 int util_parsePropertiesFile(const char* propertiesFile,

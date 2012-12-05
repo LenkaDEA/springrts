@@ -1,12 +1,13 @@
-#include "StdAfx.h"
-#include "Game/GameHelper.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "Game/TraceRay.h"
 #include "Map/Ground.h"
 #include "Sim/Misc/InterceptHandler.h"
 #include "Sim/Projectiles/WeaponProjectiles/StarburstProjectile.h"
 #include "Sim/Units/Unit.h"
 #include "StarburstLauncher.h"
 #include "WeaponDefHandler.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 CR_BIND_DERIVED(CStarburstLauncher, CWeapon, (NULL));
 
@@ -29,35 +30,44 @@ CStarburstLauncher::~CStarburstLauncher(void)
 
 void CStarburstLauncher::Update(void)
 {
-	if(targetType!=Target_None){
-		weaponPos=owner->pos+owner->frontdir*relWeaponPos.z+owner->updir*relWeaponPos.y+owner->rightdir*relWeaponPos.x;
-		weaponMuzzlePos=owner->pos+owner->frontdir*relWeaponMuzzlePos.z+owner->updir*relWeaponMuzzlePos.y+owner->rightdir*relWeaponMuzzlePos.x;
-		wantedDir=(targetPos-weaponPos).Normalize();		//the aiming upward is apperently implicid so aim toward target
+	if (targetType != Target_None) {
+		weaponPos = owner->pos +
+			owner->frontdir * relWeaponPos.z +
+			owner->updir    * relWeaponPos.y +
+			owner->rightdir * relWeaponPos.x;
+		weaponMuzzlePos = owner->pos +
+			owner->frontdir * relWeaponMuzzlePos.z +
+			owner->updir    * relWeaponMuzzlePos.y +
+			owner->rightdir * relWeaponMuzzlePos.x;
+
+		// the aiming upward is apperently implicid so aim toward target
+		wantedDir = (targetPos - weaponPos).Normalize();
 	}
+
 	CWeapon::Update();
 }
 
 void CStarburstLauncher::FireImpl()
 {
-	float3 speed(0,weaponDef->startvelocity,0);
-	float maxrange;
+	float3 speed(0.0f, weaponDef->startvelocity, 0.0f);
+
 	if (weaponDef->fixedLauncher) {
 		speed = weaponDir * weaponDef->startvelocity;
-		maxrange = (float)MAX_WORLD_SIZE;
-	} else if (weaponDef->flighttime > 0) {
-		maxrange = (float)MAX_WORLD_SIZE;
-	} else {
-		maxrange = (float)range;
 	}
-	float3 aimError((gs->randVector()*sprayAngle + salvoError)*(1-owner->limExperience*0.7f));
+
+	const float maxRange = (weaponDef->flighttime > 0 || weaponDef->fixedLauncher)?
+		MAX_PROJECTILE_RANGE: range;
+	const float3 aimError =
+		(gs->randVector() * sprayAngle + salvoError) *
+		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
 
 	CStarburstProjectile* p =
 		new CStarburstProjectile(weaponMuzzlePos + float3(0, 2, 0), speed, owner,
-		targetPos, areaOfEffect, projectileSpeed, tracking, (int) uptime, targetUnit,
-		weaponDef, interceptTarget, maxrange, aimError);
+		targetPos, damageAreaOfEffect, projectileSpeed, tracking, (int) uptime, targetUnit,
+		weaponDef, interceptTarget, maxRange, aimError);
 
-	if(weaponDef->targetable)
-		interceptHandler.AddInterceptTarget(p,targetPos);
+	if (weaponDef->targetable)
+		interceptHandler.AddInterceptTarget(p, targetPos);
 }
 
 bool CStarburstLauncher::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
@@ -65,20 +75,15 @@ bool CStarburstLauncher::TryTarget(const float3& pos, bool userTarget, CUnit* un
 	if (!CWeapon::TryTarget(pos, userTarget, unit))
 		return false;
 
-	if (unit) {
-		if (unit->isUnderWater && !weaponDef->waterweapon)
-			return false;
-	} else {
-		if (pos.y < 0 && !weaponDef->waterweapon)
-			return false;
-	}
+	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
+		return false;
 
-	if (avoidFriendly && helper->TestAllyCone(weaponMuzzlePos,
-		(weaponDef->fixedLauncher? weaponDir: UpVector), 100, 0, owner->allyteam, owner)) {
+	const float3& wdir = weaponDef->fixedLauncher? weaponDir: UpVector;
+
+	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, wdir, 100.0f, 0.0f, owner->allyteam, true, false, false, owner)) {
 		return false;
 	}
-	if (avoidNeutral && helper->TestNeutralCone(weaponMuzzlePos,
-		(weaponDef->fixedLauncher? weaponDir: UpVector), 100, 0, owner)) {
+	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, wdir, 100.0f, 0.0f, owner->allyteam, false, true, false, owner)) {
 		return false;
 	}
 

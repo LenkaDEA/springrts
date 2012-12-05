@@ -1,19 +1,23 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef GROUP_H
 #define GROUP_H
-// Group.h: interface for the CGroup class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <vector>
 
 #include "Sim/Units/CommandAI/Command.h"
-#include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitSet.h"
+#include "System/creg/creg_cond.h"
+#include "System/float3.h"
 
 class CUnit;
 class CFeature;
 class CGroupHandler;
 
+/**
+ * Logic group of units denoted by a number.
+ * A group-ID/-number is unique per team (-> per groupHandler).
+ */
 class CGroup
 {
 	CR_DECLARE(CGroup);
@@ -21,28 +25,30 @@ class CGroup
 public:
 	CGroup(int id, CGroupHandler* groupHandler);
 	virtual ~CGroup();
-	void Serialize(creg::ISerializer *s);
 	void PostLoad();
 
 	void Update();
-	void DrawCommands();
 
-	void CommandFinished(int unitId, int commandTopicId);
-	void RemoveUnit(CUnit* unit); ///< call unit.SetGroup(NULL) instead of calling this directly
-	bool AddUnit(CUnit* unit);    ///< dont call this directly call unit.SetGroup and let that call this
-	const std::vector<CommandDescription>& GetPossibleCommands();
-	int GetDefaultCmd(const CUnit* unit, const CFeature* feature);
-	void GiveCommand(Command c);
-	void ClearUnits(void);
+	/**
+	 * Note: Call unit.SetGroup(NULL) instead of calling this directly.
+	 */
+	void RemoveUnit(CUnit* unit);
+	/**
+	 * Note: Call unit.SetGroup(group) instead of calling this directly.
+	 */
+	bool AddUnit(CUnit* unit);
+	void ClearUnits();
 
+	float3 CalculateCenter() const;
+
+private:
+	void RemoveIfEmptySpecialGroup();
+
+public:
 	int id;
-
 	CUnitSet units;
 
-	std::vector<CommandDescription> myCommands;
-
-	int lastCommandPage;
-
+private:
 	CGroupHandler* handler;
 };
 

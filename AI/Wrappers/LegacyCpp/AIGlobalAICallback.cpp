@@ -1,53 +1,46 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "AIGlobalAICallback.h"
 #include "AIAICallback.h"
 #include "AIAICheats.h"
 
-CAIGlobalAICallback::CAIGlobalAICallback()
-	: IGlobalAICallback(), sAICallback(NULL), teamId(-1),
+springLegacyAI::CAIGlobalAICallback::CAIGlobalAICallback()
+	: IGlobalAICallback(), sAICallback(NULL), skirmishAIId(-1),
 		wrappedAICallback(NULL), wrappedAICheats(NULL) {}
 
-CAIGlobalAICallback::CAIGlobalAICallback(const SSkirmishAICallback* sAICallback,
-		int teamId) :
-		IGlobalAICallback(), sAICallback(sAICallback), teamId(teamId),
+springLegacyAI::CAIGlobalAICallback::CAIGlobalAICallback(const SSkirmishAICallback* sAICallback,
+		int skirmishAIId) :
+		IGlobalAICallback(), sAICallback(sAICallback), skirmishAIId(skirmishAIId),
 		wrappedAICallback(NULL), wrappedAICheats(NULL) {}
 
-CAIGlobalAICallback::~CAIGlobalAICallback() {}
+springLegacyAI::CAIGlobalAICallback::~CAIGlobalAICallback() {
+
+	delete wrappedAICallback;
+	delete wrappedAICheats;
+}
 
 
-IAICallback* CAIGlobalAICallback::GetAICallback() {
+springLegacyAI::IAICallback* springLegacyAI::CAIGlobalAICallback::GetAICallback() {
 
 	if (wrappedAICallback == NULL) {
-		wrappedAICallback = new CAIAICallback(teamId, sAICallback);
+		wrappedAICallback = new CAIAICallback(skirmishAIId, sAICallback);
 	}
 
 	return wrappedAICallback;
 }
 
-IAICheats* CAIGlobalAICallback::GetCheatInterface() {
+springLegacyAI::IAICheats* springLegacyAI::CAIGlobalAICallback::GetCheatInterface() {
 
 	if (wrappedAICheats == NULL) {
 		// to initialize
 		this->GetAICallback();
 		wrappedAICheats =
-				new CAIAICheats(teamId, sAICallback, wrappedAICallback);
+				new CAIAICheats(skirmishAIId, sAICallback, wrappedAICallback);
 	}
 
 	return wrappedAICheats;
+}
+
+const SSkirmishAICallback* springLegacyAI::CAIGlobalAICallback::GetInnerCallback() const {
+	return sAICallback;
 }

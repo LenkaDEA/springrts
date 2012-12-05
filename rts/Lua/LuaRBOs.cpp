@@ -1,9 +1,7 @@
-#include "StdAfx.h"
-// LuaRBOs.cpp: implementation of the LuaRBOs class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+
+#include "System/mmgr.h"
 
 #include "LuaRBOs.h"
 
@@ -12,8 +10,6 @@
 #include "LuaHandle.h"
 #include "LuaHashString.h"
 #include "LuaUtils.h"
-
-#include "LogOutput.h"
 
 
 /******************************************************************************/
@@ -69,7 +65,7 @@ bool LuaRBOs::CreateMetatable(lua_State* L)
 
 const LuaRBOs::RBO* LuaRBOs::GetLuaRBO(lua_State* L, int index)
 {
-	return (RBO*)LuaUtils::GetUserData(L, index, "RBO");
+	return static_cast<RBO*>(LuaUtils::GetUserData(L, index, "RBO"));
 }
 
 
@@ -86,7 +82,7 @@ void LuaRBOs::RBO::Init()
 }
 
 
-void LuaRBOs::RBO::Free()
+void LuaRBOs::RBO::Free(lua_State *L)
 {
 	if (id == 0) {
 		return;
@@ -95,7 +91,7 @@ void LuaRBOs::RBO::Free()
 	glDeleteRenderbuffersEXT(1, &id);
 	id = 0;
 
-	CLuaHandle::GetActiveRBOs().rbos.erase(this);
+	CLuaHandle::GetActiveRBOs(L).rbos.erase(this);
 }
 
 
@@ -104,15 +100,15 @@ void LuaRBOs::RBO::Free()
 
 int LuaRBOs::meta_gc(lua_State* L)
 {
-	RBO* rbo = (RBO*)luaL_checkudata(L, 1, "RBO");
-	rbo->Free();
+	RBO* rbo = static_cast<RBO*>(luaL_checkudata(L, 1, "RBO"));
+	rbo->Free(L);
 	return 0;
 }
 
 
 int LuaRBOs::meta_index(lua_State* L)
 {
-	const RBO* rbo = (RBO*)luaL_checkudata(L, 1, "RBO");
+	const RBO* rbo = static_cast<RBO*>(luaL_checkudata(L, 1, "RBO"));
 	const string key = luaL_checkstring(L, 2);
 	if (key == "valid") {
 		lua_pushboolean(L, glIsRenderbufferEXT(rbo->id));
@@ -169,14 +165,14 @@ int LuaRBOs::CreateRBO(lua_State* L)
 	
 	glBindRenderbufferEXT(rbo.target, 0);
 
-	RBO* rboPtr = (RBO*)lua_newuserdata(L, sizeof(RBO));
+	RBO* rboPtr = static_cast<RBO*>(lua_newuserdata(L, sizeof(RBO)));
 	*rboPtr = rbo;
 
 	luaL_getmetatable(L, "RBO");
 	lua_setmetatable(L, -2);
 
 	if (rboPtr->id != 0) {
-		CLuaHandle::GetActiveRBOs().rbos.insert(rboPtr);
+		CLuaHandle::GetActiveRBOs(L).rbos.insert(rboPtr);
 	}
 
 	return 1;
@@ -188,8 +184,8 @@ int LuaRBOs::DeleteRBO(lua_State* L)
 	if (lua_isnil(L, 1)) {
 		return 0;
 	}
-	RBO* rbo = (RBO*)luaL_checkudata(L, 1, "RBO");
-	rbo->Free();
+	RBO* rbo = static_cast<RBO*>(luaL_checkudata(L, 1, "RBO"));
+	rbo->Free(L);
 	return 0;
 }
 

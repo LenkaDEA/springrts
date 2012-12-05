@@ -1,128 +1,32 @@
-/*
-LogOutput - global object to write log info to.
- Game UI elements that display log can subscribe to it to receive the log messages.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef LOGOUTPUT_H
-#define LOGOUTPUT_H
+#ifndef LOG_OUTPUT_H
+#define LOG_OUTPUT_H
 
-#include <stdarg.h>
-#include <string>
-#include <vector>
-#include <sstream>
-
-// format string error checking
-#ifdef __GNUC__
-#define FORMATSTRING(n) __attribute__((format(printf, n, n + 1)))
-#else
-#define FORMATSTRING(n)
+#include "lib/gml/gmlcnf.h"
+#if defined(USE_GML) && GML_ENABLE_SIM
+#include <boost/thread/mutex.hpp>
 #endif
 
-class float3;
+#include <string>
+#include <vector>
 
 
 /**
- * @brief defines a logging subsystem
- *
- * Each logging subsystem can be independently enabled/disabled, this allows
- * for adding e.g. very detailed logging that's by default off, but can be
- * turned on when troubleshooting.  (example: the virtual file system)
- *
- * A logging subsystem should be defined as a global variable, so it can be
- * used as argument to logOutput.Print similarly to a simple enum constant:
- *
- *	static CLogSubsystem LOG_MYSUBSYS("mysubsystem");
- *
- * ...then, in the actual code of your engine subsystem, use:
- *
- *		logOutput.Print(LOG_MYSUBSYS, "blah");
- *
- * All subsystems are linked together in a global list, allowing CLogOutput
- * to enable/disable subsystems based on env var and configuration key.
+ * @brief logging class
+ * Game UI elements that display log can subscribe to it to receive the log
+ * messages.
  */
-class CLogSubsystem
-{
-public:
-	static CLogSubsystem* GetList() { return linkedList; }
-	CLogSubsystem* GetNext() { return next; }
-
-	CLogSubsystem(const char* name, bool enabled = false);
-
-	const char* const name;
-	CLogSubsystem* const next;
-
-	bool enabled;
-
-private:
-	static CLogSubsystem* linkedList;
-};
-
-/**
- * @brief ostringstream-derivate for simple logging
- *
- * usage:
- * LogObject() << "Important message with value: " << myint;
- * LogObject(mySubsys) << "Message";
- */
-class LogObject
-{
-public:
-	LogObject(const CLogSubsystem& subsys);
-	LogObject();
-
-	~LogObject();
-
-	template <typename T>
-	LogObject& operator<<(const T& t)
-	{
-		str << t;
-		return *this;
-	};
-
-private:
-	const CLogSubsystem& subsys;
-	std::ostringstream str;
-};
-
-/** @brief implement this interface to be able to observe CLogOutput */
-class ILogSubscriber
-{
-public:
-	// Notification of log messages to subscriber
-	virtual void NotifyLogMsg(const CLogSubsystem& subsystem, const std::string& str) = 0;
-	virtual void SetLastMsgPos(const float3& pos) {}
-};
-
-
-/** @brief logging class */
 class CLogOutput
 {
 public:
 	CLogOutput();
 	~CLogOutput();
 
-	void Print(CLogSubsystem& subsystem, const char* fmt, ...) FORMATSTRING(3);
-	void Print(const char* fmt, ...) FORMATSTRING(2);
-	void Print(const std::string& text);
-	void Prints(const CLogSubsystem& subsystem, const std::string& text); // canno be named Print, would be  not unique
-	void Printv(CLogSubsystem& subsystem, const char* fmt, va_list argp);
-	static CLogSubsystem& GetDefaultLogSubsystem();
-
-	void SetLastMsgPos(const float3& pos);
-
-	// In case the InfoConsole and other in game subscribers
-	// should not be used anymore (SDL shutdown)
-	void RemoveAllSubscribers();
-	// Close the output file, so the crash reporter can copy it
-	void End();
-
-	void AddSubscriber(ILogSubscriber* ls);
-	void RemoveSubscriber(ILogSubscriber* ls);
-
 	/**
 	 * @brief set the log file
 	 *
-	 * Relative paths are relative to the writeable data-dir.
+	 * Relative paths are relative to the writable data-dir.
 	 * This method may only be called as long as the logger is not yet
 	 * initialized.
 	 * @see Initialize()
@@ -131,14 +35,14 @@ public:
 	/**
 	 * @brief returns the log file name (without path)
 	 *
-	 * Relative paths are relative to the writeable data-dir.
+	 * Relative paths are relative to the writable data-dir.
 	 */
 	const std::string& GetFileName() const;
 	/**
 	 * @brief returns the absolute path to the log file
 	 *
-	 * Relative paths are relative to the writeable data-dir.
-	 * This method may only be called after the logger got initialzized.
+	 * Relative paths are relative to the writable data-dir.
+	 * This method may only be called after the logger got initialized.
 	 * @see Initialize()
 	 */
 	const std::string& GetFilePath() const;
@@ -151,43 +55,29 @@ public:
 	 * after the engine chdir'ed to the correct directory.
 	 */
 	void Initialize();
-	void Flush();
-
-protected:
-	/**
-	 * @brief initialize the log subsystems
-	 *
-	 * This writes list of all available and all enabled subsystems to the log.
-	 *
-	 * Log subsystems can be enabled using the configuration key "LogSubsystems",
-	 * or the environment variable "SPRING_LOG_SUBSYSTEMS".
-	 *
-	 * Both specify a comma separated list of subsystems that should be enabled.
-	 * The lists from both sources are combined, there is no overriding.
-	 *
-	 * A subsystem that is by default enabled, can not be disabled.
-	 */
-	void InitializeSubsystems();
-	/**
-	 * @brief core log output method, used by all others
-	 *
-	 * Note that, when logOutput isn't initialized yet, the logging is done to the
-	 * global std::vector preInitLog(), and is only written to disk in the call to
-	 * Initialize().
-	 *
-	 * This method notifies all registered ILogSubscribers, calls OutputDebugString
-	 * (for MSVC builds) and prints the message to stdout and the file log.
-	 */
-	void Output(const CLogSubsystem& subsystem, const std::string& str);
-
-	void ToStdout(const CLogSubsystem& subsystem, const std::string message);
-	void ToFile(const CLogSubsystem& subsystem, const std::string message);
 
 private:
+	void End();
+
+	/**
+	 * @brief initialize the log sections
+	 *
+	 * This writes a list of all available and all enabled sections to the log.
+	 *
+	 * Log sections can be enabled using the configuration key "LogSections",
+	 * or the environment variable "SPRING_LOG_SECTIONS".
+	 *
+	 * Both specify a comma separated list of sections that should be enabled.
+	 * The lists from both sources are combined, there is no overriding.
+	 *
+	 * A section that is enabled by default, can not be disabled.
+	 */
+	void InitializeSections();
+
 	/**
 	 * @brief creates an absolute file path from a file name
 	 *
-	 * Will use the CWD, whihc should be the writeable data-dir format
+	 * Will use the CWD, which should be the writable data-dir format
 	 * absoluteification.
 	 */
 	static std::string CreateFilePath(const std::string& fileName);
@@ -215,15 +105,17 @@ private:
 	void RotateLogFile() const;
 
 
-	std::vector<ILogSubscriber*> subscribers;
 	std::string fileName;
 	std::string filePath;
 	bool rotateLogFiles;
+
+#if defined(USE_GML) && GML_ENABLE_SIM
+	boost::mutex logmutex;
+#endif
 };
 
 
 extern CLogOutput logOutput;
 
-#undef FORMATSTRING
+#endif // LOG_OUTPUT_H
 
-#endif // LOGOUTPUT_H

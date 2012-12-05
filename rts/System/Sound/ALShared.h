@@ -1,10 +1,10 @@
-#ifndef ALShared
-#define ALShared
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "LogOutput.h"
+#ifndef _AL_SHARED_H_
+#define _AL_SHARED_H_
 
-extern const CLogSubsystem LOG_SOUND;
+#include <al.h>
 
 bool CheckError(const char* msg);
 
-#endif
+#endif // _AL_SHARED_H_

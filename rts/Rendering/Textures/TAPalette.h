@@ -1,24 +1,23 @@
-#ifndef TAPALETTE_H
-#define TAPALETTE_H
-// TAPalette.h: interface for the CTAPalette class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-class CTAPalette
-{
+#ifndef TA_PALETTE_H
+#define TA_PALETTE_H
+
+class CFileHandler;
+class CTAPalette {
 public:
+	enum { NUM_PALETTE_ENTRIES = 256 };
+
 	CTAPalette();
-	~CTAPalette();
 
-	inline unsigned char* operator[] (int a){
-		return p[a];
-	}
+	inline const unsigned char* operator[] (int a) const { return p[a]; }
 
-	unsigned char p[256][4];
+	void Init(CFileHandler&);
 
-	int NumTeamColors() { return 10; }
-	void Init(void);
+private:
+	unsigned char p[NUM_PALETTE_ENTRIES][4];
 };
+
 extern CTAPalette palette;
 
-#endif /* TAPALETTE_H */
+#endif /* TA_PALETTE_H */

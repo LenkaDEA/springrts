@@ -1,22 +1,7 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#ifndef _AILIBRARYMANAGER_H
-#define	_AILIBRARYMANAGER_H
+#ifndef AI_LIBRARY_MANAGER_H
+#define	AI_LIBRARY_MANAGER_H
 
 #include "IAILibraryManager.h"
 
@@ -36,8 +21,6 @@
  * are currently loaded, and unloads them when they are not needed anymore.
  */
 class CAILibraryManager : public IAILibraryManager {
-private:
-
 public:
 	CAILibraryManager();
 	/**
@@ -56,38 +39,14 @@ public:
 
 	virtual std::vector<SkirmishAIKey> FittingSkirmishAIKeys(
 			const SkirmishAIKey& skirmishAIKey) const;
-	/**
-	 * A Skirmish AI (its library) is only really loaded
-	 * when it is not yet loaded.
-	 */
 	virtual const CSkirmishAILibrary* FetchSkirmishAILibrary(
 			const SkirmishAIKey& skirmishAIKey);
-	/**
-	 * A Skirmish AI is only unloaded when ReleaseSkirmishAILibrary() is called
-	 * as many times as GetSkirmishAILibrary() was loading and unloading
-	 * of the interfaces is handled internally/automatically.
-	 */
 	virtual void ReleaseSkirmishAILibrary(const SkirmishAIKey& skirmishAIKey);
-	/** Unloads all currently Skirmish loaded AIs. */
-	virtual void ReleaseAllSkirmishAILibraries();
 
+private:
 	/** Unloads all currently loaded AIs and interfaces. */
-	virtual void ReleaseEverything();
+	void ReleaseEverything();
 
-private:
-	typedef std::map<const AIInterfaceKey, CAIInterfaceLibrary*>
-			T_loadedInterfaces;
-	T_loadedInterfaces loadedAIInterfaceLibraries;
-
-	T_interfaceSpecs interfaceKeys;
-	T_skirmishAIKeys skirmishAIKeys;
-	T_interfaceInfos interfaceInfos;
-	T_skirmishAIInfos skirmishAIInfos;
-
-	T_dupInt duplicateInterfaceInfos;
-	T_dupSkirm duplicateSkirmishAIInfos;
-
-private:
 	/**
 	 * Loads the interface if it is not yet loaded; increments load count.
 	 */
@@ -97,35 +56,47 @@ private:
 	 */
 	void ReleaseInterface(const AIInterfaceKey& interfaceKey);
 	/**
-	 * Loads info about available AI Interfaces and AIs from LUA Info files.
-	 * -> interface and AI libraries can not corrupt the engines memory
+	 * Loads info about available AI Interfaces from Lua info-files.
 	 *
 	 * The files are searched in all data-dirs (see fs.GetDataDirectories())
 	 * in the following sub-dirs:
 	 * {AI_INTERFACES_DATA_DIR}/{*}/InterfaceInfo.lua
 	 * {AI_INTERFACES_DATA_DIR}/{*}/{*}/InterfaceInfo.lua
+	 *
+	 * examples:
+	 * AI/Interfaces/C/0.1/InterfaceInfo.lua
+	 * AI/Interfaces/Java/0.1/InterfaceInfo.lua
+	 */
+	void GatherInterfaceLibrariesInfos();
+	/**
+	 * Loads info about available Skirmish AIs from Lua info- and option-files.
+	 * -> AI libraries can not corrupt the engines memory
+	 *
+	 * The files are searched in all data-dirs (see fs.GetDataDirectories())
+	 * in the following sub-dirs:
 	 * {SKIRMISH_AI_DATA_DIR}/{*}/AIInfo.lua
+	 * {SKIRMISH_AI_DATA_DIR}/{*}/AIOptions.lua
 	 * {SKIRMISH_AI_DATA_DIR}/{*}/{*}/AIInfo.lua
-	 * {GROUP_AI_DATA_DIR}/{*}/AIInfo.lua
-	 * {GROUP_AI_DATA_DIR}/{*}/{*}/AIInfo.lua
+	 * {SKIRMISH_AI_DATA_DIR}/{*}/{*}/AIOptions.lua
 	 *
 	 * examples:
 	 * AI/Skirmish/KAIK-0.13/AIInfo.lua
 	 * AI/Skirmish/RAI/0.601/AIInfo.lua
+	 * AI/Skirmish/RAI/0.601/AIOptions.lua
 	 */
-	void GetAllInfosFromCache();
+	void GatherSkirmishAIsLibrariesInfos();
+
+	void GatherSkirmishAIsLibrariesInfosFromLuaFiles(T_dupSkirm duplicateSkirmishAIInfoCheck);
+	void GatherSkirmishAIsLibrariesInfosFromInterfaceLibrary(T_dupSkirm duplicateSkirmishAIInfoCheck);
+	void StoreSkirmishAILibraryInfos(T_dupSkirm duplicateSkirmishAIInfoCheck, CSkirmishAILibraryInfo* skirmishAIInfo, const std::string& sourceDesc);
+	/// Filter out Skirmish AIs that are specified multiple times
+	void FilterDuplicateSkirmishAILibrariesInfos(T_dupSkirm duplicateSkirmishAIInfoCheck);
+
 	/**
 	 * Clears info about available AIs.
 	 */
 	void ClearAllInfos();
 
-private:
-	// helper functions
-	static void reportError(const char* topic, const char* msg);
-	static void reportError1(const char* topic, const char* msg, const char* arg0);
-	static void reportError2(const char* topic, const char* msg, const char* arg0, const char* arg1);
-	static void reportInterfaceFunctionError(const std::string* libFileName, const std::string* functionName);
-	static std::string extractFileName(const std::string& libFile, bool includeExtension);
 	/**
 	 * Finds the best fitting interface.
 	 * The short name has to fit perfectly, and the version of the interface
@@ -142,6 +113,20 @@ private:
 			const std::string& shortName,
 			const std::string& minVersion,
 			const T_interfaceSpecs& specs);
+
+
+	typedef std::map<const AIInterfaceKey, CAIInterfaceLibrary*>
+			T_loadedInterfaces;
+
+	T_loadedInterfaces loadedAIInterfaceLibraries;
+
+	T_interfaceSpecs interfaceKeys;
+	T_skirmishAIKeys skirmishAIKeys;
+	T_interfaceInfos interfaceInfos;
+	T_skirmishAIInfos skirmishAIInfos;
+
+	T_dupInt duplicateInterfaceInfos;
+	T_dupSkirm duplicateSkirmishAIInfos;
 };
 
-#endif // _AILIBRARYMANAGER_H
+#endif // AI_LIBRARY_MANAGER_H

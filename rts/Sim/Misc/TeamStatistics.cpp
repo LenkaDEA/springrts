@@ -1,26 +1,28 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include "TeamStatistics.h"
 
-#include "Platform/byteorder.h"
+#include "System/Platform/byteorder.h"
 
 void TeamStatistics::swab()
 {
-	metalUsed        = swabfloat(metalUsed);
-	energyUsed       = swabfloat(energyUsed);
-	metalProduced    = swabfloat(metalProduced);
-	energyProduced   = swabfloat(energyProduced);
-	metalExcess      = swabfloat(metalExcess);
-	energyExcess     = swabfloat(energyExcess);
-	metalReceived    = swabfloat(metalReceived);
-	energyReceived   = swabfloat(energyReceived);
-	metalSent        = swabfloat(metalSent);
-	energySent       = swabfloat(energySent);
-	damageDealt      = swabfloat(damageDealt);
-	damageReceived   = swabfloat(damageReceived);
-	unitsProduced    = swabdword(unitsProduced);
-	unitsDied        = swabdword(unitsDied);
-	unitsReceived    = swabdword(unitsReceived);
-	unitsSent        = swabdword(unitsSent);
-	unitsCaptured    = swabdword(unitsCaptured);
-	unitsOutCaptured = swabdword(unitsOutCaptured);
-	unitsKilled      = swabdword(unitsKilled);
+	swabFloatInPlace(metalUsed);
+	swabFloatInPlace(energyUsed);
+	swabFloatInPlace(metalProduced);
+	swabFloatInPlace(energyProduced);
+	swabFloatInPlace(metalExcess);
+	swabFloatInPlace(energyExcess);
+	swabFloatInPlace(metalReceived);
+	swabFloatInPlace(energyReceived);
+	swabFloatInPlace(metalSent);
+	swabFloatInPlace(energySent);
+	swabFloatInPlace(damageDealt);
+	swabFloatInPlace(damageReceived);
+	swabDWordInPlace(unitsProduced);
+	swabDWordInPlace(unitsDied);
+	swabDWordInPlace(unitsReceived);
+	swabDWordInPlace(unitsSent);
+	swabDWordInPlace(unitsCaptured);
+	swabDWordInPlace(unitsOutCaptured);
+	swabDWordInPlace(unitsKilled);
 }

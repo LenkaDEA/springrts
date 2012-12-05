@@ -1,33 +1,19 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-// The structs in this files relate to *Options.lua files
-// They are used for Mods and Skirmish AIs for example;
+// The structs in this file relate to *Options.lua files
+// They are used for Mods and Skirmish AIs for example.
 // This file is used (at least) by unitsync and the engine
 
 #ifndef _OPTION_H
 #define	_OPTION_H
 
 #include "System/FileSystem/VFSModes.h"
-#include "LogOutput.h"
 
 #include <string>
 #include <vector>
 #include <set>
+#include <cfloat> // for FLT_MAX
+#include <climits> // for INT_MAX
 
 /**
  * @brief Available mod/map/ai option types
@@ -51,7 +37,15 @@ struct OptionListItem {
 
 
 struct Option {
-	Option() : typeCode(opt_error) {}
+	Option()
+		: typeCode(opt_error)
+		, boolDef(false)
+		, numberDef(0.0f)
+		, numberMin(0.0f)
+		, numberMax(FLT_MAX)
+		, numberStep(1.0f)
+		, stringMaxLen(INT_MAX)
+	{}
 
 	std::string key;
 	std::string scope;
@@ -60,7 +54,7 @@ struct Option {
 	std::string section;
 	std::string style;
 
-	std::string type; // "bool", "number", "string", "list", "section"
+	std::string type; ///< "bool", "number", "string", "list", "section"
 
 	OptionType typeCode;
 
@@ -69,7 +63,7 @@ struct Option {
 	float  numberDef;
 	float  numberMin;
 	float  numberMax;
-	float  numberStep; // aligned to numberDef
+	float  numberStep; ///< aligned to numberDef
 
 	std::string stringDef;
 	int         stringMaxLen;
@@ -80,21 +74,25 @@ struct Option {
 
 std::string option_getDefString(const Option& option);
 
-void parseOptions(
+void option_parseOptions(
 		std::vector<Option>& options,
 		const std::string& fileName,
 		const std::string& fileModes = SPRING_VFS_RAW,
 		const std::string& accessModes = SPRING_VFS_RAW,
-		const std::string& mapName = "",
-		std::set<std::string>* optionsSet = NULL,
-		CLogSubsystem* logSubsystem = &(CLogOutput::GetDefaultLogSubsystem()));
+		std::set<std::string>* optionsSet = NULL);
 
-std::vector<Option> parseOptions(
+void option_parseOptionsLuaString(
+		std::vector<Option>& options,
+		const std::string& optionsLuaString,
+		const std::string& accessModes = SPRING_VFS_RAW,
+		std::set<std::string>* optionsSet = NULL);
+
+void option_parseMapOptions(
+		std::vector<Option>& options,
 		const std::string& fileName,
+		const std::string& mapName,
 		const std::string& fileModes = SPRING_VFS_RAW,
 		const std::string& accessModes = SPRING_VFS_RAW,
-		const std::string& mapName = "",
-		std::set<std::string>* optionsSet = NULL,
-		CLogSubsystem* logSubsystem = &(CLogOutput::GetDefaultLogSubsystem()));
+		std::set<std::string>* optionsSet = NULL);
 
 #endif // _OPTION_H

@@ -1,9 +1,6 @@
-// VertexArrayRange.cpp: implementation of the CVertexArrayRange class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "VertexArrayRange.h"
 
@@ -31,7 +28,7 @@ void CVertexArrayRange::Initialize() {
 	glFinishFenceNV(fence);
 }
 
-bool CVertexArrayRange::IsReady() {
+bool CVertexArrayRange::IsReady() const {
 	return !!glTestFenceNV(fence);
 }
 

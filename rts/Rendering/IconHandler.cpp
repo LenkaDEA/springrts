@@ -1,25 +1,24 @@
-/* Author: Teake Nutma */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
 #include <algorithm>
 #include <assert.h>
 #include <locale>
 #include <cctype>
 #include <vector>
 #include <string>
-#include "mmgr.h"
+#include "System/mmgr.h"
 
-#include "LogOutput.h"
+#include "Rendering/GL/myGL.h"
+#include "System/Log/ILog.h"
 #include "IconHandler.h"
 #include "Lua/LuaParser.h"
 #include "Textures/Bitmap.h"
-#include "Exceptions.h"
+#include "System/Exceptions.h"
 
+namespace icon {
 using std::string;
 
 CIconHandler* iconHandler = NULL;
-
-
 CIconData CIconHandler::safetyData;
 
 
@@ -30,8 +29,6 @@ CIconData CIconHandler::safetyData;
 
 CIconHandler::CIconHandler()
 {
-	PrintLoadMsg("Parsing unit icons");
-
 	defTexID = 0;
 	defIconData = NULL;
 
@@ -58,8 +55,8 @@ bool CIconHandler::LoadIcons(const string& filename)
 {
 	LuaParser luaParser(filename, SPRING_VFS_MOD_BASE, SPRING_VFS_MOD_BASE);
 	if (!luaParser.Execute()) {
-		logOutput.Print("%s: %s",
-		                filename.c_str(), luaParser.GetErrorLog().c_str());
+		LOG_L(L_WARNING, "%s: %s",
+				filename.c_str(), luaParser.GetErrorLog().c_str());
 	}
 
 	const LuaTable iconTypes = luaParser.GetRoot();
@@ -109,9 +106,10 @@ bool CIconHandler::AddIcon(const string& iconName, const string& textureName,
 			ysize = 128;
 			ownTexture = false;
 		}
-	}
-	catch (const content_error&) {
-		return false; // bail on non-existant file.
+	} catch (const content_error& ex) {
+		// bail on non-existant file
+		LOG_L(L_DEBUG, "Failed to add icon: %s", ex.what());
+		return false;
 	}
 
 	IconMap::iterator it = iconMap.find(iconName);
@@ -176,7 +174,7 @@ unsigned int CIconHandler::GetDefaultTexture()
 			const int index = ((y * 128) + x) * 4;
 			const int dx = (x - 64);
 			const int dy = (y - 64);
-			const float r = streflop::sqrtf((dx * dx) + (dy * dy)) / 64.0f;
+			const float r = math::sqrt((dx * dx) + (dy * dy)) / 64.0f;
 			if (r > 1.0f) {
 				si[index + 0] = 0;
 				si[index + 1] = 0;
@@ -253,6 +251,9 @@ CIcon::~CIcon()
 }
 
 
+
+
+
 /******************************************************************************/
 //
 //  CIconData
@@ -272,7 +273,6 @@ CIconData::CIconData() :
 {
 }
 
-
 CIconData::CIconData(const std::string& _name, unsigned int _texID,
                      float _size, float _distance, bool radAdj, bool ownTex,
                      int _xsize, int _ysize)
@@ -284,7 +284,6 @@ CIconData::CIconData(const std::string& _name, unsigned int _texID,
 {
 	distSqr = distance * distance;
 }
-
 
 CIconData::~CIconData()
 {
@@ -299,7 +298,6 @@ void CIconData::Ref()
 	refCount++;
 }
 
-
 void CIconData::UnRef()
 {
 	refCount--;
@@ -307,7 +305,6 @@ void CIconData::UnRef()
 		delete this;
 	}
 }
-
 
 void CIconData::CopyData(const CIconData* iconData)
 {
@@ -322,12 +319,10 @@ void CIconData::CopyData(const CIconData* iconData)
 	ownTexture   = false;
 }
 
-
 void CIconData::BindTexture() const
 {
 	glBindTexture(GL_TEXTURE_2D, texID);
 }
-
 
 void CIconData::Draw(float x0, float y0, float x1, float y1) const
 {
@@ -339,7 +334,6 @@ void CIconData::Draw(float x0, float y0, float x1, float y1) const
 	glTexCoord2f(0.0f, 1.0f); glVertex2f(x0, y1);
 	glEnd();
 }
-
 
 void CIconData::Draw(const float3& botLeft, const float3& botRight,
                      const float3& topLeft, const float3& topRight) const
@@ -355,3 +349,5 @@ void CIconData::Draw(const float3& botLeft, const float3& botRight,
 
 
 /******************************************************************************/
+
+};

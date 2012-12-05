@@ -1,14 +1,14 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// Header includes directory change tool
-// By Jelmer Cnossen
-// Ported to Linux by Tobi Vollebregt
-
+// # Header includes directory change tool
 // Used to automatically change #include "[somepath/]header" to #include "correctheaderpath"
 // Give the base project directory as argument:
 // Example for spring:
-//  dch <trunk path>/rts -ISystem
-#include <stdio.h> 
-#include <assert.h>
+// 	dch <trunk-path>/rts -ISystem
+
+#include <cstdio> 
+#include <cassert>
+#include <cstring>
 #include <vector>
 #include <string>
 #include <set>
@@ -23,7 +23,31 @@
 #include <sys/types.h>
 #endif
 
-using namespace std;
+// define a common indicator for 32bit or 64bit-ness
+#if defined _WIN64 || defined __LP64__ || defined __ppc64__ || defined __ILP64__ || defined __SILP64__ || defined __LLP64__ || defined(__sparcv9)
+#define __arch64__
+#else
+#define __arch32__
+#endif
+
+// define a cross-platform/-compiler compatible "%z" format replacement for
+// printf() style functions.
+// "%z" being the propper way for size_t typed values,
+// but support for it has not yet spread wide enough.
+#if defined __arch64__
+#define __SIZE_T_PRINTF_FORMAT__ "%lu"
+#else
+#define __SIZE_T_PRINTF_FORMAT__ "%u"
+#endif
+// a shorter form
+#define _STPF_ __SIZE_T_PRINTF_FORMAT__
+
+
+using std::vector;
+using std::list;
+using std::map;
+using std::set;
+using std::string;
 
 
 struct file_t {
@@ -263,7 +287,7 @@ int main (int argc, char *argv[])
 			hmap [i->name]=&*i;
 		}
 	}
-	printf ("%d headers.\n", hmap.size());
+	printf (_STPF_" headers.\n", hmap.size());
 
 	for (list<file_t>::iterator i=filelist.begin();i!=filelist.end();++i)
 	{

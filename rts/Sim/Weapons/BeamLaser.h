@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef BEAMLASER_H
 #define BEAMLASER_H
 
@@ -9,7 +11,6 @@ class CBeamLaser :
 	CR_DECLARE(CBeamLaser);
 public:
 	CBeamLaser(CUnit* owner);
-	~CBeamLaser(void);
 
 	void Update(void);
 	bool TryTarget(const float3& pos,bool userTarget,CUnit* unit);

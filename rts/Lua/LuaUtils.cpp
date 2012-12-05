@@ -1,31 +1,45 @@
-#include "StdAfx.h"
-// LuaUtils.cpp: implementation of the CLuaUtils class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/Platform/Win/win32.h"
 
 #include <set>
 #include <cctype>
 #include <zlib.h>
 #include <boost/cstdint.hpp>
+#include <string.h>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaUtils.h"
 
-#include "LogOutput.h"
-#include "Util.h"
+#include "System/Log/ILog.h"
+#include "System/Util.h"
+#include "LuaConfig.h"
+#include <boost/thread/recursive_mutex.hpp>
 
-
-static       int depth = 0;
 static const int maxDepth = 256;
+int backupSize = 0;
 
+
+boost::recursive_mutex luaprimmutex, luasecmutex;
+
+boost::recursive_mutex* getLuaMutex(bool userMode, bool primary) {
+#if (LUA_MT_OPT & LUA_MUTEX)
+	if(userMode)
+		return new boost::recursive_mutex();
+	else // LuaGaia & LuaRules will share mutexes to avoid deadlocks during XCalls etc.
+		return primary ? &luaprimmutex : &luasecmutex;
+#else
+		return &luaprimmutex;
+#endif
+}
 
 /******************************************************************************/
 /******************************************************************************/
 
 
-static bool CopyPushData(lua_State* dst, lua_State* src, int index);
-static bool CopyPushTable(lua_State* dst, lua_State* src, int index);
+static bool CopyPushData(lua_State* dst, lua_State* src, int index, int depth);
+static bool CopyPushTable(lua_State* dst, lua_State* src, int index, int depth);
 
 
 static inline int PosLuaIndex(lua_State* src, int index)
@@ -38,7 +52,7 @@ static inline int PosLuaIndex(lua_State* src, int index)
 }
 
 
-static bool CopyPushData(lua_State* dst, lua_State* src, int index)
+static bool CopyPushData(lua_State* dst, lua_State* src, int index, int depth)
 {
 	const int type = lua_type(src, index);
 	switch (type) {
@@ -57,7 +71,7 @@ static bool CopyPushData(lua_State* dst, lua_State* src, int index)
 			break;
 		}
 		case LUA_TTABLE: {
-			CopyPushTable(dst, src, index);
+			CopyPushTable(dst, src, index, depth);
 			break;
 		}
 		default: {
@@ -69,22 +83,20 @@ static bool CopyPushData(lua_State* dst, lua_State* src, int index)
 }
 
 
-static bool CopyPushTable(lua_State* dst, lua_State* src, int index)
+static bool CopyPushTable(lua_State* dst, lua_State* src, int index, int depth)
 {
-	if (depth > maxDepth) {
+	if (depth++ > maxDepth) {
 		lua_pushnil(dst); // push something
 		return false;
 	}
 
-	depth++;
 	lua_newtable(dst);
 	const int table = PosLuaIndex(src, index);
 	for (lua_pushnil(src); lua_next(src, table) != 0; lua_pop(src, 1)) {
-		CopyPushData(dst, src, -2); // copy the key
-		CopyPushData(dst, src, -1); // copy the value
+		CopyPushData(dst, src, -2, depth); // copy the key
+		CopyPushData(dst, src, -1, depth); // copy the value
 		lua_rawset(dst, -3);
 	}
-	depth--;
 
 	return true;
 }
@@ -97,20 +109,231 @@ int LuaUtils::CopyData(lua_State* dst, lua_State* src, int count)
 	if (srcTop < count) {
 		return 0;
 	}
-	lua_checkstack(dst, dstTop + count); // FIXME: not enough for table chains
-
-	depth = 0;
+	lua_checkstack(dst, count); // FIXME: not enough for table chains
 
 	const int startIndex = (srcTop - count + 1);
 	const int endIndex   = srcTop;
 	for (int i = startIndex; i <= endIndex; i++) {
-		CopyPushData(dst, src, i);
+		CopyPushData(dst, src, i, 0);
 	}
 	lua_settop(dst, dstTop + count);
 
 	return count;
 }
 
+/******************************************************************************/
+/******************************************************************************/
+
+static bool BackupData(LuaUtils::DataDump &d, lua_State* src, int index, int depth);
+static bool RestoreData(const LuaUtils::DataDump &d, lua_State* dst, int depth);
+static bool BackupTable(LuaUtils::DataDump &d, lua_State* src, int index, int depth);
+static bool RestoreTable(const LuaUtils::DataDump &d, lua_State* dst, int depth);
+
+
+static bool BackupData(LuaUtils::DataDump &d, lua_State* src, int index, int depth) {
+	++backupSize;
+	const int type = lua_type(src, index);
+	d.type = type;
+	switch (type) {
+		case LUA_TBOOLEAN: {
+			d.bol = lua_toboolean(src, index);
+			break;
+		}
+		case LUA_TNUMBER: {
+			d.num = lua_tonumber(src, index);
+			break;
+		}
+		case LUA_TSTRING: {
+			size_t len = 0;
+			const char* data = lua_tolstring(src, index, &len);
+			if (len > 0) {
+				d.str.resize(len);
+				memcpy(&d.str[0], data, len);
+			}
+			break;
+		}
+		case LUA_TTABLE: {
+			if(!BackupTable(d, src, index, depth))
+				d.type = LUA_TNIL;
+			break;
+		}
+		default: {
+			d.type = LUA_TNIL;
+			break;
+		}
+	}
+	return true;
+}
+
+static bool RestoreData(const LuaUtils::DataDump &d, lua_State* dst, int depth) {
+	const int type = d.type;
+	switch (type) {
+		case LUA_TBOOLEAN: {
+			lua_pushboolean(dst, d.bol);
+			break;
+		}
+		case LUA_TNUMBER: {
+			lua_pushnumber(dst, d.num);
+			break;
+		}
+		case LUA_TSTRING: {
+			lua_pushlstring(dst, d.str.c_str(), d.str.size());
+			break;
+		}
+		case LUA_TTABLE: {
+			RestoreTable(d, dst, depth);
+			break;
+		}
+		default: {
+			lua_pushnil(dst);
+			break;
+		}
+	}
+	return true;
+}
+
+static bool BackupTable(LuaUtils::DataDump &d, lua_State* src, int index, int depth) {
+	if (depth++ > maxDepth)
+		return false;
+
+	const int table = PosLuaIndex(src, index);
+	for (lua_pushnil(src); lua_next(src, table) != 0; lua_pop(src, 1)) {
+		LuaUtils::DataDump dk, dv;
+		BackupData(dk, src, -2, depth);
+		BackupData(dv, src, -1, depth);
+		d.table.push_back(std::pair<LuaUtils::DataDump, LuaUtils::DataDump>(dk ,dv));
+	}
+
+	return true;
+}
+
+static bool RestoreTable(const LuaUtils::DataDump &d, lua_State* dst, int depth) {
+	if (depth++ > maxDepth) {
+		lua_pushnil(dst);
+		return false;
+	}
+
+	lua_newtable(dst);
+	for (std::vector<std::pair<LuaUtils::DataDump, LuaUtils::DataDump> >::const_iterator i = d.table.begin(); i != d.table.end(); ++i) {
+		RestoreData((*i).first, dst, depth);
+		RestoreData((*i).second, dst, depth);
+		lua_rawset(dst, -3);
+	}
+
+	return true;
+}
+
+
+int LuaUtils::Backup(std::vector<LuaUtils::DataDump> &backup, lua_State* src, int count) {
+	const int srcTop = lua_gettop(src);
+	if (srcTop < count)
+		return 0;
+
+	const int startIndex = (srcTop - count + 1);
+	const int endIndex   = srcTop;
+	for (int i = startIndex; i <= endIndex; i++) {
+		backup.push_back(DataDump());
+		BackupData(backup.back(), src, i, 0);
+	}
+
+	return count;
+}
+
+
+int LuaUtils::Restore(const std::vector<LuaUtils::DataDump> &backup, lua_State* dst) {
+	const int dstTop = lua_gettop(dst);
+	int count = backup.size();
+	lua_checkstack(dst, count); // FIXME: not enough for table chains
+
+	for (std::vector<DataDump>::const_iterator i = backup.begin(); i != backup.end(); ++i) {
+		RestoreData(*i, dst, 0);
+	}
+	lua_settop(dst, dstTop + count);
+
+	return count;
+}
+
+
+int LuaUtils::ShallowBackup(std::vector<LuaUtils::ShallowDataDump> &backup, lua_State* src, int count) {
+	const int srcTop = lua_gettop(src);
+	if (srcTop < count)
+		return 0;
+
+	const int startIndex = (srcTop - count + 1);
+	const int endIndex   = srcTop;
+
+	for(int i = startIndex; i <= endIndex; ++i) {
+		const int type = lua_type(src, i);
+		ShallowDataDump sdd;
+		sdd.type = type;
+		switch (type) {
+			case LUA_TBOOLEAN: {
+				sdd.data.bol = lua_toboolean(src, i);
+				break;
+			}
+			case LUA_TNUMBER: {
+				sdd.data.num = lua_tonumber(src, i);
+				break;
+			}
+			case LUA_TSTRING: {
+				size_t len = 0;
+				const char* data = lua_tolstring(src, i, &len);
+				sdd.data.str = new std::string;
+				if (len > 0) {
+					sdd.data.str->resize(len);
+					memcpy(&(*sdd.data.str)[0], data, len);
+				}
+				break;
+			}
+			case LUA_TNIL: {
+				break;
+			}
+			default: {
+				LOG_L(L_WARNING, "ShallowBackup: Invalid type for argument %d", i);
+				break; // nil
+			}
+		}
+		backup.push_back(sdd);
+	}
+
+	return count;
+}
+
+
+int LuaUtils::ShallowRestore(const std::vector<LuaUtils::ShallowDataDump> &backup, lua_State* dst) {
+	int count = backup.size();
+	lua_checkstack(dst, count);
+
+	for (int d = 0; d < count; ++d) {
+		const ShallowDataDump &sdd = backup[d];
+		switch (sdd.type) {
+			case LUA_TBOOLEAN: {
+				lua_pushboolean(dst, sdd.data.bol);
+				break;
+			}
+			case LUA_TNUMBER: {
+				lua_pushnumber(dst, sdd.data.num);
+				break;
+			}
+			case LUA_TSTRING: {
+				lua_pushlstring(dst, sdd.data.str->c_str(), sdd.data.str->size());
+				delete sdd.data.str;
+				break;
+			}
+			case LUA_TNIL: {
+				lua_pushnil(dst);
+				break;
+			}
+			default: {
+				lua_pushnil(dst);
+				LOG_L(L_WARNING, "ShallowRestore: Invalid type for argument %d", d + 1);
+				break; // unhandled type
+			}
+		}
+	}
+
+	return count;
+}
 
 /******************************************************************************/
 /******************************************************************************/
@@ -203,11 +426,11 @@ static bool LowerKeysReal(lua_State* L, int depth)
 				lua_pushnil(L);
 				lua_rawset(L, table);
 				// does the lower case key alread exist in the table?
-				lua_pushstring(L, lowerKey.c_str());
+				lua_pushsstring(L, lowerKey);
 				lua_rawget(L, table);
 				if (lua_isnil(L, -1)) {
 					// lower case does not exist, add it to the changed table
-					lua_pushstring(L, lowerKey.c_str());
+					lua_pushsstring(L, lowerKey);
 					lua_pushvalue(L, -3); // the value
 					lua_rawset(L, changed);
 				}
@@ -278,16 +501,16 @@ void LuaUtils::PrintStack(lua_State* L)
 {
 	const int top = lua_gettop(L);
 	for (int i = 1; i <= top; i++) {
-		printf("  %i: type = %s (%p)", i, luaL_typename(L, i), lua_topointer(L, i));
+		LOG_L(L_ERROR, "  %i: type = %s (%p)", i, luaL_typename(L, i), lua_topointer(L, i));
 		const int type = lua_type(L, i);
 		if (type == LUA_TSTRING) {
-			printf("\t\t%s\n", lua_tostring(L, i));
+			LOG_L(L_ERROR, "\t\t%s\n", lua_tostring(L, i));
 		} else if (type == LUA_TNUMBER) {
-			printf("\t\t%f\n", lua_tonumber(L, i));
+			LOG_L(L_ERROR, "\t\t%f\n", lua_tonumber(L, i));
 		} else if (type == LUA_TBOOLEAN) {
-			printf("\t\t%s\n", lua_toboolean(L, i) ? "true" : "false");
+			LOG_L(L_ERROR, "\t\t%s\n", lua_toboolean(L, i) ? "true" : "false");
 		} else {
-			printf("\n");
+			LOG_L(L_ERROR, "\n");
 		}
 	}
 }
@@ -331,14 +554,14 @@ void LuaUtils::ParseCommandOptions(lua_State* L, const char* caller,
 }
 
 
-void LuaUtils::ParseCommand(lua_State* L, const char* caller,
-                            int idIndex, Command& cmd)
+Command LuaUtils::ParseCommand(lua_State* L, const char* caller, int idIndex)
 {
 	// cmdID
 	if (!lua_isnumber(L, idIndex)) {
 		luaL_error(L, "%s(): bad command ID", caller);
 	}
-	cmd.id = lua_toint(L, idIndex);
+	const int id = lua_toint(L, idIndex);
+	Command cmd(id);
 
 	// params
 	const int paramTable = (idIndex + 1);
@@ -351,26 +574,28 @@ void LuaUtils::ParseCommand(lua_State* L, const char* caller,
 				luaL_error(L, "%s(): bad param table entry", caller);
 			}
 			const float value = lua_tofloat(L, -1);
-			cmd.params.push_back(value);
+			cmd.PushParam(value);
 		}
 	}
 
 	// options
 	ParseCommandOptions(L, caller, (idIndex + 2), cmd);
 
-	// NOTE: should do some sanity checking?
+	// XXX should do some sanity checking?
+
+	return cmd;
 }
 
 
-void LuaUtils::ParseCommandTable(lua_State* L, const char* caller,
-                                 int table, Command& cmd)
+Command LuaUtils::ParseCommandTable(lua_State* L, const char* caller, int table)
 {
 	// cmdID
 	lua_rawgeti(L, table, 1);
 	if (!lua_isnumber(L, -1)) {
 		luaL_error(L, "%s(): bad command ID", caller);
 	}
-	cmd.id = lua_toint(L, -1);
+	const int id = lua_toint(L, -1);
+	Command cmd(id);
 	lua_pop(L, 1);
 
 	// params
@@ -385,7 +610,7 @@ void LuaUtils::ParseCommandTable(lua_State* L, const char* caller,
 				luaL_error(L, "%s(): bad param table entry", caller);
 			}
 			const float value = lua_tofloat(L, -1);
-			cmd.params.push_back(value);
+			cmd.PushParam(value);
 		}
 	}
 	lua_pop(L, 1);
@@ -395,7 +620,9 @@ void LuaUtils::ParseCommandTable(lua_State* L, const char* caller,
 	ParseCommandOptions(L, caller, lua_gettop(L), cmd);
 	lua_pop(L, 1);
 
-	// NOTE: should do some sanity checking?
+	// XXX should do some sanity checking?
+
+	return cmd;
 }
 
 
@@ -409,8 +636,7 @@ void LuaUtils::ParseCommandArray(lua_State* L, const char* caller,
 		if (!lua_istable(L, -1)) {
 			continue;
 		}
-		Command cmd;
-		ParseCommandTable(L, caller, lua_gettop(L), cmd);
+		Command cmd = ParseCommandTable(L, caller, lua_gettop(L));
 		commands.push_back(cmd);
 	}
 }
@@ -450,9 +676,9 @@ int LuaUtils::Next(const ParamMap& paramMap, lua_State* L)
 	// internal parameters first
 	if (lua_isnil(L, 2)) {
 		const string& nextKey = paramMap.begin()->first;
-		lua_pushstring(L, nextKey.c_str()); // push the key
-		lua_pushvalue(L, 3);                // copy the key
-		lua_gettable(L, 1);                 // get the value
+		lua_pushsstring(L, nextKey); // push the key
+		lua_pushvalue(L, 3);         // copy the key
+		lua_gettable(L, 1);          // get the value
 		return 2;
 	}
 
@@ -462,16 +688,16 @@ int LuaUtils::Next(const ParamMap& paramMap, lua_State* L)
 		ParamMap::const_iterator it = paramMap.find(key);
 		if ((it != paramMap.end()) && (it->second.type != READONLY_TYPE)) {
 			// last key was an internal parameter
-			it++;
+			++it;
 			while ((it != paramMap.end()) && (it->second.type == READONLY_TYPE)) {
-				it++; // skip read-only parameters
+				++it; // skip read-only parameters
 			}
 			if ((it != paramMap.end()) && (it->second.type != READONLY_TYPE)) {
 				// next key is an internal parameter
 				const string& nextKey = it->first;
-				lua_pushstring(L, nextKey.c_str()); // push the key
-				lua_pushvalue(L, 3);                // copy the key
-				lua_gettable(L, 1);                 // get the value (proxied)
+				lua_pushsstring(L, nextKey); // push the key
+				lua_pushvalue(L, 3);         // copy the key
+				lua_gettable(L, 1);          // get the value (proxied)
 				return 2;
 			}
 			// start the user parameters,
@@ -495,8 +721,7 @@ int LuaUtils::Next(const ParamMap& paramMap, lua_State* L)
 /******************************************************************************/
 /******************************************************************************/
 
-
-int LuaUtils::Echo(lua_State* L)
+static std::string getprintf_msg(lua_State* L, int index)
 {
 	// copied from lua/src/lib/lbaselib.c
 	string msg = "";
@@ -504,41 +729,33 @@ int LuaUtils::Echo(lua_State* L)
 
 	lua_getglobal(L, "tostring");
 
-	for (int i = 1; i <= args; i++) {
-		const char *s;
+	for (int i = index; i <= args; i++) {
+		const char* s;
 		lua_pushvalue(L, -1);     // function to be called
 		lua_pushvalue(L, i);      // value to print
 		lua_call(L, 1, 1);
 		s = lua_tostring(L, -1);  // get result
-		if (s == NULL) {
-			return luaL_error(L, "`tostring' must return a string to `print'");
-		}
-		if (i > 1) {
+		if (i > index) {
 			msg += ", ";
 		}
 		msg += s;
 		lua_pop(L, 1);            // pop result
 	}
-	logOutput.Print(msg);
 
-	if ((args != 1) || !lua_istable(L, 1)) {
-		return 0;
+	if ((args != index) || !lua_istable(L, index)) {
+		return msg;
 	}
 
 	// print solo tables (array style)
 	msg = "TABLE: ";
 	bool first = true;
-	const int table = 1;
-	for (lua_pushnil(L); lua_next(L, table) != 0; lua_pop(L, 1)) {
+	for (lua_pushnil(L); lua_next(L, index) != 0; lua_pop(L, 1)) {
 		if (lua_israwnumber(L, -2)) {  // only numeric keys
 			const char *s;
-			lua_pushvalue(L, -3);     // function to be called
-			lua_pushvalue(L, -2	);    // value to print
+			lua_pushvalue(L, -3);    // function to be called
+			lua_pushvalue(L, -2);    // value to print
 			lua_call(L, 1, 1);
 			s = lua_tostring(L, -1);  // get result
-			if (s == NULL) {
-				return luaL_error(L, "`tostring' must return a string to `print'");
-			}
 			if (!first) {
 				msg += ", ";
 			}
@@ -547,10 +764,87 @@ int LuaUtils::Echo(lua_State* L)
 			lua_pop(L, 1);            // pop result
 		}
 	}
-	logOutput.Print(msg);
 
+	return msg;
+}
+
+
+int LuaUtils::Echo(lua_State* L)
+{
+	const std::string msg = getprintf_msg(L, 1);
+	LOG("%s", msg.c_str());
 	return 0;
 }
+
+
+bool LuaUtils::PushLogEntries(lua_State* L)
+{
+#define PUSH_LOG_LEVEL(cmd) LuaPushNamedNumber(L, #cmd, LOG_LEVEL_ ## cmd)
+	PUSH_LOG_LEVEL(DEBUG);
+	PUSH_LOG_LEVEL(INFO);
+	PUSH_LOG_LEVEL(WARNING);
+	PUSH_LOG_LEVEL(ERROR);
+	PUSH_LOG_LEVEL(FATAL);
+	return true;
+}
+
+
+/*-
+	Logs a msg to the logfile / console
+	@param loglevel loglevel that will be used for the message
+	@param msg string to be logged
+	@fn Spring.Log(string logsection, int loglevel, ...)
+	@fn Spring.Log(string logsection, string loglevel, ...)
+*/
+int LuaUtils::Log(lua_State* L)
+{
+	const int args = lua_gettop(L); // number of arguments
+	if (args < 2)
+		return luaL_error(L, "Incorrect arguments to Spring.Log(logsection, loglevel, ...)");
+	if (args < 3)
+		return 0;
+
+	const std::string section = luaL_checkstring(L, 1);
+
+	int loglevel;
+	if (lua_israwnumber(L, 2)) {
+		loglevel = lua_tonumber(L, 2);
+	}
+	else if (lua_israwstring(L, 2)) {
+		std::string loglvlstr = lua_tostring(L, 2);
+		StringToLowerInPlace(loglvlstr);
+		if (loglvlstr == "debug") {
+			loglevel = LOG_LEVEL_DEBUG;
+		}
+		else if (loglvlstr == "info") {
+			loglevel = LOG_LEVEL_INFO;
+		}
+		else if (loglvlstr == "warning") {
+			loglevel = LOG_LEVEL_WARNING;
+		}
+		else if (loglvlstr == "error") {
+			loglevel = LOG_LEVEL_ERROR;
+		}
+		else if (loglvlstr == "fatal") {
+			loglevel = LOG_LEVEL_FATAL;
+		}
+		else {
+			return luaL_error(L, "Incorrect arguments to Spring.Log(logsection, loglevel, ...)");
+		}
+	}
+	else {
+		return luaL_error(L, "Incorrect arguments to Spring.Log(logsection, loglevel, ...)");
+	}
+
+	const std::string msg = getprintf_msg(L, 3);
+	LOG_SI(section.c_str(), loglevel, "%s", msg.c_str());
+	return 0;
+}
+
+
+/******************************************************************************/
+/******************************************************************************/
+
 
 int LuaUtils::ZlibCompress(lua_State* L)
 {
@@ -689,16 +983,46 @@ int LuaUtils::PushDebugTraceback(lua_State *L)
 
 void LuaUtils::PushStringVector(lua_State* L, const vector<string>& vec)
 {
-	lua_newtable(L);
+	lua_createtable(L, vec.size(), 0);
 	for (size_t i = 0; i < vec.size(); i++) {
 		lua_pushnumber(L, (int) (i + 1));
-		lua_pushstring(L, vec[i].c_str());
+		lua_pushsstring(L, vec[i]);
 		lua_rawset(L, -3);
 	}
-	lua_pushstring(L, "n");
-	lua_pushnumber(L, vec.size());
-	lua_rawset(L, -3);
 }
 
 /******************************************************************************/
 /******************************************************************************/
+
+void LuaUtils::PushCommandDesc(lua_State* L, const CommandDescription& cd)
+{
+	const int numParams = cd.params.size();
+	const int numTblKeys = 12;
+
+	lua_checkstack(L, 1 + 1 + 1 + 1);
+	lua_createtable(L, 0, numTblKeys);
+
+	HSTR_PUSH_NUMBER(L, "id",          cd.id);
+	HSTR_PUSH_NUMBER(L, "type",        cd.type);
+	HSTR_PUSH_STRING(L, "name",        cd.name);
+	HSTR_PUSH_STRING(L, "action",      cd.action);
+	HSTR_PUSH_STRING(L, "tooltip",     cd.tooltip);
+	HSTR_PUSH_STRING(L, "texture",     cd.iconname);
+	HSTR_PUSH_STRING(L, "cursor",      cd.mouseicon);
+	HSTR_PUSH_BOOL(L,   "hidden",      cd.hidden);
+	HSTR_PUSH_BOOL(L,   "disabled",    cd.disabled);
+	HSTR_PUSH_BOOL(L,   "showUnique",  cd.showUnique);
+	HSTR_PUSH_BOOL(L,   "onlyTexture", cd.onlyTexture);
+
+	HSTR_PUSH(L, "params");
+
+	lua_createtable(L, 0, numParams);
+
+	for (int p = 0; p < numParams; p++) {
+		lua_pushsstring(L, cd.params[p]);
+		lua_rawseti(L, -2, p + 1);
+	}
+
+	// CmdDesc["params"] = {[1] = "string1", [2] = "string2", ...}
+	lua_settable(L, -3);
+}

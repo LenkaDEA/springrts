@@ -1,28 +1,11 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-	@author	Robin Vobruba <hoijui.quaero@gmail.com>
-*/
-
-#ifndef __SKIRMISH_AI_HANDLER_H
-#define __SKIRMISH_AI_HANDLER_H
+#ifndef SKIRMISH_AI_HANDLER_H
+#define SKIRMISH_AI_HANDLER_H
 
 #include "ExternalAI/SkirmishAIData.h"
 
-#include "creg/creg_cond.h"
+#include "System/creg/creg_cond.h"
 
 #include <map>
 #include <set>
@@ -37,15 +20,14 @@ class SkirmishAIKey;
  */
 class CSkirmishAIHandler
 {
-private:
 	CR_DECLARE(CSkirmishAIHandler);
 
 	CSkirmishAIHandler();
 	~CSkirmishAIHandler();
 
 public:
-	typedef std::vector<size_t> ids_t;
-	typedef std::map<size_t, SkirmishAIData> id_ai_t;
+	typedef std::vector<unsigned char> ids_t;
+	typedef std::map<unsigned char, SkirmishAIData> id_ai_t;
 
 	/**
 	 * Fetcher for the singleton.
@@ -190,13 +172,16 @@ public:
 
 	const std::set<std::string>& GetLuaAIImplShortNames() const;
 
+	unsigned char GetCurrentAIID() { return currentAIId; }
+	void SetCurrentAIID(unsigned char id) { currentAIId = id; }
+
 private:
 	static bool IsLocalSkirmishAI(const SkirmishAIData& aiData);
 	bool IsLuaAI(const SkirmishAIData& aiData) const;
 	void CompleteWithDefaultOptionValues(const size_t skirmishAIId);
 	void CompleteSkirmishAI(const size_t skirmishAIId);
 
-private:
+
 	/// Id -> AI instance
 	id_ai_t id_ai;
 
@@ -212,10 +197,10 @@ private:
 
 	bool gameInitialized;
 	std::set<std::string> luaAIShortNames;
-
-	static CSkirmishAIHandler* mySingleton;
+	// the current local AI ID that is executing, MAX_AIS if none (e.g. LuaUI)
+	unsigned char currentAIId;
 };
 
 #define skirmishAIHandler CSkirmishAIHandler::GetInstance()
 
-#endif // __SKIRMISH_AI_HANDLER_H
+#endif // SKIRMISH_AI_HANDLER_H

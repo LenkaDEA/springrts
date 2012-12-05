@@ -1,16 +1,13 @@
-// ConsoleHistory.cpp: implementation of the CConsoleHistory class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
 #include "Rendering/GL/myGL.h"
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "ConsoleHistory.h"
 
 
-unsigned int CConsoleHistory::MaxLines = 256;
+const unsigned int CConsoleHistory::MAX_LINES = 256;
 
 
 CConsoleHistory::CConsoleHistory()
@@ -59,7 +56,7 @@ bool CConsoleHistory::AddLineRaw(const std::string& msg)
 		return false; // do not save duplicates
 	}
 	  
-	if (lines.size() >= MaxLines) {
+	if (lines.size() >= MAX_LINES) {
 		if (pos != lines.begin()) {
 			lines.pop_front();
 		} else {
@@ -103,7 +100,7 @@ std::string CConsoleHistory::NextLine(const std::string& current)
 		}
 	}
 
-	pos++;
+	++pos;
 
 	if (pos == lines.end()) {
 		return prefix;
@@ -140,7 +137,7 @@ std::string CConsoleHistory::PrevLine(const std::string& current)
 		}
 	}
 
-	pos--;
+	--pos;
 
 	return prefix + *pos;
 }

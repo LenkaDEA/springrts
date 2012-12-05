@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_RULES_H
 #define LUA_RULES_H
-// LuaRules.h: interface for the CLuaRules class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 using std::string;
@@ -13,15 +12,17 @@ using std::map;
 
 #include "LuaHandleSynced.h"
 
-
 #define MAX_LUA_COB_ARGS 10
 
 
 class CUnit;
 class CFeature;
+class CProjectile;
+class CWeapon;
 struct UnitDef;
 struct FeatureDef;
 struct Command;
+struct BuildInfo;
 struct lua_State;
 
 
@@ -31,22 +32,14 @@ class CLuaRules : public CLuaHandleSynced
 		static void LoadHandler();
 		static void FreeHandler();
 
-		static void SetConfigString(const string& cfg);
-		static const string& GetConfigString() { return configString; }
-
-		static const vector<float>&    GetGameParams();
-		static const map<string, int>& GetGameParamsMap();
-
-		const map<string, string>& GetInfoMap() const { return infoMap; }
-
 	public: // call-ins
-		bool SyncedUpdateCallIn(const string& name);
-		bool UnsyncedUpdateCallIn(const string& name);
+		bool SyncedUpdateCallIn(lua_State *L, const string& name);
+		bool UnsyncedUpdateCallIn(lua_State *L, const string& name);
 
 		bool CommandFallback(const CUnit* unit, const Command& cmd);
 		bool AllowCommand(const CUnit* unit, const Command& cmd, bool fromSynced);
 		bool AllowUnitCreation(const UnitDef* unitDef,
-		                       const CUnit* builder, const float3* pos);
+		                       const CUnit* builder, const BuildInfo* buildInfo);
 		bool AllowUnitTransfer(const CUnit* unit, int newTeam, bool capture);
 		bool AllowUnitBuildStep(const CUnit* builder, const CUnit* unit, float part);
 		bool AllowFeatureCreation(const FeatureDef* featureDef, int allyTeamID,
@@ -66,46 +59,41 @@ class CLuaRules : public CLuaHandleSynced
 		void Cob2Lua(const LuaHashString& funcName, const CUnit* unit,
 		             int& argsCount, int args[MAX_LUA_COB_ARGS]);
 
+		int AllowWeaponTargetCheck(
+			unsigned int attackerID,
+			unsigned int attackerWeaponNum,
+			unsigned int attackerWeaponDefID);
+		bool AllowWeaponTarget(
+			unsigned int attackerID,
+			unsigned int targetID,
+			unsigned int attackerWeaponNum,
+			unsigned int attackerWeaponDefID,
+			float* targetPriority);
+
 		bool UnitPreDamaged(const CUnit* unit, const CUnit* attacker,
                              float damage, int weaponID, bool paralyzer,
                              float* newDamage, float* impulseMult);
 
+		bool ShieldPreDamaged(const CProjectile*, const CWeapon*, const CUnit*, bool);
+
 		// unsynced
-		bool DrawUnit(int unitID);
-		const char* AICallIn(const char* data, int inSize, int* outSize);
+		bool DrawUnit(const CUnit* unit);
+		bool DrawFeature(const CFeature* feature);
+		bool DrawShield(const CUnit* unit, const CWeapon* weapon);
+		bool DrawProjectile(const CProjectile* projectile);
 
 	private:
 		CLuaRules();
 		~CLuaRules();
 
 	protected:
-		bool AddSyncedCode();
-		bool AddUnsyncedCode();
+		bool AddSyncedCode(lua_State *L);
+		bool AddUnsyncedCode(lua_State *L);
 
 		int UnpackCobArg(lua_State* L);
 
-		static void SetRulesParam(lua_State* L, const char* caller, int offset,
-		                          vector<float>& params,
-		                          map<string, int>& paramsMap);
-		static void CreateRulesParams(lua_State* L, const char* caller, int offset,
-		                              vector<float>& params,
-		                              map<string, int>& paramsMap);
-
 	protected: // call-outs
-		static int GetConfigString(lua_State* L);
-
 		static int PermitHelperAIs(lua_State* L);
-
-		static int SetRulesInfoMap(lua_State* L);
-
-		static int SetUnitRulesParam(lua_State* L);
-		static int CreateUnitRulesParams(lua_State* L);
-
-		static int SetTeamRulesParam(lua_State* L);
-		static int CreateTeamRulesParams(lua_State* L);
-
-		static int SetGameRulesParam(lua_State* L);
-		static int CreateGameRulesParams(lua_State* L);
 
 	private:
 		bool haveCommandFallback;
@@ -121,16 +109,17 @@ class CLuaRules : public CLuaHandleSynced
 		bool haveAllowStartPosition;
 		bool haveMoveCtrlNotify;
 		bool haveTerraformComplete;
-		bool haveDrawUnit;
-		bool haveAICallIn;
 		bool haveUnitPreDamaged;
+		bool haveShieldPreDamaged;
+		bool haveAllowWeaponTargetCheck;
+		bool haveAllowWeaponTarget;
 
-		map<string, string> infoMap;
+		bool haveDrawUnit;
+		bool haveDrawFeature;
+		bool haveDrawShield;
+		bool haveDrawProjectile;
 
 	private:
-		static string configString;
-		static vector<float>    gameParams;
-		static map<string, int> gameParamsMap;
 		static const int* currentCobArgs;
 };
 

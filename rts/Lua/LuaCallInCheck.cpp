@@ -1,12 +1,10 @@
-#include "StdAfx.h"
-// LuaCallInCheck.cpp: implementation of the LuaCallInCheck class.
-//
-//////////////////////////////////////////////////////////////////////
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "LuaCallInCheck.h"
 #include "LuaInclude.h"
-#include "LogOutput.h"
+#include "System/Log/ILog.h"
 
 
 /******************************************************************************/
@@ -24,8 +22,9 @@ LuaCallInCheck::~LuaCallInCheck()
 {
 	const int endTop = lua_gettop(L);
 	if (startTop != endTop) {
-		logOutput.Print("LuaCallInCheck mismatch for %s():  start = %i,  end = %i",
-		                funcName, startTop, endTop);
+		LOG_L(L_WARNING,
+				"LuaCallInCheck mismatch for %s():  start = %i,  end = %i",
+				funcName, startTop, endTop);
 	}
 }
 

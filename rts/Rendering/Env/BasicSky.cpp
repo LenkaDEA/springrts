@@ -1,25 +1,25 @@
-// Sky.cpp: implementation of the CBasicSky class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifdef _MSC_VER
 #pragma warning(disable:4258)
 #endif
 
-#include "StdAfx.h"
 #include <assert.h>
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "BasicSky.h"
 
 #include "Game/Camera.h"
 #include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/Textures/Bitmap.h"
-#include "TimeProfiler.h"
-#include "ConfigHandler.h"
-#include "GlobalUnsynced.h"
-#include "Matrix44f.h"
-#include "LogOutput.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Matrix44f.h"
+#include "System/myMath.h"
+#include "System/TimeProfiler.h"
+
+CONFIG(bool, DynamicSky).defaultValue(false);
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -33,55 +33,72 @@
 #define CLOUD_MASK (CLOUD_SIZE-1)
 
 CBasicSky::CBasicSky()
+	: skydir1(ZeroVector)
+	, skydir2(ZeroVector)
+	, skyTex(0)
+	, skyDot3Tex(0)
+	, cloudDot3Tex(0)
+	, sunTex(0)
+	, sunFlareTex(0)
+	, skyTexUpdateIter(0)
+	, skyDomeList(0)
+	, sunFlareList(0)
+	, skyAngle(0.0f)
+	, domeheight(0.0f)
+	, domeWidth(0.0f)
+	, sunTexCoordX(0.0f)
+	, sunTexCoordY(0.0f)
+	, randMatrix(NULL)
+	, rawClouds(NULL)
+	, blendMatrix(NULL)
+	, cloudThickness(NULL)
+	, oldCoverBaseX(-5)
+	, oldCoverBaseY(0)
+	, updatecounter(0)
 {
-	PrintLoadMsg("Creating sky");
+	sunFlareList = glGenLists(1);
+	skytexpart = new unsigned char[512][4];
+
+	memset(alphaTransform, 0, 1024);
+	memset(thicknessTransform, 0, 1024);
+	memset(covers, 0, 4 * 32 * sizeof(float));
 
 	randMatrix=newmat3<int>(16,32,32);
 	rawClouds=newmat2<int>(CLOUD_SIZE,CLOUD_SIZE);
 	blendMatrix=newmat3<int>(CLOUD_DETAIL,32,32);
 
-	updatecounter=0;
+	domeheight=math::cos(PI/16)*1.01f;
+	domeWidth=math::sin(PI/16)*400*1.7f;
 
-	domeheight=cos(PI/16)*1.01f;
-	domeWidth=sin(PI/16)*400*1.7f;
-
-	sundir2=mapInfo->light.sunDir;
-	sundir2.y=0;
-	if(sundir2.Length()==0)
-		sundir2.x=1;
-	sundir2.ANormalize();
-	sundir1=sundir2.cross(UpVector);
-
-	modSunDir.y=mapInfo->light.sunDir.y;
-	modSunDir.x=0;
-	modSunDir.z=sqrt(mapInfo->light.sunDir.x*mapInfo->light.sunDir.x+mapInfo->light.sunDir.z*mapInfo->light.sunDir.z);
-
-	sunTexCoordX=0.5f;
-	sunTexCoordY=GetTexCoordFromDir(modSunDir);
+	UpdateSkyDir();
+	InitSun();
+	UpdateSunDir();
 
 	cloudDensity = 0.25f + mapInfo->atmosphere.cloudDensity * 0.5f;
 	cloudColor = mapInfo->atmosphere.cloudColor;
 	skyColor = mapInfo->atmosphere.skyColor;
 	sunColor = mapInfo->atmosphere.sunColor;
 	fogStart = mapInfo->atmosphere.fogStart;
-	if (fogStart>0.99f) gu->drawFog = false;
+	if (fogStart>0.99f) globalRendering->drawFog = false; //FIXME wrong place?!
 
 	for(int a=0;a<CLOUD_DETAIL;a++)
 		cloudDown[a]=false;
 
 	cloudThickness=new unsigned char[CLOUD_SIZE*CLOUD_SIZE*4+4];
 
-	dynamicSky=true;
+	dynamicSky = true;
 	CreateClouds();
-	dynamicSky=!!configHandler->Get("DynamicSky",0);
+	dynamicSky = configHandler->GetBool("DynamicSky");
 
-	InitSun();
-	oldCoverBaseX=-5;
+	CreateSkyDomeList();
+}
 
+void CBasicSky::CreateSkyDomeList()
+{
 	int y;
 	glGetError();
-	displist=glGenLists(1);
-	glNewList(displist, GL_COMPILE);
+	skyDomeList = glGenLists(1);
+	glNewList(skyDomeList, GL_COMPILE);
 
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_LIGHTING);
@@ -93,7 +110,6 @@ CBasicSky::CBasicSky()
 	glFogf(GL_FOG_DENSITY,1.0f);
 	glEnable(GL_FOG);
 	glColor4f(1,1,1,1);
-
 
 	//! Draw dome
 	glActiveTextureARB(GL_TEXTURE0_ARB);
@@ -129,34 +145,6 @@ CBasicSky::CBasicSky()
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-
-/*
-	//! Draw sun
-	glActiveTextureARB(GL_TEXTURE1_ARB);
-	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D,sunTex);
-	float3 sundir(0,0.5f,1);
-	sundir.ANormalize();
-
-	float3 ldir=sundir.cross(UpVector);
-	float3 udir=sundir.cross(ldir);
-
-	glDisable(GL_FOG);
-	glBegin(GL_QUADS);
-		glMultiTexCoord2f(GL_TEXTURE1, 0,0);
-		glVertexf3(sundir*5+ldir*0.15f+udir*0.15f);
-		glMultiTexCoord2f(GL_TEXTURE1, 0,1);
-		glVertexf3(sundir*5+ldir*0.15f-udir*0.15f);
-		glMultiTexCoord2f(GL_TEXTURE1, 1,1);
-		glVertexf3(sundir*5-ldir*0.15f-udir*0.15f);
-		glMultiTexCoord2f(GL_TEXTURE1, 1,0);
-		glVertexf3(sundir*5-ldir*0.15f+udir*0.15f);
-	glEnd();
-	glEnable(GL_FOG);
-
-	glDisable(GL_TEXTURE_2D);
-	glActiveTextureARB(GL_TEXTURE0_ARB);
-*/
 
 	//! draw dot3 clouds
 	if(GLEW_ARB_texture_env_dot3){
@@ -220,7 +208,7 @@ CBasicSky::~CBasicSky()
 	glDeleteTextures(1, &skyTex);
 	glDeleteTextures(1, &skyDot3Tex);
 	glDeleteTextures(1, &cloudDot3Tex);
-	glDeleteLists(displist,1);
+	glDeleteLists(skyDomeList, 1);
 
 	glDeleteTextures(1, &sunTex);
 	glDeleteTextures(1, &sunFlareTex);
@@ -231,6 +219,8 @@ CBasicSky::~CBasicSky()
 	delmat3<int>(randMatrix);
 	delmat2<int>(rawClouds);
 	delmat3<int>(blendMatrix);
+
+	delete[] skytexpart;
 }
 
 void CBasicSky::Draw()
@@ -239,17 +229,17 @@ void CBasicSky::Draw()
 
 	if (wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
-	float3 modCamera=sundir1*camera->pos.x+sundir2*camera->pos.z;
+	float3 modCamera=skydir1*camera->pos.x+skydir2*camera->pos.z;
 
 	glMatrixMode(GL_TEXTURE);
 		glPushMatrix();
 		glTranslatef((gs->frameNum%20000)*0.00005f+modCamera.x*0.000025f,modCamera.z*0.000025f,0);
 	glMatrixMode(GL_MODELVIEW);
 		glPushMatrix();
-		CMatrix44f m(camera->pos,sundir1,UpVector,sundir2);
+		CMatrix44f m(camera->pos,skydir1,UpVector,skydir2);
 		glMultMatrixf(m.m);
 
-	glCallList(displist);
+	glCallList(skyDomeList);
 
 	glMatrixMode(GL_TEXTURE);
 		glPopMatrix();
@@ -260,28 +250,19 @@ void CBasicSky::Draw()
 
 	glEnable(GL_DEPTH_TEST);
 
-	glFogfv(GL_FOG_COLOR,mapInfo->atmosphere.fogColor);
-	glFogi(GL_FOG_MODE,GL_LINEAR);
-	glFogf(GL_FOG_START,gu->viewRange*fogStart);
-	glFogf(GL_FOG_END,gu->viewRange);
-	glFogf(GL_FOG_DENSITY,1.00f);
-	if (gu->drawFog) {
-		glEnable(GL_FOG);
-	} else {
-		glDisable(GL_FOG);
-	}
+	ISky::SetupFog();
 }
 
 float3 CBasicSky::GetCoord(int x, int y)
 {
-	float3 c;
-	float fy=((float)y/Y_PART)*2*PI;
-	float fx=((float)x/X_PART)*2*PI;
+	float fy = ((float)y/Y_PART) * 2 * PI;
+	float fx = ((float)x/X_PART) * 2 * PI;
 
-	c.x=sin(fy/32)*sin(fx)*400;
-	c.y=(cos(fy/32)-domeheight)*400;
-	c.z=sin(fy/32)*cos(fx)*400;
-	return c;
+	return float3(
+		fastmath::sin(fy/32) * fastmath::sin(fx),
+		fastmath::cos(fy/32) - domeheight,
+		fastmath::sin(fy/32) * fastmath::cos(fx)
+	) * 400;
 }
 
 void CBasicSky::CreateClouds()
@@ -295,52 +276,29 @@ void CBasicSky::CreateClouds()
 
 	for(y=0;y<512;y++){
 		for(int x=0;x<512;x++){
-			float3 dir=GetDirFromTexCoord(x/512.0f,y/512.0f);
-			float sunDist=acos(dir.dot(modSunDir))*70;
-			float sunMod=12.0f/(12+sunDist);
-
-			float red=(skyColor.x+sunMod*sunColor.x);
-			float green=(skyColor.y+sunMod*sunColor.y);
-			float blue=(skyColor.z+sunMod*sunColor.z);
-			if(red>1)
-				red=1;
-			if(green>1)
-				green=1;
-			if(blue>1)
-				blue=1;
-			skytex[y][x][0]=(unsigned char)(red*255);
-			skytex[y][x][1]=(unsigned char)(green*255);
-			skytex[y][x][2]=(unsigned char)(blue*255);
-			skytex[y][x][3]=255;
+			UpdateTexPart(x, y, skytex[y]);
 		}
 	}
 
 	glBindTexture(GL_TEXTURE_2D, skyTex);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_NEAREST);
-	glBuildMipmaps(GL_TEXTURE_2D,GL_RGBA8, 512, 512, GL_RGBA, GL_UNSIGNED_BYTE, skytex[0][0]);
-	delete [] skytex;
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR/*_MIPMAP_NEAREST*/);
+//	glBuildMipmaps(GL_TEXTURE_2D,GL_RGBA8 ,512, 512, GL_RGBA, GL_UNSIGNED_BYTE, skytex[0][0]);
+	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8 ,512, 512, 0, GL_RGBA, GL_UNSIGNED_BYTE, skytex[0][0]);
+	delete[] skytex;
 
-	unsigned char (* skytex2)[256][4]=new unsigned char[256][256][4];
+	unsigned char (* skytex2)[256][4] = new unsigned char[256][256][4];
 	for(y=0;y<256;y++){
 		for(int x=0;x<256;x++){
-			float3 dir=GetDirFromTexCoord(x/256.0f,y/256.0f);
-			float sunDist=acos(dir.dot(modSunDir))*50;
-			float sunMod=0.3f/sqrt(sunDist)+2.0f/sunDist;
-			float green=(0.55f+sunMod);
-			if(green>1)
-				green=1;
-			skytex2[y][x][0]=255-y/2;
-			skytex2[y][x][1]=(unsigned char)(green*255);
-			skytex2[y][x][2]=203;
-			skytex2[y][x][3]=255;
+			UpdateTexPartDot3(x, y, skytex2[y]);
 		}
 	}
 
 	glBindTexture(GL_TEXTURE_2D, skyDot3Tex);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_NEAREST);
-	glBuildMipmaps(GL_TEXTURE_2D,GL_RGBA8 ,256, 256, GL_RGBA, GL_UNSIGNED_BYTE, skytex2[0][0]);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR/*_MIPMAP_NEAREST*/);
+//	glBuildMipmaps(GL_TEXTURE_2D,GL_RGBA8 ,256, 256, GL_RGBA, GL_UNSIGNED_BYTE, skytex2[0][0]);
+	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8 ,256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, skytex2[0][0]);
 	delete [] skytex2;
 
 	for(int a=0;a<CLOUD_DETAIL;a++){
@@ -348,25 +306,23 @@ void CBasicSky::CreateClouds()
 		CreateRandMatrix(randMatrix[a+8],1-a*0.03f);
 	}
 
-	char* scrap=new char[CLOUD_SIZE*CLOUD_SIZE*4];
 	glBindTexture(GL_TEXTURE_2D, cloudDot3Tex);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_NEAREST);
-	glBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, CLOUD_SIZE, CLOUD_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, scrap);
-	delete [] scrap;
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8, CLOUD_SIZE, CLOUD_SIZE,0,GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
 	CreateTransformVectors();
 	for(int i=0; i<CLOUD_DETAIL+6; ++i)
 		Update();
 }
 
-inline void CBasicSky::UpdatePart(int ast, int aed, int a3cstart, int a4cstart) {
+void CBasicSky::UpdatePart(int ast, int aed, int a3cstart, int a4cstart) {
 	int* rc = *rawClouds + ast;
 	unsigned char* ct = cloudThickness + 4 * ast;
 
 	int yam2 = ydif[(ast - 2) & CLOUD_MASK];
 	int yam1 = ydif[(ast - 1) & CLOUD_MASK];
-	int yaa  = ydif[(ast) & CLOUD_MASK];
+	int yaa  = ydif[(ast)     & CLOUD_MASK];
 	int ap1 = (ast + 1) & CLOUD_MASK;
 
 	aed = aed * 4 + 3;
@@ -378,12 +334,19 @@ inline void CBasicSky::UpdatePart(int ast, int aed, int a3cstart, int a4cstart) 
 	for (int a = ast; a < aed; ++rc, ++ct) {
 		int yap1 = ydif[ap1] += (int) cloudThickness[a3c += 4] - cloudThickness[a += 4] * 2 + cloudThickness[a4c += 4];
 
-		int dif = (yam2 >> 2) +
-			((yam2 = yam1) >> 1) +
-			(yam1 = yaa) +
-			((yaa = yap1) >> 1) +
-			(ydif[(++ap1) &= CLOUD_MASK] >> 2);
+		ap1++;
+		ap1 = (ap1 & CLOUD_MASK);
+		int dif =
+			(yam2 >> 2) +
+			(yam1 >> 1) +
+			(yaa) +
+			(yap1 >> 1) +
+			(ydif[ap1] >> 2);
 		dif >>= 4;
+
+		yam2 = yam1;
+		yam1 = yaa;
+		yaa  = yap1;
 
 		*ct++ = 128 + dif;
 		*ct++ = thicknessTransform[(*rc) >> 7];
@@ -393,10 +356,10 @@ inline void CBasicSky::UpdatePart(int ast, int aed, int a3cstart, int a4cstart) 
 
 void CBasicSky::Update()
 {
-	if(!dynamicSky)
+	if (!dynamicSky)
 		return;
 
-	SCOPED_TIMER("Sky Update");
+	SCOPED_TIMER("BasicSky::Update");
 
 	static int kernel[CLOUD_SIZE/4*CLOUD_SIZE/4];
 
@@ -405,10 +368,10 @@ void CBasicSky::Update()
 	switch(updatepart) { // smoothen out the workload across draw frames
 	case 0: {
 		for(int a=0; a<CLOUD_DETAIL; a++) {
-			float fade=(gs->frameNum/(70.0f*(2<<(CLOUD_DETAIL-1-a))));
-			fade-=floor(fade/2)*2;
+			float fade = gs->frameNum / (70.0f * (2<<(CLOUD_DETAIL-1-a)));
+			fade -= math::floor(fade/2)*2;
 			if(fade>1) {
-				fade=2-fade;
+				fade = 2 - fade;
 				if(!cloudDown[a]) {
 					cloudDown[a]=true;
 					CreateRandMatrix(randMatrix[a+8],1-a*0.03f);
@@ -440,11 +403,11 @@ void CBasicSky::Update()
 		int qcda=(4<<CLOUD_DETAIL)>>a;
 		int *pkernel=kernel;
 		for(int y=0; y<cs4a; ++y, pkernel+=CLOUD_SIZE/4) {
-			float ydist=fabs(1.0f+y-cs8a)/cs8a;
+			float ydist=math::fabs(1.0f+y-cs8a)/cs8a;
 			ydist=ydist*ydist*(3-2*ydist);
 			int *pkrn=pkernel;
 			for(int x=0; x<cs4a; ++x) {
-				float xdist=fabs(1.0f+x-cs8a)/cs8a;
+				float xdist=math::fabs(1.0f+x-cs8a)/cs8a;
 				xdist=xdist*xdist*(3-2*xdist);
 
 				float contrib=(1-xdist)*(1-ydist);
@@ -467,7 +430,7 @@ void CBasicSky::Update()
 			int blend=bm[by&31][31&31], **prcy=prc, *pkernel=kernel;
 			for(int y2=0; y2<cs4a; ++y2, ++prcy, pkernel+=CLOUD_SIZE/4) {
 				int *prcx=(*prcy)+cmcs8a, *pkrn=pkernel;
-				for(int x2=cmcs8a; x2<std::min(CLOUD_SIZE, cs4a+cmcs8a); ++x2)
+				for(int x2=cmcs8a; x2 < std::min(CLOUD_SIZE, cs4a+cmcs8a); ++x2)
 					(*prcx++)+=blend*(*pkrn++); // prcx = rawClouds[y2+y][x2+cmcs8a], x2<CLOUD_SIZE
 				prcx-=CLOUD_SIZE;
 				for(int x2=std::max(CLOUD_SIZE,cmcs8a); x2<cs4a+cmcs8a; ++x2)
@@ -488,15 +451,22 @@ void CBasicSky::Update()
 		for(int a=0;a<CLOUD_SIZE*CLOUD_SIZE;a++)
 			cloudThickness[a*4+3]=alphaTransform[rawClouds[0][a]>>7];
 
-		cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+3]=alphaTransform[rawClouds[0][0]>>7];
+		cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+3] = alphaTransform[rawClouds[0][0]>>7];
 		// next line unused
-		cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+0]=cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+1]=cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+2]=0;
+		cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+0] = 0;
+		cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+1] = 0;
+		cloudThickness[CLOUD_SIZE*CLOUD_SIZE*4+2] = 0;
 
-		//create the cloud shading
-		for(int a=0, a4=3; a<CLOUD_SIZE; ++a, a4+=4) {
-			ydif[a]=(int)cloudThickness[(a4+3*CLOUD_SIZE*4)] + cloudThickness[(a4+2*CLOUD_SIZE*4)] + cloudThickness[(a4+1*CLOUD_SIZE*4)] + 
-				cloudThickness[(a4+0*CLOUD_SIZE*4)] - cloudThickness[(a4+(CLOUD_SIZE-1)*CLOUD_SIZE*4)] - 
-				cloudThickness[(a4+CLOUD_SIZE*(CLOUD_SIZE-2)*4)] - cloudThickness[(a4+CLOUD_SIZE*(CLOUD_SIZE-3)*4)];
+		// create the cloud shading
+		for (int a = 0, a4 = 3; a < CLOUD_SIZE; ++a, a4 += 4) {
+			ydif[a] =
+				(int)cloudThickness[(a4+3*CLOUD_SIZE*4)]
+				+    cloudThickness[(a4+2*CLOUD_SIZE*4)]
+				+    cloudThickness[(a4+1*CLOUD_SIZE*4)]
+				+    cloudThickness[(a4+0*CLOUD_SIZE*4)]
+				-    cloudThickness[(a4+(CLOUD_SIZE-1)*CLOUD_SIZE*4)]
+				-    cloudThickness[(a4+CLOUD_SIZE*(CLOUD_SIZE-2)*4)]
+				-    cloudThickness[(a4+CLOUD_SIZE*(CLOUD_SIZE-3)*4)];
 		}
 
 		ydif[0] += cloudThickness[(0+CLOUD_SIZE*(CLOUD_SIZE-3))*4+3] - cloudThickness[0*4+3]*2 + cloudThickness[(0+4*CLOUD_SIZE)*4+3];
@@ -515,14 +485,6 @@ void CBasicSky::Update()
 		break;
 	}
 	case CLOUD_DETAIL+5: {
-		/*
-		for(int a=0; a<CLOUD_SIZE; ++a) {
-		cloudThickness[((int(48+camera->pos.z*CLOUD_SIZE*0.000025f)%256)*CLOUD_SIZE+a)*4+3]=0;
-		}
-		for(int a=0; a<CLOUD_SIZE; ++a) {
-		cloudThickness[(a*CLOUD_SIZE+int(gs->frameNum*0.00009f*256+camera->pos.x*CLOUD_SIZE*0.000025f))*4+3]=0;
-		}
-		/**/
 		glBindTexture(GL_TEXTURE_2D, cloudDot3Tex);
 		glTexSubImage2D(GL_TEXTURE_2D,0, 0,0,CLOUD_SIZE, CLOUD_SIZE,GL_RGBA, GL_UNSIGNED_BYTE, cloudThickness);
 		break;
@@ -544,7 +506,7 @@ void CBasicSky::CreateTransformVectors()
 	unsigned char *tt=thicknessTransform;
 	for(int a=0;a<1024;++a){
 		float f=(1023.0f-(a+cloudDensity*1024-512))/1023.0f;
-		float alpha=pow(f*2,3);
+		float alpha=math::pow(f*2,3);
 		if(alpha>1)
 			alpha=1;
 		*at=(unsigned char)(alpha*255);
@@ -561,8 +523,9 @@ void CBasicSky::DrawSun()
 	glPushMatrix();
 	CMatrix44f m(camera->pos,sundir1,UpVector,sundir2);
 	glMultMatrixf(m.m);
-	glDisable(GL_DEPTH_TEST);
 
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_ALPHA_TEST);
 	static unsigned char buf[32];
 	glEnable(GL_TEXTURE_2D);
 
@@ -570,13 +533,13 @@ void CBasicSky::DrawSun()
 
 	float ymod=(sunTexCoordY-0.5f)*domeWidth*0.025f*256;
 	float fy=ymod+modCamera.z*CLOUD_SIZE*0.000025f;
-	int baseY=int(floor(fy))%256;
-	fy-=floor(fy);
+	int baseY=int(math::floor(fy))&CLOUD_MASK;
+	fy-=math::floor(fy);
 	float fx=gs->frameNum*0.00005f*CLOUD_SIZE+modCamera.x*CLOUD_SIZE*0.000025f;
-	int baseX=int(floor(fx))%256;
-	fx-=floor(fx);
+	int baseX=int(math::floor(fx))&CLOUD_MASK;
+	fx-=math::floor(fx);
 
-	float *cvs=covers[0], *cvs1=covers[1], *cvs2=covers[2], *cvs3=covers[3];
+	float *cvs=(float *)covers[0], *cvs1=(float *)covers[1], *cvs2=(float *)covers[2], *cvs3=(float *)covers[3];
 	if(baseX!=oldCoverBaseX || baseY!=oldCoverBaseY){
 		oldCoverBaseX=baseX;
 		oldCoverBaseY=baseY;
@@ -586,51 +549,71 @@ void CBasicSky::DrawSun()
 		CreateCover(baseX+1,baseY+1,cvs3);
 	}
 
-	unsigned char *bf=buf;
-	for(int x=0;x<32; ++x){
+	float mid=0;
+	for(int x=0;x<32;++x){
 		float cx1=(*cvs++)*(1-fx)+(*cvs1++)*fx;
 		float cx2=(*cvs2++)*(1-fx)+(*cvs3++)*fx;
 
 		float cover=cx1*(1-fy)+cx2*fy;
-
 		if(cover>127.5f)
 			cover=127.5f;
-
-		(*bf++)=(unsigned char)(255-cover*2);
+		mid+=cover;
 	}
+	mid*=1.0f/32;
+	for(int x=0;x<32;++x){
+		buf[x]=(unsigned char)(255-mid*2);
+	}
+
 	glBindTexture(GL_TEXTURE_2D, sunFlareTex);
 	glTexSubImage2D(GL_TEXTURE_2D,0,0,0,32,1,GL_LUMINANCE,GL_UNSIGNED_BYTE,buf);
 
-	glColor4f(0.4f*sunColor.x,0.4f*sunColor.y,0.4f*sunColor.z,0.0f);
+	const float si = skyLight->GetLightIntensity();
+	const float3 sc = sunColor * si;
+
+	glColor4f(sc.x, sc.y, sc.z, 0.0f);
 	glCallList(sunFlareList);
 
 	glEnable(GL_DEPTH_TEST);
 	glPopMatrix();
 }
 
-void CBasicSky::SetCloudShadow(int texunit)
-{
+void CBasicSky::UpdateSunFlare() {
+	float3 ldir=modSunDir.cross(UpVector);
+	ldir.ANormalize();
+	float3 udir=modSunDir.cross(ldir);
+	udir.ANormalize();
+
+	glNewList(sunFlareList, GL_COMPILE);
+		glDisable(GL_FOG);
+		glBindTexture(GL_TEXTURE_2D, sunFlareTex);
+		glBlendFunc(GL_ONE_MINUS_DST_COLOR,GL_ONE);
+		glBegin(GL_TRIANGLE_STRIP);
+		for(int x=0;x<257;++x){
+			float dx=math::sin(x*2*PI/256.0f);
+			float dy=math::cos(x*2*PI/256.0f);
+
+			glTexCoord2f(x/256.0f,0.25f);
+			glVertexf3(modSunDir*5+ldir*dx*0.0014f+udir*dy*0.0014f);
+			glTexCoord2f(x/256.0f,0.75f);
+			glVertexf3(modSunDir*5+ldir*dx*4+udir*dy*4);
+		}
+		glEnd();
+		if (globalRendering->drawFog) glEnable(GL_FOG);
+	glEndList();
 }
 
-void CBasicSky::ResetCloudShadow(int texunit)
-{
-}
-
-void CBasicSky::DrawShafts()
-{
-}
 
 
 void CBasicSky::InitSun()
 {
-	unsigned char* mem=new unsigned char[128*128*4];
+	unsigned char* mem = new unsigned char[128*128*4];
 
 	for(int y=0;y<128;++y){
 		for(int x=0;x<128;++x){
 			mem[(y*128+x)*4+0]=255;
 			mem[(y*128+x)*4+1]=255;
 			mem[(y*128+x)*4+2]=255;
-			float dist=sqrt((float)(y-64)*(y-64)+(x-64)*(x-64));
+			float dist=math::sqrt((float)(y-64)*(y-64)+(x-64)*(x-64));
 			if(dist>60)
 				mem[(y*128+x)*4+3]=0;
 			else
@@ -660,38 +643,14 @@ void CBasicSky::InitSun()
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP);
-//	gluBuild2DMipmaps(GL_TEXTURE_2D,1 ,32, 2, GL_ALPHA, GL_UNSIGNED_BYTE, mem);
-	glTexImage2D(GL_TEXTURE_2D,0,1 ,32, 2,0, GL_LUMINANCE, GL_UNSIGNED_BYTE, mem);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE ,32, 2, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, mem);
 
-	delete [] mem;
-
-	float3 ldir=modSunDir.cross(UpVector);
-	float3 udir=modSunDir.cross(ldir);
-
-	sunFlareList=glGenLists(1);
-	glNewList(sunFlareList, GL_COMPILE);
-		glDisable(GL_FOG);
-		glBindTexture(GL_TEXTURE_2D, sunFlareTex);
-		glBlendFunc(GL_ONE_MINUS_DST_COLOR,GL_ONE);
-		glBegin(GL_TRIANGLE_STRIP);
-		for(int x=0;x<257;++x){
-			float dx=sin(x*2*PI/256.0f);
-			float dy=cos(x*2*PI/256.0f);
-
-			glTexCoord2f(x/256.0f,0.25f);
-			glVertexf3(modSunDir*5+ldir*dx*0.0014f+udir*dy*0.0014f);
-			glTexCoord2f(x/256.0f,0.75f);
-			glVertexf3(modSunDir*5+ldir*dx*4+udir*dy*4);
-		}
-		glEnd();
-		if (gu->drawFog) glEnable(GL_FOG);
-
-	glEndList();
+	delete[] mem;
 }
 
 inline unsigned char CBasicSky::GetCloudThickness(int x,int y)
 {
-	assert (CLOUD_SIZE==256);
+	assert(CLOUD_SIZE==256);
 	x &= 0xff;
 	y &= 0xff;
 
@@ -702,8 +661,17 @@ inline unsigned char CBasicSky::GetCloudThickness(int x,int y)
 
 void CBasicSky::CreateCover(int baseX, int baseY, float *buf)
 {
-	static int line[]={ 5, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 5, 0, 1, 0, 2, 1, 3, 1, 4, 1, 5, 5, 0, 1, 1, 2, 1, 3, 2, 4, 2, 5, 4, 1, 1, 2, 2, 2, 3, 3, 4, 4, 1, 1, 2, 2, 3, 3, 4, 4, 4, 1, 1, 2, 2, 3, 2, 4, 3, 5, 1, 0, 2, 1, 3, 1, 4, 2, 5, 2, 5, 1, 0, 2, 0, 3, 1, 4, 1, 5, 1};
-	int *pline=line;
+	static int line[]={
+		5, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5,
+		5, 0, 1, 0, 2, 1, 3, 1, 4, 1, 5,
+		5, 0, 1, 1, 2, 1, 3, 2, 4, 2, 5,
+		4, 1, 1, 2, 2, 2, 3, 3, 4,
+		4, 1, 1, 2, 2, 3, 3, 4, 4,
+		4, 1, 1, 2, 2, 3, 2, 4, 3,
+		5, 1, 0, 2, 1, 3, 1, 4, 2, 5, 2,
+		5, 1, 0, 2, 0, 3, 1, 4, 1, 5, 1
+	};
+	int* pline = line;
 
 	for(int l=0;l<8;++l){
 		int num=*pline++;
@@ -730,37 +698,131 @@ void CBasicSky::CreateCover(int baseX, int baseY, float *buf)
 	}
 }
 
+void CBasicSky::UpdateSunDir() {
+	const float3& L = skyLight->GetLightDir();
+
+	sundir2 = L;
+	sundir2.y = 0.0f;
+
+	if (sundir2.SqLength() == 0.0f)
+		sundir2.x = 1.0f;
+
+	sundir2.ANormalize();
+	sundir1 = sundir2.cross(UpVector);
+
+	modSunDir.y = L.y;
+	modSunDir.x = 0.0f;
+	modSunDir.z = math::sqrt(L.x * L.x + L.z * L.z);
+
+	sunTexCoordX = 0.5f;
+	sunTexCoordY = GetTexCoordFromDir(modSunDir);
+
+	UpdateSunFlare();
+}
+
+void CBasicSky::UpdateSkyDir() {
+	skydir2 = mapInfo->atmosphere.skyDir;
+	skydir2.y = 0.0f;
+
+	if (skydir2.SqLength() == 0.0f)
+		skydir2.x = 1.0f;
+
+	skydir2.ANormalize();
+	skydir1 = skydir2.cross(UpVector);
+	skyAngle = GetRadFromXY(skydir2.x, skydir2.z) + PI / 2.0f; //FIXME Why the +PI/2???
+}
+
+void CBasicSky::UpdateSkyTexture() {
+	const int mod = skyTexUpdateIter % 3;
+
+	if (mod <= 1) {
+		const int y = (skyTexUpdateIter / 3) * 2 + mod;
+		for (int x = 0; x < 512; x++) {
+			UpdateTexPart(x, y, skytexpart);
+		}
+		glBindTexture(GL_TEXTURE_2D, skyTex);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, 512, 1, GL_RGBA, GL_UNSIGNED_BYTE, skytexpart[0]);
+	} else {
+		const int y = (skyTexUpdateIter / 3);
+		for (int x = 0; x < 256; x++) {
+			UpdateTexPartDot3(x, y, skytexpart);
+		}
+		glBindTexture(GL_TEXTURE_2D, skyDot3Tex);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, skytexpart[0]);
+	}
+
+	skyTexUpdateIter = (skyTexUpdateIter + 1) % (512 + 256);
+}
+
+
 float3 CBasicSky::GetDirFromTexCoord(float x, float y)
 {
 	float3 dir;
 
-	dir.x=(x-0.5f)*domeWidth;
-	dir.z=(y-0.5f)*domeWidth;
+	dir.x = (x - 0.5f) * domeWidth;
+	dir.z = (y - 0.5f) * domeWidth;
 
-	float hdist=sqrt(dir.x*dir.x+dir.z*dir.z);
-	float fy=asin(hdist/400);
-	dir.y=(cos(fy)-domeheight)*400;
+	const float hdist = math::sqrt(dir.x * dir.x + dir.z * dir.z);
+	const float ang = GetRadFromXY(dir.x, dir.z) + skyAngle;
+	const float fy = math::asin(hdist / 400);
+
+	dir.x = hdist * math::cos(ang);
+	dir.z = hdist * math::sin(ang);
+	dir.y = (fastmath::cos(fy) - domeheight) * 400;
 
 	dir.ANormalize();
-
 	return dir;
 }
 
-//should be improved
-//only take stuff in yz plane
-float CBasicSky::GetTexCoordFromDir(float3 dir)
+// should be improved
+// only take stuff in yz plane
+float CBasicSky::GetTexCoordFromDir(const float3& dir)
 {
-	float tp=0.5f;
-	float step=0.25f;
+	float tp = 0.5f;
+	float step = 0.25f;
 
-	for(int a=0;a<10;++a){
-		float tx=0.5f+tp;
-		float3 d=GetDirFromTexCoord(tx,0.5f);
-		if(d.y<dir.y)
-			tp-=step;
+	for (int a = 0; a < 10; ++a) {
+		float tx = 0.5f + tp;
+		const float3& d = GetDirFromTexCoord(tx, 0.5f);
+
+		if (d.y < dir.y)
+			tp -= step;
 		else
-			tp+=step;
-		step*=0.5f;
+			tp += step;
+
+		step *= 0.5f;
 	}
-	return 0.5f+tp;
+
+	return (0.5f + tp);
+}
+
+void CBasicSky::UpdateTexPartDot3(int x, int y, unsigned char (*texp)[4]) {
+	const float3& dir = GetDirFromTexCoord(x / 256.0f, (255.0f - y) / 256.0f);
+
+	const float sunInt = skyLight->GetLightIntensity();
+	const float sunDist = math::acos(dir.dot(skyLight->GetLightDir())) * 50;
+	const float sunMod = sunInt * (0.3f / math::sqrt(sunDist) + 2.0f / sunDist);
+
+	const float green = std::min(1.0f, (0.55f + sunMod));
+
+	texp[x][0] = (unsigned char) (sunInt * (255 - std::min(255.0f, sunDist))); // sun on borders
+	texp[x][1] = (unsigned char) (green * 255); // sun light through
+	texp[x][2] = (unsigned char)  203; // ambient
+	texp[x][3] = 255;
+}
+
+void CBasicSky::UpdateTexPart(int x, int y, unsigned char (*texp)[4]) {
+	const float3& dir = GetDirFromTexCoord(x / 512.0f, (511.0f - y) / 512.0f);
+
+	const float sunDist = math::acos(dir.dot(skyLight->GetLightDir())) * 70;
+	const float sunMod = skyLight->GetLightIntensity() * 12.0f / (12 + sunDist);
+
+	const float red   = std::min(skyColor.x + sunMod * sunColor.x, 1.0f);
+	const float green = std::min(skyColor.y + sunMod * sunColor.y, 1.0f);
+	const float blue  = std::min(skyColor.z + sunMod * sunColor.z, 1.0f);
+
+	texp[x][0] = (unsigned char)(red   * 255);
+	texp[x][1] = (unsigned char)(green * 255);
+	texp[x][2] = (unsigned char)(blue  * 255);
+	texp[x][3] = 255;
 }

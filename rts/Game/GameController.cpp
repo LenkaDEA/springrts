@@ -1,60 +1,50 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "GameController.h"
-#include "Platform/Clipboard.h"
+#include "System/Platform/Clipboard.h"
 
 
-CGameController::CGameController(void)
+CGameController* activeController = NULL;
+
+
+CGameController::CGameController()
+	: userWriting(false)
+	, writingPos(0)
+	, ignoreNextChar(false)
+	, ignoreChar(0)
 {
-	userWriting = false;
-
-	writingPos = 0;
-
-	ignoreNextChar = false;
-
-	ignoreChar = 0;
 }
 
 
-
-CGameController::~CGameController(void)
+CGameController::~CGameController()
 {
-
+	if (activeController == this) {
+		activeController = NULL;
+	}
 }
 
 
-
-bool CGameController::Draw(void)
-{
-	return true;
-}
-/*
-bool CGameController::Draw2(void)
-{
-	return true;
-}*/
-/*bool CGameController::DrawMT(void)
-{
-	return true;
-}*/
-
-bool CGameController::Update(void)
+bool CGameController::Draw()
 {
 	return true;
 }
 
 
+bool CGameController::Update()
+{
+	return true;
+}
 
-int CGameController::KeyPressed(unsigned short k,bool isRepeat)
+
+int CGameController::KeyPressed(unsigned short key, bool isRepeat)
 {
 	return 0;
 }
 
 
-
-int CGameController::KeyReleased(unsigned short k)
+int CGameController::KeyReleased(unsigned short key)
 {
 	return 0;
 }

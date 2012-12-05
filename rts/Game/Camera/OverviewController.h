@@ -1,9 +1,9 @@
-#ifndef __OV_CONTROLLER_H__
-#define __OV_CONTROLLER_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+#ifndef _OV_CONTROLLER_H
+#define _OV_CONTROLLER_H
 
 #include "CameraController.h"
-
 
 class COverviewController : public CCameraController
 {
@@ -19,10 +19,8 @@ public:
 	void ScreenEdgeMove(float3 move);
 	void MouseWheelMove(float move);
 
-	float3 GetPos();
-	float3 GetDir();
-
 	void SetPos(const float3& newPos);
+	void SetDir(const float3& newDir);
 	float3 SwitchFrom() const;
 	void SwitchTo(bool showText);
 
@@ -33,4 +31,4 @@ private:
 	bool minimizeMinimap;
 };
 
-#endif // __OV_CONTROLLER_H__
+#endif // _OV_CONTROLLER_H

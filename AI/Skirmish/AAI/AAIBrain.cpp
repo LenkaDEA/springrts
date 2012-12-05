@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // AAI
 //
-// A skirmish AI for the TA Spring engine.
+// A skirmish AI for the Spring engine.
 // Copyright Alexander Seizinger
 //
 // Released under GPL license: see LICENSE.html for more information.
@@ -43,7 +43,7 @@ AAIBrain::~AAIBrain(void)
 
 AAISector* AAIBrain::GetAttackDest(bool land, bool water)
 {
-	float best_rating = 0, my_rating;
+	float best_rating = 0.0f, my_rating = 0.0f;
 	AAISector *dest = 0, *sector;
 
 	//int side = ai->side-1;
@@ -230,7 +230,7 @@ bool AAIBrain::EnergyForConstr(int unit, int wokertime)
 	}
 
 	// check energy
-	int energy =  bt->unitList[unit-1]->buildTime * (cb->GetEnergyIncome()-(cb->GetEnergyUsage()/2));
+//	int energy =  bt->unitList[unit-1]->buildTime * (cb->GetEnergyIncome()-(cb->GetEnergyUsage()/2));
 
 	// TODO: FIXME: add code here
 
@@ -293,7 +293,7 @@ void AAIBrain::RemoveSector(AAISector *sector)
 
 void AAIBrain::DefendCommander(int attacker)
 {
-	float3 pos = cb->GetUnitPos(ai->ut->cmdr);
+//	float3 pos = cb->GetUnitPos(ai->ut->cmdr);
 	//float importance = 120;
 	Command c;
 
@@ -515,12 +515,12 @@ bool AAIBrain::ExpandBase(SectorType sectorType)
 		// debug purposes:
 		if(sectorType == LAND_SECTOR)
 		{
-			fprintf(ai->file, "\nAdding land sector %i,%i to base; base size: %i", best_sector->x, best_sector->y, sectors[0].size());
+			fprintf(ai->file, "\nAdding land sector %i,%i to base; base size: "_STPF_, best_sector->x, best_sector->y, sectors[0].size());
 			fprintf(ai->file, "\nNew land : water ratio within base: %f : %f\n\n", baseLandRatio, baseWaterRatio);
 		}
 		else
 		{
-			fprintf(ai->file, "\nAdding water sector %i,%i to base; base size: %i", best_sector->x, best_sector->y, sectors[0].size());
+			fprintf(ai->file, "\nAdding water sector %i,%i to base; base size: "_STPF_, best_sector->x, best_sector->y, sectors[0].size());
 			fprintf(ai->file, "\nNew land : water ratio within base: %f : %f\n\n", baseLandRatio, baseWaterRatio);
 		}
 

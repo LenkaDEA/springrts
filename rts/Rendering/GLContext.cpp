@@ -1,8 +1,5 @@
-// GLContext.cpp: implementation of the GLContext namespace.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
 
 #ifdef free
 #undef free
@@ -11,9 +8,10 @@
 #include "GLContext.h"
 
 #include <list>
+#include <cstddef> // for NULL
 
+using std::list;
 
-using namespace std;
 
 struct HookSet {
 	HookSet()
@@ -75,7 +73,7 @@ void GLContext::RemoveHookSet(Func init, Func free, void* data)
 	for (it = getHooks().begin(); it != getHooks().end(); ++it) {
 		if (hs == *it) {
 			list<HookSet>::iterator it_next = it;
-			it_next++;
+			++it_next;
 			getHooks().erase(it);
 			it = it_next;
 		}

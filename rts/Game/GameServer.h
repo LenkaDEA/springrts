@@ -1,7 +1,8 @@
-#ifndef __GAME_SERVER_H__
-#define __GAME_SERVER_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include <boost/thread/recursive_mutex.hpp>
+#ifndef _GAME_SERVER_H
+#define _GAME_SERVER_H
+
 #include <boost/thread/thread.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <string>
@@ -13,9 +14,11 @@
 
 #include "GameData.h"
 #include "Sim/Misc/TeamBase.h"
-#include "UnsyncedRNG.h"
-#include "float3.h"
-#include "System/myTime.h"
+#include "System/UnsyncedRNG.h"
+#include "System/float3.h"
+#include "System/Misc/SpringTime.h"
+#include "System/Platform/Synchro.h"
+
 
 namespace netcode
 {
@@ -38,15 +41,15 @@ class GameSkirmishAI;
  * this value is used as the sending player-number.
  */
 const unsigned SERVER_PLAYER = 255;
-const unsigned numCommands = 19;
+const unsigned numCommands = 20;
 extern const std::string commands[numCommands];
 
 class GameTeam : public TeamBase
 {
 public:
-	GameTeam() : active(false) {};
+	GameTeam() : active(false) {}
 	bool active;
-	void operator=(const TeamBase& base) { TeamBase::operator=(base); };
+	GameTeam& operator=(const TeamBase& base) { TeamBase::operator=(base); return *this; }
 };
 
 /**
@@ -57,31 +60,38 @@ public:
  */
 class CGameServer
 {
-	friend class CLoadSaveHandler;     //For initialize server state after load
+	friend class CCregLoadSaveHandler; // For initializing server state after load
 public:
-	CGameServer(const ClientSetup* settings, bool onlyLocal, const GameData* const gameData, const CGameSetup* const setup);
+	CGameServer(const std::string& hostIP, int hostPort, const GameData* const gameData, const CGameSetup* const setup);
 	~CGameServer();
 
 	void AddLocalClient(const std::string& myName, const std::string& myVersion);
 
-	void AddAutohostInterface(const std::string& autohostip, const int remotePort);
+	void AddAutohostInterface(const std::string& autohostIP, const int autohostPort);
 
 	/**
 	 * @brief Set frame after loading
 	 * WARNING! No checks are done, so be carefull
 	 */
-	void PostLoad(unsigned lastTick, int serverframenum);
+	void PostLoad(unsigned lastTick, int serverFrameNum);
 
 	void CreateNewFrame(bool fromServerThread, bool fixedFrameTime);
 
 	bool WaitsOnCon() const;
-	bool GameHasStarted() const;
 
 	void SetGamePausable(const bool arg);
 
-	bool HasDemo() const { return (demoReader != NULL); }
+	bool HasStarted() const { return gameHasStarted; }
+	bool HasGameID() const { return generatedGameID; }
 	/// Is the server still running?
 	bool HasFinished() const;
+
+	void UpdateSpeedControl(int speedCtrl);
+	static std::string SpeedControlToString(int speedCtrl);
+
+	#ifdef DEDICATED
+	const boost::scoped_ptr<CDemoRecorder>& GetDemoRecorder() const { return demoRecorder; }
+	#endif
 
 private:
 	/**
@@ -97,23 +107,22 @@ private:
 	 */
 	void KickPlayer(const int playerNum);
 
-	unsigned BindConnection(std::string name, const std::string& passwd, const std::string& version, bool isLocal, boost::shared_ptr<netcode::CConnection> link);
+	unsigned BindConnection(std::string name, const std::string& passwd, const std::string& version, bool isLocal, boost::shared_ptr<netcode::CConnection> link, bool reconnect = false, int netloss = 0);
 
 	void CheckForGameStart(bool forced=false);
 	void StartGame();
 	void UpdateLoop();
 	void Update();
-	void ProcessPacket(const unsigned playernum, boost::shared_ptr<const netcode::RawPacket> packet);
+	void ProcessPacket(const unsigned playerNum, boost::shared_ptr<const netcode::RawPacket> packet);
 	void CheckSync();
 	void ServerReadNet();
-	void CheckForGameEnd();
 
-	/** @brief Generate a unique game identifier and sent it to all clients. */
+	/** @brief Generate a unique game identifier and send it to all clients. */
 	void GenerateAndSendGameID();
 	std::string GetPlayerNames(const std::vector<int>& indices) const;
 
 	/// read data from demo and send it to clients
-	void SendDemoData(const bool skipping=false);
+	bool SendDemoData(int targetFrameNum);
 
 	void Broadcast(boost::shared_ptr<const netcode::RawPacket> packet);
 
@@ -121,48 +130,66 @@ private:
 	 * @brief skip frames
 	 *
 	 * If you are watching a demo, this will push out all data until
-	 * targetframe to all clients
+	 * targetFrame to all clients
 	 */
-	void SkipTo(int targetframe);
+	void SkipTo(int targetFrameNum);
 
-	void Message(const std::string& message, bool broadcast=true);
-	void PrivateMessage(int playernum, const std::string& message);
+	void Message(const std::string& message, bool broadcast = true);
+	void PrivateMessage(int playerNum, const std::string& message);
+
+	void AddToPacketCache(boost::shared_ptr<const netcode::RawPacket>& pckt);
+
+	bool AdjustPlayerNumber(netcode::RawPacket* buf, int pos, int val = -1);
+	void UpdatePlayerNumberMap();
+
+	float GetDemoTime() const;
 
 	/////////////////// game status variables ///////////////////
 
+	unsigned char playerNumberMap[256];
 	volatile bool quitServer;
-	int serverframenum;
+	int serverFrameNum;
 
 	spring_time serverStartTime;
 	spring_time readyTime;
 	spring_time gameStartTime;
 	spring_time gameEndTime;	///< Tick when game end was detected
-	bool sentGameOverMsg;
 	spring_time lastTick;
 	float timeLeft;
 	spring_time lastPlayerInfo;
 	spring_time lastUpdate;
 	float modGameTime;
+	float gameTime;
+	float startTime;
 
 	bool isPaused;
 	float userSpeedFactor;
 	float internalSpeed;
 	bool cheating;
 
-	// Ugly hax for letting the script define initial team->isAI and team->leader for AI teams
-	friend class CSkirmishAITestScript;
+	unsigned char ReserveNextAvailableSkirmishAIId();
+
+	std::map<unsigned char, GameSkirmishAI> ais;
+	std::list<unsigned char> usedSkirmishAIIds;
+	void FreeSkirmishAIId(const unsigned char skirmishAIId);
+
 	std::vector<GameParticipant> players;
-	size_t ReserveNextAvailableSkirmishAIId();
-	
-	std::map<size_t, GameSkirmishAI> ais;
-	std::list<size_t> usedSkirmishAIIds;
-	void FreeSkirmishAIId(const size_t skirmishAIId);
-	
 	std::vector<GameTeam> teams;
+	std::vector<unsigned char> winningAllyTeams;
 
 	float medianCpu;
 	int medianPing;
-	int enforceSpeed;
+	int curSpeedCtrl;
+
+	/**
+	 * throttles speed based on:
+	 * 0 : players (max cpu)
+	 * 1 : players (median cpu)
+	 * 2 : (same as 0)
+	 * -x: same as x, but ignores votes from players that may change
+	 *     the speed-control mode
+	 */
+	int speedControl;
 	/////////////////// game settings ///////////////////
 	boost::scoped_ptr<const CGameSetup> setup;
 	boost::scoped_ptr<const GameData> gameData;
@@ -176,13 +203,15 @@ private:
 	float minUserSpeed;
 
 	bool noHelperAIs;
+	bool canReconnect;
 	bool allowSpecDraw;
 	bool allowAdditionalPlayers;
-	std::list< boost::shared_ptr<const netcode::RawPacket> > packetCache; //waaa, the overhead
+	bool whiteListAdditionalPlayers;
+	std::list< std::vector<boost::shared_ptr<const netcode::RawPacket> > > packetCache;
 
 	/////////////////// sync stuff ///////////////////
 #ifdef SYNCCHECK
-	std::deque<int> outstandingSyncFrames;
+	std::set<int> outstandingSyncFrames;
 #endif
 	int syncErrorFrame;
 	int syncWarningFrame;
@@ -190,6 +219,8 @@ private:
 	///////////////// internal stuff //////////////////
 	void InternalSpeedChange(float newSpeed);
 	void UserSpeedChange(float newSpeed, int player);
+
+	void AddAdditionalUser( const std::string& name, const std::string& passwd, bool fromDemo = false, bool spectator = true, int team = 0);
 
 	bool hasLocalClient;
 	unsigned localClientNumber;
@@ -205,12 +236,21 @@ private:
 	boost::scoped_ptr<AutohostInterface> hostif;
 	UnsyncedRNG rng;
 	boost::thread* thread;
-	mutable boost::recursive_mutex gameServerMutex;
-	typedef std::set<unsigned char> PlayersToForwardMsgvec;
-	typedef std::map<unsigned char, PlayersToForwardMsgvec> MsgToForwardMap;
-	MsgToForwardMap relayingMessagesMap;
+
+	mutable Threading::RecursiveMutex gameServerMutex;
+
+	volatile bool gameHasStarted;
+	volatile bool generatedGameID;
+
+	spring_time lastBandwidthUpdate;
+	int linkMinPacketSize;
+
+	union {
+		unsigned char charArray[16];
+		unsigned int intArray[4];
+	} gameID;
 };
 
 extern CGameServer* gameServer;
 
-#endif // __GAME_SERVER_H__
+#endif // _GAME_SERVER_H

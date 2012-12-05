@@ -1,11 +1,14 @@
 // -------------------------------------------------------------------------
 // AAI
 //
-// A skirmish AI for the TA Spring engine.
+// A skirmish AI for the Spring engine.
 // Copyright Alexander Seizinger
 //
 // Released under GPL license: see LICENSE.html for more information.
 // -------------------------------------------------------------------------
+
+#ifndef AIDEF_H
+#define AIDEF_H
 
 #include <list>
 #include <vector>
@@ -13,33 +16,37 @@
 #include <time.h>
 #include <string>
 
-#include "ExternalAI/IAICheats.h"
-#include "ExternalAI/IGlobalAI.h"
-#include "ExternalAI/IGlobalAICallback.h"
-#include "ExternalAI/IAICallback.h"
-#include "ExternalAI/aibase.h"
-#include "Sim/Units/UnitDef.h"
-#include "Sim/MoveTypes/MoveInfo.h"
-#include "System/Vec2.h"
+#include "LegacyCpp/IAICheats.h"
+#include "LegacyCpp/IGlobalAI.h"
+#include "LegacyCpp/IGlobalAICallback.h"
+#include "LegacyCpp/IAICallback.h"
+#include "LegacyCpp/aibase.h"
+#include "LegacyCpp/UnitDef.h"
+#include "LegacyCpp/MoveData.h"
+#include "LegacyCpp/WeaponDef.h"
+#include "LegacyCpp/CommandQueue.h"
 #include "Sim/Misc/GlobalConstants.h"
-#include "Sim/Weapons/WeaponDefHandler.h"
-#include "Sim/Weapons/Weapon.h"
-#include "Sim/Units/CommandAI/CommandQueue.h"
+#include "System/Vec2.h"
+#include "System/maindefines.h"
+#include "System/SafeCStrings.h"
+#include "System/Util.h"
 #include "AAIConfig.h"
 #include "AIExport.h"
 
+using namespace springLegacyAI;
 
 
 #ifdef _MSC_VER
 #pragma warning(disable: 4244 4018) // signed/unsigned and loss of precision...
 #endif
 
-void ReplaceExtension (const char *n, char *dst,int s, const char *ext);
+// The following two helper functions implementations are in AAIBuildTable.cpp
 
-#ifndef AIDEF_H
-#define AIDEF_H
+void ReplaceExtension(const char *n, char *dst, int s, const char *ext);
+/// Converts a string to one that can be used in a file name (eg. "Abc.123 $%^*" -> "Abc.123_____")
+std::string MakeFileSystemCompatible(const std::string& str);
 
-#define AAI_VERSION(team) aiexport_getVersion(team)
+#define AAI_VERSION aiexport_getVersion()
 #define MAP_CACHE_VERSION "MAP_DATA_0_89"
 #define MAP_LEARN_VERSION "MAP_LEARN_0_89"
 #define MOD_LEARN_VERSION "MOD_LEARN_0_90"

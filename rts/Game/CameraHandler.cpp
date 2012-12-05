@@ -1,7 +1,8 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include <cstdlib>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "CameraHandler.h"
 
@@ -16,9 +17,44 @@
 #include "Camera/OverviewController.h"
 #include "Camera/TWController.h"
 #include "Camera/OrbitController.h"
-#include "ConfigHandler.h"
-#include "LogOutput.h"
-#include "GlobalUnsynced.h"
+#include "Rendering/GlobalRendering.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Log/ILog.h"
+
+static std::string strformat(const char* fmt, ...)
+{
+	char buf[256];
+	va_list args;
+	va_start(args,fmt);
+	VSNPRINTF(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	return std::string(buf);
+}
+
+CONFIG(std::string, CamModeName).defaultValue("");
+
+CONFIG(int, CamMode)
+	.defaultValue(CCameraHandler::CAMERA_MODE_SMOOTH)
+	.description(strformat("Defines the used camera. Options are:\n%i = FPS\n%i = Overhead\n%i = TotalWar\n%i = RotOverhead\n%i = Free\n%i = SmoothOverhead\n%i = Orbit\n%i = Overview",
+		(int)CCameraHandler::CAMERA_MODE_FIRSTPERSON,
+		(int)CCameraHandler::CAMERA_MODE_OVERHEAD,
+		(int)CCameraHandler::CAMERA_MODE_TOTALWAR,
+		(int)CCameraHandler::CAMERA_MODE_ROTOVERHEAD,
+		(int)CCameraHandler::CAMERA_MODE_FREE,
+		(int)CCameraHandler::CAMERA_MODE_SMOOTH,
+		(int)CCameraHandler::CAMERA_MODE_ORBIT,
+		(int)CCameraHandler::CAMERA_MODE_OVERVIEW
+	).c_str())
+	.minimumValue(0)
+	.maximumValue(CCameraHandler::CAMERA_MODE_LAST - 1);
+
+CONFIG(float, CamTimeFactor)
+	.defaultValue(1.0f)
+	.minimumValue(0.0f);
+
+CONFIG(float, CamTimeExponent)
+	.defaultValue(4.0f)
+	.minimumValue(0.0f);
 
 
 CCameraHandler* camHandler = NULL;
@@ -30,35 +66,33 @@ CCameraHandler::CCameraHandler()
 	cameraTimeLeft = 0.0f;
 
 	// FPS camera must always be the first one in the list
-	std::vector<CCameraController*>& camCtrls = camControllers;
-	camCtrls.push_back(new CFPSController());         // 0
-	camCtrls.push_back(new COverheadController());    // 1
-	camCtrls.push_back(new CTWController());          // 2
-	camCtrls.push_back(new CRotOverheadController()); // 3
-	camCtrls.push_back(new CFreeController());        // 4
-	camCtrls.push_back(new SmoothController());       // 5
-	camCtrls.push_back(new COrbitController());       // 6
-	camCtrls.push_back(new COverviewController());    // 7, needs to be last (ToggleOverviewCamera())
+	camControllers.resize(CAMERA_MODE_LAST);
+	camControllers[CAMERA_MODE_FIRSTPERSON] = new CFPSController();
+	camControllers[CAMERA_MODE_OVERHEAD   ] = new COverheadController();
+	camControllers[CAMERA_MODE_TOTALWAR   ] = new CTWController();
+	camControllers[CAMERA_MODE_ROTOVERHEAD] = new CRotOverheadController();
+	camControllers[CAMERA_MODE_FREE       ] = new CFreeController();
+	camControllers[CAMERA_MODE_SMOOTH     ] = new SmoothController();
+	camControllers[CAMERA_MODE_ORBIT      ] = new COrbitController();
+	camControllers[CAMERA_MODE_OVERVIEW   ] = new COverviewController();
 
-	for (unsigned int i = 0; i < camCtrls.size(); i++) {
-		nameMap[camCtrls[i]->GetName()] = i;
+	for (unsigned int i = 0; i < camControllers.size(); i++) {
+		nameMap[camControllers[i]->GetName()] = i;
 	}
 
 	int modeIndex;
-	const std::string modeName = configHandler->GetString("CamModeName", "");
+	const std::string modeName = configHandler->GetString("CamModeName");
 	if (!modeName.empty()) {
 		modeIndex = GetModeIndex(modeName);
 	} else {
-		modeIndex = configHandler->Get("CamMode", 5);
+		modeIndex = configHandler->GetInt("CamMode");
 	}
-	const unsigned int mode =
-		(unsigned int)std::max(0, std::min(modeIndex, (int)camCtrls.size() - 1));
-	currCamCtrlNum = mode;
+
+	currCamCtrlNum = modeIndex;
 	currCamCtrl = camControllers[currCamCtrlNum];
 
-	const double z = 0.0; // casting problems...
-	cameraTimeFactor   = std::max(z, atof(configHandler->GetString("CamTimeFactor",   "1.0").c_str()));
-	cameraTimeExponent = std::max(z, atof(configHandler->GetString("CamTimeExponent", "4.0").c_str()));
+	cameraTimeFactor   = configHandler->GetFloat("CamTimeFactor");
+	cameraTimeExponent = configHandler->GetFloat("CamTimeExponent");
 
 	RegisterAction("viewfps");
 	RegisterAction("viewta");
@@ -81,7 +115,7 @@ CCameraHandler::CCameraHandler()
 
 CCameraHandler::~CCameraHandler()
 {
-	while(!camControllers.empty()){
+	while (!camControllers.empty()){
 		delete camControllers.back();
 		camControllers.pop_back();
 	}
@@ -102,10 +136,10 @@ void CCameraHandler::UpdateCam()
 	}
 	else {
 		const float currTime = cameraTimeLeft;
-		cameraTimeLeft = std::max(0.0f, (cameraTimeLeft - gu->lastFrameTime));
+		cameraTimeLeft = std::max(0.0f, (cameraTimeLeft - globalRendering->lastFrameTime));
 		const float nextTime = cameraTimeLeft;
 		const float exp = cameraTimeExponent;
-		const float ratio = 1.0f - (float)pow((nextTime / currTime), exp);
+		const float ratio = 1.0f - (float)math::pow((nextTime / currTime), exp);
 
 		const float  deltaFOV = wantedCamFOV - camera->GetFov();
 		const float3 deltaPos = wantedCamPos - camera->pos;
@@ -113,7 +147,7 @@ void CCameraHandler::UpdateCam()
 		camera->SetFov(camera->GetFov() + (deltaFOV * ratio));
 		camera->pos     += deltaPos * ratio;
 		camera->forward += deltaDir * ratio;
-		camera->forward.ANormalize();
+		camera->forward.Normalize();
 	}
 }
 
@@ -163,7 +197,7 @@ void CCameraHandler::PushMode()
 
 void CCameraHandler::PopMode()
 {
-	if (controllerStack.size() > 0) {
+	if (!controllerStack.empty()) {
 		SetCameraMode(controllerStack.top());
 		controllerStack.pop();
 	}
@@ -206,10 +240,9 @@ void CCameraHandler::ToggleState()
 
 void CCameraHandler::ToggleOverviewCamera()
 {
-	const unsigned int ovCamNum = camControllers.size() - 1;
 	if (controllerStack.empty()) {
 		PushMode();
-		SetCameraMode(ovCamNum);
+		SetCameraMode(CAMERA_MODE_OVERVIEW);
 	}
 	else {
 		PopMode();
@@ -246,13 +279,12 @@ bool CCameraHandler::LoadView(const std::string& name)
 	GetState(current);
 
 	if (saved == current) { // load a view twice to return to old settings
-		 if (name != "__old_view") { // safety: should not happen, but who knows?
-			 return LoadView("__old_view");
-		 } else {
-			 return false;
-			}
-	}
-	else {
+		if (name != "__old_view") { // safety: should not happen, but who knows?
+			return LoadView("__old_view");
+		} else {
+			return false;
+		}
+	} else {
 		if (name != "__old_view") {
 			SaveView("__old_view");
 		}
@@ -298,35 +330,34 @@ void CCameraHandler::PushAction(const Action& action)
 	const std::string cmd = action.command;
 
 	if (cmd == "viewfps") {
-		SetCameraMode(0);
+		SetCameraMode(CAMERA_MODE_FIRSTPERSON);
 	}
 	else if (cmd == "viewta") {
-		SetCameraMode(1);
+		SetCameraMode(CAMERA_MODE_OVERHEAD);
 	}
 	else if (cmd == "viewtw") {
-		SetCameraMode(2);
+		SetCameraMode(CAMERA_MODE_TOTALWAR);
 	}
 	else if (cmd == "viewrot") {
-		SetCameraMode(3);
+		SetCameraMode(CAMERA_MODE_ROTOVERHEAD);
 	}
 	else if (cmd == "viewfree") {
-		SetCameraMode(4);
+		SetCameraMode(CAMERA_MODE_FREE);
 	}
 	else if (cmd == "viewov") {
-		SetCameraMode(5);
+		SetCameraMode(CAMERA_MODE_OVERVIEW);
 	}
 	else if (cmd == "viewlua") {
-		SetCameraMode(6);
+		SetCameraMode(CAMERA_MODE_SMOOTH); // ?
 	}
 	else if (cmd == "vieworbit") {
-		SetCameraMode(7);
+		SetCameraMode(CAMERA_MODE_ORBIT);
 	}
 
 	else if (cmd == "viewtaflip") {
-		COverheadController* taCam =
-				dynamic_cast<COverheadController*>(camControllers[1]);
-		SmoothController* smCam =
-				dynamic_cast<SmoothController*>(camControllers[5]);
+		COverheadController* taCam = dynamic_cast<COverheadController*>(camControllers[CAMERA_MODE_OVERHEAD]);
+		SmoothController* smCam = dynamic_cast<SmoothController*>(camControllers[CAMERA_MODE_SMOOTH]);
+
 		if (taCam) {
 			if (!action.extra.empty()) {
 				taCam->flipped = !!atoi(action.extra.c_str());
@@ -345,12 +376,13 @@ void CCameraHandler::PushAction(const Action& action)
 	else if (cmd == "viewsave") {
 		if (!action.extra.empty()) {
 			SaveView(action.extra);
-			logOutput.Print("Saved view: " + action.extra);
+			LOG("Saved view: %s", action.extra.c_str());
 		}
 	}
 	else if (cmd == "viewload") {
-		if (!LoadView(action.extra))
-			logOutput.Print("Loading view failed!");
+		if (!LoadView(action.extra)) {
+			LOG_L(L_WARNING, "Loading view failed!");
+		}
 	}
 	else if (cmd == "toggleoverview") {
 		ToggleOverviewCamera();

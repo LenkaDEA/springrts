@@ -1,6 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef VSYNC_H
 #define VSYNC_H
-
 
 class CVerticalSync {
 	public:
@@ -8,17 +9,15 @@ class CVerticalSync {
 		~CVerticalSync();
 
 		void Init();
-		void SetFrames(int frames);
-		int  GetFrames() const { return frames; }
+		void SetInterval(int interval);
+		int  GetInterval() const { return interval; }
 
-		void Delay();
+		void Delay() const;
 		
 	private:
-		int frames;
+		int interval;
 };
 
-
 extern CVerticalSync VSync;
-
 
 #endif /* VSYNC_H */

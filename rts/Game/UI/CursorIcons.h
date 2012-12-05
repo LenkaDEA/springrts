@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef CURSORICONS_H
 #define CURSORICONS_H
 
@@ -5,7 +7,7 @@
 #include <set>
 #include <string>
 using std::string;
-#include "float3.h"
+#include "System/float3.h"
 
 class CMouseCursor;
 
@@ -32,7 +34,7 @@ class CCursorIcons
 		void DrawTexts();
 		void DrawBuilds();
 
-		CMouseCursor* GetCursor(int cmd);
+		const CMouseCursor* GetCursor(int cmd) const;
 
 	protected:
 	

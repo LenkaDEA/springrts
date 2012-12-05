@@ -43,17 +43,28 @@ if    (BUILD_${myName}_AIWRAPPER)
 	SetGlobal(${myName}_Creg_AIWRAPPER_TARGET ${myCregTarget})
 
 	# Assemble the Legacy C++ AI sources
-	aux_source_directory("${mySourceDir}" mySources)
-	list(APPEND mySources ${ai_common_SRC})
-	list(APPEND mySources ${rts}/System/float3)
-	list(APPEND mySources ${rts}/Sim/Misc/DamageArray)
+	set(mySources
+		"${mySourceDir}/AIAI"
+		"${mySourceDir}/AIAICallback"
+		"${mySourceDir}/AIAICheats"
+		"${mySourceDir}/AIGlobalAICallback"
+		"${mySourceDir}/Command"
+		"${mySourceDir}/CommandQueue"
+		"${mySourceDir}/DamageArray"
+		"${mySourceDir}/MoveData"
+		"${mySourceDir}/UnitDef"
+		"${rts}/ExternalAI/AISCommands"
+		"${rts}/System/float3"
+		${ai_common_SRC}
+		)
 
 	# Compile the Legacy C++ AI wrapper static library
 	add_library(${myTarget}     STATIC ${mySources})
 	set_target_properties(${myTarget} PROPERTIES OUTPUT_NAME "${myName}")
+	Add_Dependencies(${myTarget} generateVersionFiles)
 
 	# Compile the Legacy C++ AI wrapper static library with creg support
-	add_library(${myCregTarget} STATIC ${mySources} ${creg_SRC})
+	add_library(${myCregTarget} STATIC ${mySources} ${sources_engine_System_creg})
 	set_target_properties(${myCregTarget} PROPERTIES OUTPUT_NAME   "${myName}Creg")
 	set_target_properties(${myCregTarget} PROPERTIES COMPILE_FLAGS "-DUSING_CREG")
 endif (BUILD_${myName}_AIWRAPPER)

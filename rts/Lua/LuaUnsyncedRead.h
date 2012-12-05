@@ -1,13 +1,14 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_UNSYNCED_INFO_H
 #define LUA_UNSYNCED_INFO_H
-// LuaUnsyncedRead.h: interface for the LuaUnsyncedRead class.
-//
-//////////////////////////////////////////////////////////////////////
 
 struct lua_State;
 
 
 class LuaUnsyncedRead {
+	friend class CLuaIntro;
+
 	public:
 		static bool PushEntries(lua_State* L);
 
@@ -40,14 +41,13 @@ class LuaUnsyncedRead {
 		static int GetUnitNoDraw(lua_State* L);
 		static int GetUnitNoMinimap(lua_State* L);
 		static int GetUnitNoSelect(lua_State* L);
+		static int GetFeatureLuaDraw(lua_State* L);
 
 		static int GetUnitTransformMatrix(lua_State* L);
 		static int GetUnitViewPosition(lua_State* L);
 
 		static int GetVisibleUnits(lua_State* L);
 		static int GetVisibleFeatures(lua_State* L);
-
-		static int GetPlayerRoster(lua_State* L);
 
 		static int GetTeamColor(lua_State* L);
 		static int GetTeamOrigColor(lua_State* L);
@@ -67,6 +67,7 @@ class LuaUnsyncedRead {
 		static int HaveAdvShading(lua_State* L);
 		static int GetWaterMode(lua_State* L);
 		static int GetMapDrawMode(lua_State* L);
+		static int GetMapSquareTexture(lua_State* L);
 
 		static int GetCameraNames(lua_State* L);
 		static int GetCameraState(lua_State* L);
@@ -81,7 +82,8 @@ class LuaUnsyncedRead {
 		static int DiffTimers(lua_State* L);
 
 		static int GetSoundStreamTime(lua_State* L);
-
+		static int GetSoundEffectParams(lua_State* L);
+	
 		// moved from LuaUI
 		static int GetFPS(lua_State* L);
 
@@ -131,7 +133,9 @@ class LuaUnsyncedRead {
 		static int GetGroupUnitsCounts(lua_State* L);
 		static int GetGroupUnitsCount(lua_State* L);
 
+		static int GetPlayerRoster(lua_State* L);
 		static int GetPlayerTraffic(lua_State* L);
+		static int GetPlayerStatistics(lua_State* L);
 
 		static int GetDrawSelectionInfo(lua_State* L);
 };

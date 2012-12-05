@@ -1,23 +1,15 @@
-/**
- * @file DllLib.h
- * @brief Windows shared library loader
- * @author Christopher Han <xiphux@gmail.com>
- * @author Robin Vobruba <hoijui.quaero@gmail.com>
- * 
- * Windows Shared Object loader class definition
- * Copyright (C) 2005.  Licensed under the terms of the
- * GNU GPL, v2 or later
- */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef DLLLIB_H
 #define DLLLIB_H
 
-#include "Platform/SharedLib.h"
+#include "System/Platform/SharedLib.h"
 #include <windows.h>
 
 /**
- * @brief Win32 DLL base
+ * @brief Windows shared library loader
  *
+ * Windows Shared Object loader class definition.
  * This class loads Win32 DLLs.
  * Derived from the abstract SharedLib.
  */

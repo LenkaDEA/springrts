@@ -1,6 +1,8 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include <windows.h>
 #include "seh.h"
+#include "System/Platform/CrashHandler.h"
 
 #ifdef _MSC_VER
 static const char *ExceptionName(DWORD exceptionCode)
@@ -31,10 +33,17 @@ static const char *ExceptionName(DWORD exceptionCode)
 	}
 	return "Unknown exception";
 }
+
+//! defined in System/Platform/Win/CrashHandler.cpp
+namespace CrashHandler {
+	LONG CALLBACK ExceptionHandler(LPEXCEPTION_POINTERS e);
+}
+
 void __cdecl se_translator_function(unsigned int err, struct _EXCEPTION_POINTERS* ep)
 {
 	char buf[128];
 	sprintf(buf,"%s(0x%08x) at 0x%08x",ExceptionName(err),err,ep->ExceptionRecord->ExceptionAddress);
+	CrashHandler::ExceptionHandler(ep);
 	throw std::exception(buf);
 }
 #endif
@@ -44,6 +53,6 @@ void InitializeSEH()
 #ifdef _MSC_VER
 	_set_se_translator(se_translator_function);
 #else
-// GCC/MinGW cannot handle win32 exceptions
+	//! GCC/MinGW cannot handle win32 exceptions
 #endif
 }

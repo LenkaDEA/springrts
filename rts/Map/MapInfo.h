@@ -1,20 +1,29 @@
-#ifndef MAPINFO_H
-#define MAPINFO_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef MAP_INFO_H
+#define MAP_INFO_H
+
+#include "System/float3.h"
+#include "System/float4.h"
 
 #include <string>
 #include <vector>
-#include "float3.h"
-#include "float4.h"
 
 class LuaTable;
 class MapParser;
+#if !defined(HEADLESS) && !defined(NO_SOUND)
+	struct EAXSfxProps;
+#endif
+
 
 class CMapInfo
 {
 public:
-
-	CMapInfo(const std::string& mapName);
-	void Load(); // fill in infos
+	/**
+	 * @param mapInfoFile mapinfo file, aka sm3 / smf (full path)
+	 * @param mapName human readable mapname e.g. DeltaSiegeDry
+	 */
+	CMapInfo(const std::string& mapInfoFile, const std::string& mapName);
 	~CMapInfo();
 
 	/* The settings are just public members because:
@@ -48,18 +57,16 @@ public:
 
 	/** Global settings, ie. from "MAP" section. */
 	struct map_t {
-		std::string name;      ///< The filename as passed to the constructor.
-		std::string wantedScript;
-		std::string humanName; ///< "MAP\\Description"
+		std::string name;        ///< The filename as passed to the constructor.
+		std::string description; ///< "MAP\\Description"
 		std::string author;
-		float hardness;        ///< "MAP\\MapHardness"
+		float hardness;          ///< "MAP\\MapHardness"
 		bool  notDeformable;
 		/** Stores the gravity as a negative number in units/frame^2
 		    (NOT positive units/second^2 as in the mapfile) */
 		float gravity;
 		float tidalStrength;
-		/// what metal value 255 in the metal map is worth
-		float maxMetal;
+		float maxMetal;        ///< what metal value 255 in the metal map is worth
 		float extractorRadius; ///< extraction radius for mines
 		bool  voidWater;
 	} map;
@@ -73,8 +80,10 @@ public:
 	struct atmosphere_t {
 		float  cloudDensity;
 		float  fogStart;
+		float  fogEnd;
 		float4 fogColor;
 		float3 skyColor;
+		float3 skyDir;
 		float3 sunColor;
 		float3 cloudColor;
 		float  minWind;
@@ -82,9 +91,27 @@ public:
 		std::string skyBox;
 	} atmosphere;
 
+	/** settings read from "MAP\SPLATS" section */
+	struct splats_t {
+		float4 texScales;
+		float4 texMults;
+	} splats;
+
+	/** settings read from "MAP\GRASS" section */
+	struct grass_t {
+		float bladeWaveScale; //! how strongly wind affects grass-blade waving (if 0, disables vertex animation)
+		float bladeWidth;
+		float bladeHeight;    //! actual blades will be (bladeHeight + randf(0, bladeHeight)) tall
+		float bladeAngle;
+		float4 color;
+		std::string grassBladeTexName;    // defaults to internally-generated texture
+	} grass;
+
 	/** settings read from "MAP\LIGHT" section */
 	struct light_t {
 		float4 sunDir;     ///< Holds vector for the direction of the sun
+		float sunOrbitTime;
+		float sunStartAngle;
 		float3 groundAmbientColor;
 		float3 groundSunColor;
 		float3 groundSpecularColor;
@@ -93,13 +120,14 @@ public:
 		float4 unitSunColor;
 		float  unitShadowDensity;
 		float3 unitSpecularColor;
+		float  specularExponent;
 	} light;
 
 	/** settings read from "MAP\WATER" section
 	    prefix their name with "Water" to get the TDF variable */
 	struct water_t {
-		float  repeatX; ///< (calculated default is in CBaseWater)
-		float  repeatY; ///< (calculated default is in CBaseWater)
+		float  repeatX; ///< (calculated default is in IWater)
+		float  repeatY; ///< (calculated default is in IWater)
 		float  damage;
 		float3 absorb;
 		float3 baseColor;
@@ -135,8 +163,15 @@ public:
 
 	/** SMF specific settings */
 	struct smf_t {
-		std::string detailTexName; ///< "MAP\DetailTex"
-		std::string specularTexName; ///< "MAP\SpecularTex"
+		std::string detailTexName;        ///< "MAP\DetailTex"
+		std::string specularTexName;      ///< "MAP\SpecularTex"
+		std::string splatDistrTexName;
+		std::string splatDetailTexName;
+		std::string grassShadingTexName;  // defaults to minimap texture
+		std::string skyReflectModTexName;
+		std::string detailNormalTexName;
+		std::string lightEmissionTexName;
+		std::string parallaxHeightTexName;
 
 		float minHeight;
 		bool  minHeightOverride;
@@ -166,21 +201,32 @@ public:
 		bool receiveTracks;
 	};
 	TerrainType terrainTypes[NUM_TERRAIN_TYPES];
+	
+	/**
+	 * Sound EFX param structure
+	 */
+#if !defined(HEADLESS) && !defined(NO_SOUND)
+	EAXSfxProps* efxprops;
+#endif
 
 private:
 	void ReadGlobal();
 	void ReadGui();
 	void ReadAtmosphere();
+	void ReadSplats();
+	void ReadGrass();
 	void ReadLight();
 	void ReadWater();
-	void ReadSmf();
-	void ReadSm3();
+	void ReadSMF();
+	void ReadSM3();
 	void ReadTerrainTypes();
+	void ReadSound();
 
+	std::string mapInfoFile;
 	MapParser* parser; // map       parser root table
 	LuaTable* resRoot; // resources parser root table
 };
 
 extern const CMapInfo* mapInfo;
 
-#endif // MAPINFO_H
+#endif // MAP_INFO_H

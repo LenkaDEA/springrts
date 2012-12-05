@@ -1,18 +1,22 @@
-#include "System/StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "Game/Camera.h"
-#include "Game/PlayerHandler.h"
+#include "HUDDrawer.h"
+
 #include "Rendering/glFont.h"
-#include "Rendering/HUDDrawer.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
-#include "Rendering/UnitModels/3DModel.h"
+#include "Rendering/Models/3DModel.h"
+#include "Game/Camera.h"
+#include "Game/GlobalUnsynced.h"
+#include "Game/Player.h"
+#include "Game/PlayerHandler.h"
 #include "Sim/MoveTypes/MoveType.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Weapons/Weapon.h"
 #include "Sim/Weapons/WeaponDef.h"
 #include "Sim/Misc/GlobalSynced.h"
-#include "System/GlobalUnsynced.h"
 #include "System/myMath.h"
+
 
 HUDDrawer* HUDDrawer::GetInstance()
 {
@@ -47,7 +51,7 @@ void HUDDrawer::DrawModel(const CUnit* unit)
 	glPushMatrix();
 		glMatrixMode(GL_PROJECTION);
 			glTranslatef(-0.8f, -0.4f, 0.0f);
-			glMultMatrixd(camera->GetProjection());
+			glMultMatrixf(camera->GetProjectionMatrix());
 		glMatrixMode(GL_MODELVIEW);
 
 		glTranslatef(0.0f, 0.0f, -unit->radius);
@@ -76,7 +80,7 @@ void HUDDrawer::DrawUnitDirectionArrow(const CUnit* unit)
 	if (unit->moveType->useHeading) {
 		glPushMatrix();
 			glTranslatef(-0.8f, -0.4f, 0.0f);
-			glScalef(0.33f, 0.33f * gu->aspectRatio, 0.33f);
+			glScalef(0.33f, 0.33f * globalRendering->aspectRatio, 0.33f);
 			glRotatef(unit->heading * 180.0f / 32768 + 180, 0.0f, 0.0f, 1.0f);
 
 			glColor4f(0.3f, 0.9f, 0.3f, 0.4f);
@@ -98,7 +102,7 @@ void HUDDrawer::DrawCameraDirectionArrow(const CUnit* unit)
 	if (unit->moveType->useHeading) {
 		glPushMatrix();
 			glTranslatef(-0.8f, -0.4f, 0.0f);
-			glScalef(0.33f, 0.33f * gu->aspectRatio, 0.33f);
+			glScalef(0.33f, 0.33f * globalRendering->aspectRatio, 0.33f);
 
 			glRotatef(
 				GetHeadingFromVector(camera->forward.x, camera->forward.z) * 180.0f / 32768 + 180,
@@ -129,7 +133,7 @@ void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 	glColor4f(0.2f, 0.8f, 0.2f, 0.8f);
 	font->glFormat(-0.9f, 0.35f, 1.0f, FONT_SCALE | FONT_NORM, "Health: %.0f / %.0f", (float) unit->health, (float) unit->maxHealth);
 
-	if (playerHandler->Player(gu->myPlayerNum)->myControl.mouse2) {
+	if (playerHandler->Player(gu->myPlayerNum)->fpsController.mouse2) {
 		font->glPrint(-0.9f, 0.30f, 1.0f, FONT_SCALE | FONT_NORM, "Free-Fire Mode");
 	}
 
@@ -190,10 +194,10 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 	// draw the reticle in world coordinates
 	glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
-		glMultMatrixd(camera->GetProjection());
+		glMultMatrixf(camera->GetProjectionMatrix());
 	glMatrixMode(GL_MODELVIEW);
 		glLoadIdentity();
-		glMultMatrixd(camera->GetModelview());
+		glMultMatrixf(camera->GetViewMatrix());
 
 	glPushMatrix();
 
@@ -232,7 +236,9 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 				glEnd();
 
 				if (!w->onlyForward) {
-					const float dist = std::min(w->owner->directControl->targetDist, w->range * 0.9f);
+					const CPlayer* p = w->owner->fpsControlPlayer;
+					const FPSUnitController& c = p->fpsController;
+					const float dist = std::min(c.targetDist, w->range * 0.9f);
 
 					pos = w->weaponPos + w->wantedDir * dist;
 					v1 = (pos - camera->pos).ANormalize();
@@ -271,7 +277,7 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 
 void HUDDrawer::Draw(const CUnit* unit)
 {
-	if (unit == 0 || !draw) {
+	if (unit == NULL || !draw) {
 		return;
 	}
 

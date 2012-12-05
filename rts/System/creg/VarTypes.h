@@ -1,9 +1,9 @@
-/*
-creg - Code compoment registration system
-Copyright 2005 Jelmer Cnossen
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-Implementations of IType for specific types
-*/
+/*
+ * creg - Code compoment registration system
+ * Implementations of IType for specific types
+ */
 
 #ifndef CR_VARIABLE_TYPES_H
 #define CR_VARIABLE_TYPES_H
@@ -18,7 +18,7 @@ namespace creg
 		BasicType(BasicTypeID ID) : id(ID) {}
 		~BasicType() {}
 
-		void Serialize (ISerializer *s, void *instance);
+		void Serialize(ISerializer* s, void* instance);
 		std::string GetName();
 
 		BasicTypeID id;
@@ -29,7 +29,7 @@ namespace creg
 	public:
 		ObjectInstanceType(Class* objc) : objectClass(objc) {}
 		~ObjectInstanceType() {}
-		void Serialize (ISerializer *s, void *instance);
+		void Serialize(ISerializer* s, void* instance);
 		std::string GetName();
 
 		Class* objectClass;

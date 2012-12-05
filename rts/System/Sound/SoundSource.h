@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef SOUNDSOURCE_H
 #define SOUNDSOURCE_H
 
@@ -5,8 +7,9 @@
 
 #include <al.h>
 #include <boost/noncopyable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <boost/thread/recursive_mutex.hpp>
 
+class IAudioChannel;
 class float3;
 class SoundItem;
 class COggStream;
@@ -16,53 +19,59 @@ class COggStream;
  * 
  * Construct some of them, and they can play SoundItems positioned anywhere in 3D-space for you.
  */
-class SoundSource : boost::noncopyable
+class CSoundSource : boost::noncopyable
 {
 public:
 	/// is ready after this
-	SoundSource();
+	CSoundSource();
 	/// will stop during deletion
-	~SoundSource();
+	~CSoundSource();
 
 	void Update();
+
+	void UpdateVolume();
+	bool IsValid() const { return (id != 0); };
 
 	int GetCurrentPriority() const;
 	bool IsPlaying() const;
 	void Stop();
 
 	/// will stop a currently playing sound, if any
-	void Play(SoundItem* buffer, const float3& pos, float3 velocity, float volume, bool relative = false);
-	void PlayStream(const std::string& stream, float volume, bool enqueue);
+	void Play(IAudioChannel* channel, SoundItem* buffer, float3 pos, float3 velocity, float volume, bool relative = false);
+	void PlayStream(IAudioChannel* channel, const std::string& stream, float volume);
 	void StreamStop();
-
 	void StreamPause();
 	float GetStreamTime();
 	float GetStreamPlayTime();
 
-	static void SetPitch(float newPitch);
-	void SetVolume(float newVol);
-	bool IsValid() const
+	static void SetPitch(const float& newPitch)
 	{
-		return (id != 0);
+		globalPitch = newPitch;
 	};
-
-	static void SetHeightRolloffModifer(float mod)
+	static void SetHeightRolloffModifer(const float& mod)
 	{
-		heightAdjustedRolloffModifier = mod > 0.0f ? mod : 0.0f;
+		heightRolloffModifier = mod;
 	};
 
 private:
-	/// pitch shared by all sources
+	static float referenceDistance;
+
+	//! used to adjust the pitch to the GameSpeed (optional)
 	static float globalPitch;
+
+	//! reduce the rolloff when the camera is height above the ground (so we still hear something in tab mode or far zoom)
+	static float heightRolloffModifier;
+	
 	ALuint id;
 	SoundItem* curPlaying;
-
-	struct StreamControl;
-	StreamControl* curStream;
-	boost::mutex streamMutex;
+	IAudioChannel* curChannel;
+	COggStream* curStream;
+	float curVolume;
 	unsigned loopStop;
-	static float heightAdjustedRolloffModifier;
-	static float referenceDistance;
+	bool in3D;
+	bool efxEnabled;
+	int efxUpdates;
+	ALfloat curHeightRolloffModifier;
 };
 
 #endif

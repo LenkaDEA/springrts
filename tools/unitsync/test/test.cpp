@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #if 0
 ################################################################################
 file=test.cpp
@@ -5,7 +7,7 @@ file=test.cpp
 map="${1:-Castles.smf}"
 mod="${2:-ba621.sd7}"
 
-g++ -g -I../../../rts/System $file ../../../game/unitsync.so && \
+g++ -g -I../../../rts -I../../../rts/System $file ../../../dist/unitsync.so && \
 echo ./a.out "$map" "$mod" && \
 ./a.out "$map" "$mod"
 
@@ -20,19 +22,21 @@ exit
 /******************************************************************************/
 //  Simple file to help test unitsync, compile with:
 //
-//    g++ -I../../../rts/System test.cxx ../../../game/unitsync.so
+//    g++ -I../../../rts -I../../../rts/System test.cxx ../../../dist/unitsync.so
 //
 
+
+#include "../unitsync_api.h"
+#include "ExternalAI/Interface/SSkirmishAILibrary.h"
+#include "System/Option.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <string>
 #include <vector>
-using namespace std;
 
-#include "../unitsync_api.h"
-
+using std::string;
 
 /******************************************************************************/
 /******************************************************************************/
@@ -44,37 +48,41 @@ static bool TestLuaParser();
 /******************************************************************************/
 /******************************************************************************/
 
-static bool PrintMapInfo(const string& mapName)
+static void PrintMapInfo(const string& mapName)
 {
-  printf("  MAP INFO  (for %s)\n", mapName.c_str());
-  MapInfo mi;
-  char auth[256];
-  char desc[256];
-  mi.author = auth;
-  mi.author[0] = 0;
-  mi.description = desc;
-  mi.description[0] = 0;
-  if (!GetMapInfoEx(mapName.c_str(), &mi, 1)) {
-    printf("ERROR getting info for map %s  (%s)\n",
-    mapName.c_str(), mi.description);
-  }
-  else {
-    printf("    author:    '%s'\n", mi.author);
-    printf("    desc:      '%s'\n", mi.description);
-    printf("    gravity:   %i\n",   mi.gravity);
-    printf("    tidal:     %i\n",   mi.tidalStrength);
-    printf("    maxMetal:  %f\n",   mi.maxMetal);
-    printf("    mexRad:    %i\n",   mi.extractorRadius);
-    printf("    minWind:   %i\n",   mi.minWind);
-    printf("    maxWind:   %i\n",   mi.maxWind);
-    printf("    width:     %i\n",   mi.width);
-    printf("    height:    %i\n",   mi.height);
-    for (int p = 0; p < mi.posCount; p++) {
-      const StartPos& sp = mi.positions[p];
-      printf("    pos %i:     <%5i, %5i>\n", p, sp.x, sp.z);
+    const int map_count = GetMapCount();
+    int mapidx = -1;
+    for (int i = 0; i < map_count; i++){
+      if (GetMapName(i) == mapName) {
+        mapidx = i;
+      }
+    }
+    if (mapidx<0) {
+      printf("Error: Map not found\n");
+      return;
+    }
+    printf("    author:    '%s'\n", GetMapAuthor(mapidx));
+    printf("    desc:      '%s'\n", GetMapDescription(mapidx));
+    printf("    gravity:   %i\n",   GetMapGravity(mapidx));
+    printf("    tidal:     %i\n",   GetMapTidalStrength(mapidx));
+    const int rescount = GetMapResourceCount(mapidx);
+    for (int i = 0; i < rescount; i++) {
+      const char* resName = GetMapResourceName(mapidx, i);
+      printf("    max%s:  %f\n", resName, GetMapResourceMax(mapidx, i));
+      printf("    mex%sRad:    %i\n", resName, GetMapResourceExtractorRadius(mapidx, i));
+    }
+    printf("    minWind:   %i\n",   GetMapWindMin(mapidx));
+    printf("    maxWind:   %i\n",   GetMapWindMax(mapidx));
+    printf("    width:     %i\n",   GetMapWidth(mapidx));
+    printf("    height:    %i\n",   GetMapHeight(mapidx));
+    const int poscount = GetMapPosCount(mapidx);
+    for (int p = 0; p < poscount; p++) {
+      const int x = GetMapPosX(mapidx, p);
+      const int z = GetMapPosZ(mapidx, p);
+      printf("    pos %i:     <%5i, %5i>\n", p, x, z);
     }
 
-    char* infomaps[] = { "height", "grass", "metal", "type", NULL };
+    const char* infomaps[] = { "height", "grass", "metal", "type", NULL };
     int width, height;
     for (int i = 0; infomaps[i]; ++i) {
       if (GetInfoMapSize(mapName.c_str(), infomaps[i], &width, &height)) {
@@ -91,7 +99,6 @@ static bool PrintMapInfo(const string& mapName)
         free(data);*/
       }
     }
-  }
 }
 
 
@@ -115,7 +122,7 @@ int main(int argc, char** argv)
 
   // map names
   printf("  MAPS\n");
-  vector<string> mapNames;
+  std::vector<string> mapNames;
   const int mapCount = GetMapCount();
   for (int i = 0; i < mapCount; i++) {
     const string mapName = GetMapName(i);
@@ -140,17 +147,22 @@ int main(int argc, char** argv)
   }
 
   // mod names
-  printf("  MODS\n");
+  printf("  GAMES\n");
   const int modCount = GetPrimaryModCount();
   for (int i = 0; i < modCount; i++) {
-    const string modName      = GetPrimaryModName(i);
-    const string modShortName = GetPrimaryModShortName(i);
-    const string modVersion   = GetPrimaryModVersion(i);
-    const string modMutator   = GetPrimaryModMutator(i);
     const string modArchive = GetPrimaryModArchive(i);
-    printf("    [mod %3i]   %-32s  <%s> %s %s %s\n", i,
-           modName.c_str(), modArchive.c_str(),
-           modShortName.c_str(), modVersion.c_str(), modMutator.c_str());
+    const int infoCount = GetPrimaryModInfoCount(i);
+    for (int j=0; j < infoCount; j++) {
+      const char* key = GetInfoKey(j);
+      string skey="";
+      string svalue="";
+      if (key!=NULL)
+        skey=key;
+      const char* value = GetInfoValueString(j);
+      if (value!=NULL)
+        svalue=value;
+      printf("    [%s]: %s = %s\n", modArchive.c_str(), skey.c_str(), svalue.c_str());
+    }
   }
 
   // load the mod archives
@@ -158,8 +170,7 @@ int main(int argc, char** argv)
 
   // unit names
   while (true) {
-  //const int left = ProcessUnits();
-    const int left = ProcessUnitsNoChecksum();
+    const int left = ProcessUnits();
   //printf("unitsLeft = %i\n", left);
     if (left <= 0) {
       break;
@@ -182,12 +193,19 @@ int main(int argc, char** argv)
            i, sideName.c_str(), startUnit.c_str());
   }
 
-  // LuaAI options
-  printf("  LuaAI\n");
-  const int luaAICount = GetLuaAICount();
-  for (int i = 0; i < luaAICount; i++) {
-    printf("    %i: name = %s\n", i, GetLuaAIName(i));
-    printf("       desc = %s\n",     GetLuaAIDesc(i));
+  // available Skirmish AIs
+  printf("  SkirmishAI\n");
+  const int skirmishAICount = GetSkirmishAICount();
+  for (int i = 0; i < skirmishAICount; i++) {
+    const int skirmishAIInfoCount = GetSkirmishAIInfoCount(i);
+    printf("    %i:\n", i);
+    for (int j = 0; j < skirmishAIInfoCount; j++) {
+      const string key = GetInfoKey(j);
+      if ((key == SKIRMISH_AI_PROPERTY_SHORT_NAME) || (key == SKIRMISH_AI_PROPERTY_VERSION)) {
+        const string value = GetInfoValueString(j);
+        printf("        %s = %s\n", key.c_str(), value.c_str());
+      }
+    }
   }
 
   // MapOptions
@@ -214,12 +232,12 @@ int main(int argc, char** argv)
 
   InitDirListVFS("", NULL, NULL);
   char buf[512];
-  for (int i = 0; i = FindFilesVFS(i, buf, sizeof(buf)); /* noop */) {
+  for (int i = 0; (i = FindFilesVFS(i, buf, sizeof(buf))); /* noop */) {
     printf("FOUND FILE:  %s\n", buf);
   }
 
   InitSubDirsVFS("", NULL, NULL);
-  for (int i = 0; i = FindFilesVFS(i, buf, sizeof(buf)); /* noop */) {
+  for (int i = 0; (i = FindFilesVFS(i, buf, sizeof(buf))); /* noop */) {
     printf("FOUND DIR:  %s\n", buf);
   }
 
@@ -345,7 +363,6 @@ static bool TestLuaParser()
 
   lpRootTable();
     lpSubTableInt(12);
-      const char* result;
       printf("SubTable test1: '%s'\n", lpGetIntKeyStrVal(2, "FAILURE"));
       lpSubTableStr("three");
         printf("SubTable test2: '%s'\n", lpGetIntKeyStrVal(1, "FAILURE"));

@@ -1,41 +1,50 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "FPSController.h"
 
-#include "ConfigHandler.h"
 #include "Game/Camera.h"
-#include "LogOutput.h"
+#include "Game/GlobalUnsynced.h"
 #include "Map/Ground.h"
-#include "GlobalUnsynced.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Log/ILog.h"
+#include "System/myMath.h"
 
 using std::min;
 using std::max;
 
+CONFIG(int, FPSScrollSpeed).defaultValue(10);
+CONFIG(float, FPSMouseScale).defaultValue(0.01f);
+CONFIG(bool, FPSEnabled).defaultValue(true);
+CONFIG(float, FPSFOV).defaultValue(45.0f);
+
+
 CFPSController::CFPSController()
 	: oldHeight(300)
 {
-	scrollSpeed = configHandler->Get("FPSScrollSpeed", 10) * 0.1f;
-	enabled = !!configHandler->Get("FPSEnabled", 1);
-	fov = configHandler->Get("FPSFOV", 45.0f);
+	scrollSpeed = configHandler->GetInt("FPSScrollSpeed") * 0.1f;
+	mouseScale = configHandler->GetFloat("FPSMouseScale");
+	enabled = configHandler->GetBool("FPSEnabled");
+	fov = configHandler->GetFloat("FPSFOV");
+	UpdateVectors();
 }
 
 
 void CFPSController::KeyMove(float3 move)
 {
-	move*=move.z*400;
-	pos+=(camera->forward*move.y+camera->right*move.x)*scrollSpeed;
+	move *= move.z * 400;
+	pos  += (camera->forward * move.y + camera->right * move.x) * scrollSpeed;
+	UpdateVectors();
 }
 
 
 void CFPSController::MouseMove(float3 move)
 {
-	camera->rot.y -= mouseScale*move.x;
-	camera->rot.x -= mouseScale*move.y*move.z;
-	if(camera->rot.x>PI*0.4999f)
-		camera->rot.x=PI*0.4999f;
-	if(camera->rot.x<-PI*0.4999f)
-		camera->rot.x=-PI*0.4999f;
+	camera->rot.y -= mouseScale * move.x;
+	camera->rot.x -= mouseScale * move.y * move.z;
+	camera->rot.x = Clamp(camera->rot.x, -PI*0.4999f, PI*0.4999f);
+	UpdateVectors();
 }
 
 
@@ -48,40 +57,33 @@ void CFPSController::ScreenEdgeMove(float3 move)
 void CFPSController::MouseWheelMove(float move)
 {
 	pos += camera->up * move;
+	UpdateVectors();
 }
 
 
-float3 CFPSController::GetPos()
+void CFPSController::UpdateVectors()
 {
-	if (!gu->directControl)
-	{
+	if (!gu->fpsMode) {
 		const float margin = 0.01f;
 		const float xMin = margin;
 		const float zMin = margin;
 		const float xMax = (float)(gs->mapx * SQUARE_SIZE) - margin;
 		const float zMax = (float)(gs->mapy * SQUARE_SIZE) - margin;
 
-		pos.x = max(xMin, min(xMax, pos.x));
-		pos.z = max(zMin, min(zMax, pos.z));
+		pos.x = Clamp(pos.x, xMin, xMax);
+		pos.z = Clamp(pos.z, zMin, zMax);
 
-		const float gndHeight = ground->GetHeight(pos.x, pos.z);
+		const float gndHeight = ground->GetHeightAboveWater(pos.x, pos.z, false);
 		const float yMin = gndHeight + 5.0f;
 		const float yMax = 9000.0f;
-		pos.y = max(yMin, min(yMax, pos.y));
+		pos.y = Clamp(pos.y, yMin, yMax);
 		oldHeight = pos.y - gndHeight;
 	}
 
-	return pos;
-}
-
-
-float3 CFPSController::GetDir()
-{
-	dir.x = (float)(cos(camera->rot.x) * sin(camera->rot.y));
-	dir.z = (float)(cos(camera->rot.x) * cos(camera->rot.y));
-	dir.y = (float)(sin(camera->rot.x));
+	dir.x = (float)(math::cos(camera->rot.x) * math::sin(camera->rot.y));
+	dir.z = (float)(math::cos(camera->rot.x) * math::cos(camera->rot.y));
+	dir.y = (float)(math::sin(camera->rot.x));
 	dir.ANormalize();
-	return dir;
 }
 
 
@@ -89,16 +91,17 @@ void CFPSController::SetPos(const float3& newPos)
 {
 	CCameraController::SetPos(newPos);
 
-	if (!gu->directControl)
-	{
-		pos.y = ground->GetHeight(pos.x, pos.z) + oldHeight;
+	if (!gu->fpsMode) {
+		pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + oldHeight;
 	}
+	UpdateVectors();
 }
 
 
 void CFPSController::SetDir(const float3& newDir)
 {
 	dir = newDir;
+	UpdateVectors();
 }
 
 
@@ -111,8 +114,8 @@ float3 CFPSController::SwitchFrom() const
 void CFPSController::SwitchTo(bool showText)
 {
 	if (showText) {
-		logOutput.Print("Switching to FPS style camera");
-  }
+		LOG("Switching to FPS style camera");
+	}
 }
 
 
@@ -153,4 +156,4 @@ bool CFPSController::SetState(const StateMap& sm)
 	return true;
 }
 
- 
+

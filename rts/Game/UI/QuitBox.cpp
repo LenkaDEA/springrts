@@ -1,23 +1,31 @@
-#include "StdAfx.h"
-#include <SDL_keysym.h>
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "Sim/Misc/TeamHandler.h"
-#include "Sim/Misc/GlobalSynced.h"
-#include "LogOutput.h"
-#include "MouseHandler.h"
-#include "NetProtocol.h"
 #include "QuitBox.h"
+
+#include "MouseHandler.h"
+#include "Game/Player.h"
 #include "Game/PlayerHandler.h"
 #include "Game/GameSetup.h"
-#include "LoadSaveHandler.h"
-#include "TimeUtil.h"
-#include "FileSystem/FileSystem.h"
-#include "Sim/Misc/ModInfo.h"
+#include "Game/GlobalUnsynced.h"
 #include "Rendering/glFont.h"
 #include "Rendering/GL/myGL.h"
+#include "Sim/Misc/GlobalSynced.h"
+#include "Sim/Misc/ModInfo.h"
+#include "Sim/Misc/TeamHandler.h"
+#include "System/Log/ILog.h"
+#include "System/NetProtocol.h"
+#include "System/TimeUtil.h"
+#include "System/mmgr.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/LoadSave/LoadSaveHandler.h"
+#include "System/MsgStrings.h"
 
-extern bool globalQuit;
+#include <SDL_keysym.h>
+
+
+#define MAX_QUIT_TEAMS (teamHandler->ActiveTeams() - 1)
+
+#undef CreateDirectory
 
 CQuitBox::CQuitBox(void)
 {
@@ -46,6 +54,16 @@ CQuitBox::CQuitBox(void)
 	teamBox.x2=0.30f;
 	teamBox.y2=0.43f;
 
+	scrollbarBox.x1 = 0.28f;
+	scrollbarBox.y1 = 0.11f;
+	scrollbarBox.x2 = 0.30f;
+	scrollbarBox.y2 = 0.43f;
+
+	scrollBox.x1 = 0.28f;
+	scrollBox.y1 = 0.40f;
+	scrollBox.x2 = 0.30f;
+	scrollBox.y2 = 0.43f;
+
 	quitBox.x1=0.02f;
 	quitBox.y1=0.06f;
 	quitBox.x2=0.30f;
@@ -56,6 +74,11 @@ CQuitBox::CQuitBox(void)
 	cancelBox.x2=0.30f;
 	cancelBox.y2=0.06f;
 
+	startTeam = 0;
+	numTeamsDisp = (int)((teamBox.y2 - teamBox.y1) / 0.025f);
+	scrolling = false;
+	scrollGrab = 0.0f;
+	hasScroll = MAX_QUIT_TEAMS > numTeamsDisp;
 
 	moveBox=false;
 	noAlliesLeft=true;
@@ -123,6 +146,20 @@ void CQuitBox::Draw(void)
 	glColor4f(0.2f,0.2f,0.2f,guiAlpha);
 	DrawBox(box+teamBox);
 
+	if (hasScroll) {
+		glColor4f(0.1f, 0.1f, 0.1f, guiAlpha);
+		DrawBox(box + scrollbarBox);
+
+		float sz = scrollbarBox.y2 - scrollbarBox.y1;
+		float tsz = sz / (float)(MAX_QUIT_TEAMS);
+		float psz = tsz * (float)numTeamsDisp;
+
+		scrollBox.y2 = scrollbarBox.y2 - startTeam * tsz;
+		scrollBox.y1 = scrollBox.y2 - psz;
+
+		glColor4f(0.8f, 0.8f, 0.8f, guiAlpha);
+		DrawBox(box + scrollBox);
+	}
 
 	glEnable(GL_TEXTURE_2D);
 	glColor4f(1,1,0.4f,0.8f);
@@ -139,7 +176,8 @@ void CQuitBox::Draw(void)
 	font->glPrint(box.x1 + quitBox.x1       + 0.025f,
 	                box.y1 + (quitBox.y1 + quitBox.y2)/2, 1, FONT_VCENTER | FONT_SCALE | FONT_NORM, "Quit");
 
-	for(int team=0;team<teamHandler->ActiveTeams()-1;++team){
+	int teamPos = 0;
+	for(int team = startTeam; team < MAX_QUIT_TEAMS && teamPos < numTeamsDisp; ++team, ++teamPos) {
 		int actualTeam=team;
 		if (team >= gu->myTeam) {
 			actualTeam++;
@@ -156,7 +194,7 @@ void CQuitBox::Draw(void)
 		if (teamHandler->Team(actualTeam)->leader >= 0)
 			teamName = playerHandler->Player(teamHandler->Team(actualTeam)->leader)->name;
 		else
-			teamName = "uncontrolled";
+			teamName = UncontrolledPlayerName;
 
 		std::string ally, dead;
 		if (teamHandler->Ally(gu->myAllyTeam, teamHandler->AllyTeam(actualTeam))) {
@@ -172,7 +210,7 @@ void CQuitBox::Draw(void)
 			ally   = " <Gaia>";
 		}
 		font->glFormat(box.x1 + teamBox.x1 + 0.002f,
-		                box.y1 + teamBox.y2 - 0.025f - team * 0.025f, 0.7f,  FONT_SCALE | FONT_NORM,
+		                box.y1 + teamBox.y2 - 0.025f - teamPos * 0.025f, 0.7f,  FONT_SCALE | FONT_NORM,
 		                "Team%i (%s)%s%s", actualTeam,
 		                teamName.c_str(), ally.c_str(), dead.c_str());
 	}
@@ -198,6 +236,10 @@ std::string CQuitBox::GetTooltip(int x, int y)
 		return "Save the current game state to a file \nfor later reload";
 	if(InBox(mx,my,box+giveAwayBox))
 		return "Give away all units and resources \nto the team specified below";
+	if (hasScroll && InBox(mx, my, box + scrollBox))
+		return "Scroll the team list here";
+	if (hasScroll && InBox(mx, my, box + scrollbarBox))
+		return "Scroll the team list here";
 	if(InBox(mx,my,box+teamBox))
 		return "Select which team recieves everything";
 	if(InBox(mx,my,box+cancelBox))
@@ -215,13 +257,24 @@ bool CQuitBox::MousePress(int x, int y, int button)
 	float my=MouseY(y);
 	if(InBox(mx,my,box)){
 		moveBox=true;
-		if(InBox(mx,my,box+resignBox) || InBox(mx,my,box+saveBox) || InBox(mx,my,box+giveAwayBox) || InBox(mx,my,box+teamBox) || InBox(mx,my,box+cancelBox) || InBox(mx,my,box+quitBox))
+		if(InBox(mx,my,box+resignBox) || InBox(mx,my,box+saveBox) || InBox(mx,my,box+giveAwayBox) || InBox(mx,my,box+teamBox) || InBox(mx,my,box+cancelBox) || InBox(mx,my,box+quitBox) ||
+				InBox(mx, my, box + scrollbarBox) || InBox(mx, my, box + scrollBox))
 			moveBox=false;
-		if(InBox(mx,my,box+teamBox)){
-			int team=(int)((box.y1+teamBox.y2-my)/0.025f);
+		if (hasScroll && InBox(mx, my, box + scrollBox)) {
+			scrolling = true;
+			scrollGrab = (box + scrollBox).y2 - my;
+		}
+		else if (hasScroll && InBox(mx, my, box + scrollbarBox)) {
+			if(my < (box + scrollBox).y1)
+				*(volatile int *)&startTeam = startTeam + std::min(MAX_QUIT_TEAMS - numTeamsDisp - startTeam, numTeamsDisp);
+			if(my > (box + scrollBox).y2)
+				*(volatile int *)&startTeam = startTeam - std::min(startTeam, numTeamsDisp);
+		}
+		else if(InBox(mx,my,box+teamBox)){
+			int team = startTeam + (int)((box.y1 + teamBox.y2 - my) / 0.025f);
 			if(team>=gu->myTeam)
 				team++;
-			if(team<teamHandler->ActiveTeams() && !teamHandler->Team(team)->isDead){
+			if(teamHandler->IsValidTeam(team) && !teamHandler->Team(team)->isDead){
 				// we don't want to give everything to the enemy if there are allies left
 				if(noAlliesLeft || (!noAlliesLeft && teamHandler->Ally(gu->myAllyTeam, teamHandler->AllyTeam(team)))){
 					shareTeam=team;
@@ -238,6 +291,9 @@ void CQuitBox::MouseRelease(int x,int y,int button)
 	float mx=MouseX(x);
 	float my=MouseY(y);
 
+	scrolling = false;
+	scrollGrab = 0.0f;
+
 	if(InBox(mx,my,box+resignBox)
 	   || (InBox(mx,my,box+saveBox) && !teamHandler->Team(gu->myTeam)->isDead)
 	   || (InBox(mx,my,box+giveAwayBox) && !teamHandler->Team(shareTeam)->isDead && !teamHandler->Team(gu->myTeam)->isDead)) {
@@ -251,29 +307,30 @@ void CQuitBox::MouseRelease(int x,int y,int button)
 		}
 		// save current game state
 		if (InBox(mx,my,box+saveBox)) {
-			if (filesystem.CreateDirectory("Saves")) {
+			if (FileSystem::CreateDirectory("Saves")) {
 				std::string timeStr = CTimeUtil::GetCurrentTimeStr();
 				std::string saveFileName(timeStr + "_" + modInfo.filename + "_" + gameSetup->mapName);
 				saveFileName = "Saves/" + saveFileName + ".ssf";
-				if (filesystem.GetFilesize(saveFileName) == 0) {
-					logOutput.Print("Saving game to %s\n", saveFileName.c_str());
-					CLoadSaveHandler ls;
-					ls.mapName = gameSetup->mapName;
-					ls.modName = modInfo.filename;
-					ls.SaveGame(saveFileName);
+				if (!FileSystem::FileExists(saveFileName)) {
+					LOG("Saving game to %s", saveFileName.c_str());
+					ILoadSaveHandler* ls = ILoadSaveHandler::Create();
+					ls->mapName = gameSetup->mapName;
+					ls->modName = modInfo.filename;
+					ls->SaveGame(saveFileName);
+					delete ls;
 				} else {
-					logOutput.Print("Error: File %s already exists, game NOT saved!\n", saveFileName.c_str());
+					LOG_L(L_ERROR, "File %s already exists, game NOT saved!",
+							saveFileName.c_str());
 				}
 			}
 		}
 	}
-	else if(InBox(mx,my,box+quitBox))
-	{
-		logOutput.Print("User exited");
-		globalQuit=true;
+	else if (InBox(mx, my, box + quitBox)) {
+		LOG("User exited");
+		gu->globalQuit = true;
 	}
 	// if we're still in the game, remove the resign box
-	if(InBox(mx,my,box+resignBox) || InBox(mx,my,box+saveBox) || InBox(mx,my,box+giveAwayBox) || InBox(mx,my,box+cancelBox)){
+	if(InBox(mx,my,box+resignBox) || InBox(mx,my,box+saveBox) || InBox(mx,my,box+giveAwayBox) || InBox(mx,my,box+cancelBox) || InBox(mx,my,box+quitBox)){
 		delete this;
 		return;
 	}
@@ -284,17 +341,26 @@ void CQuitBox::MouseMove(int x, int y, int dx,int dy, int button)
 {
 	float mx=MouseX(x);
 	float my=MouseY(y);
+
+	if(scrolling) {
+		float scr = (box+scrollbarBox).y2 - (my + scrollGrab);
+		float sz = scrollbarBox.y2 - scrollbarBox.y1;
+		float tsz = sz / (float)MAX_QUIT_TEAMS;
+
+		*(volatile int *)&startTeam = std::max(0, std::min((int)(scr / tsz + 0.5), MAX_QUIT_TEAMS - numTeamsDisp));
+		return;
+	}
 	if(moveBox){
 		box.x1+=MouseMoveX(dx);
 		box.x2+=MouseMoveX(dx);
 		box.y1+=MouseMoveY(dy);
 		box.y2+=MouseMoveY(dy);
 	}
-	if(InBox(mx,my,box+teamBox)){
-		int team=(int)((box.y1+teamBox.y2-my)/0.025f);
+	if(!(hasScroll && (InBox(mx, my, box + scrollBox) || InBox(mx, my, box + scrollbarBox))) && InBox(mx,my,box+teamBox)){
+		int team = startTeam + (int)((box.y1 + teamBox.y2 - my) / 0.025f);
 		if(team>=gu->myTeam)
 			team++;
-		if(team<teamHandler->ActiveTeams() && !teamHandler->Team(team)->isDead){
+		if(teamHandler->IsValidTeam(team) && !teamHandler->Team(team)->isDead){
 			// we don't want to give everything to the enemy if there are allies left
 			if(noAlliesLeft || (!noAlliesLeft && teamHandler->Ally(gu->myAllyTeam, teamHandler->AllyTeam(team)))){
 				shareTeam=team;

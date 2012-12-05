@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef EXCEPTIONS_H
 #define EXCEPTIONS_H
 
@@ -13,6 +15,17 @@
 
 
 /**
+ * user_error
+ *   thrown when a enduser config is broken/invalid.
+ */
+class user_error : public std::runtime_error
+{
+public:
+	user_error(const std::string& msg) : std::runtime_error(msg) {};
+};
+
+
+/**
  * content_error
  *   thrown when content couldn't be found/loaded.
  *   any other type of exception will cause a crashreport box appearing
@@ -22,6 +35,17 @@ class content_error : public std::runtime_error
 {
 public:
 	content_error(const std::string& msg) : std::runtime_error(msg) {};
+};
+
+
+/**
+ * opengl_error
+ *   thrown when an OpenGL function failed (FBO creation, Offscreen Context creation, ...).
+ */
+class opengl_error : public std::runtime_error
+{
+public:
+	opengl_error(const std::string& msg) : std::runtime_error(msg) {};
 };
 
 #endif

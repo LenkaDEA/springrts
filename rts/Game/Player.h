@@ -1,52 +1,21 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef PLAYER_H
 #define PLAYER_H
-// Player.h: interface for the CPlayer class.
-//
-//////////////////////////////////////////////////////////////////////
+
+#include "PlayerBase.h"
+#include "PlayerStatistics.h"
+#include "FPSUnitController.h"
+#include "System/creg/creg_cond.h"
 
 #include <string>
 #include <set>
 
-#include "creg/creg_cond.h"
-#include "PlayerBase.h"
-#include "PlayerStatistics.h"
-#include "float3.h"
-
 class CPlayer;
 class CUnit;
-struct DirectControlStruct {
-	bool forward;
-	bool back;
-	bool left;
-	bool right;
-	bool mouse1;
-	bool mouse2;
 
-	float3 viewDir;
-	float3 targetPos;
-	float targetDist;
-	CUnit* target;
-	CPlayer* myController;
-};
-
-struct DirectControlClientState {
-	DirectControlClientState() {
-		oldPitch   = 0;
-		oldHeading = 0;
-		oldState   = 255;
-		oldDCpos   = ZeroVector;
-	}
-
-	void SendStateUpdate(bool*);
-
-	CUnit* playerControlledUnit; //! synced
-	short oldHeading, oldPitch;  //! unsynced
-	unsigned char oldState;      //! unsynced
-	float3 oldDCpos;             //! unsynced
-
-	// todo: relocate the CUnit* from GlobalUnsynced
-	// to here as well so everything is in one place
-};
+/// @see CPlayer::ping
+#define PATHING_FLAG 0xFFFFFFFF
 
 
 class CPlayer : public PlayerBase
@@ -54,33 +23,37 @@ class CPlayer : public PlayerBase
 public:
 	CR_DECLARE(CPlayer);
 	CPlayer();
-	~CPlayer();
+	~CPlayer() {}
 
 	bool CanControlTeam(int teamID) const {
 		return (controlledTeams.find(teamID) != controlledTeams.end());
 	}
 	void SetControlledTeams();
-	static void UpdateControlledTeams(); // SetControlledTeams() for all players
+	/// SetControlledTeams() for all players
+	static void UpdateControlledTeams();
 
 	void StartSpectating();
+	void JoinTeam(int newTeam);
 	void GameFrame(int frameNum);
 
-	void operator=(const PlayerBase& base) { PlayerBase::operator=(base); };
+	CPlayer& operator=(const PlayerBase& base) { PlayerBase::operator=(base); return *this; }
+
+	void StartControllingUnit();
+	void StopControllingUnit();
 
 	bool active;
 
 	int playerNum;
 
+	/**
+	 * Contains either the current ping of the player to the game host,
+	 * or the value of the pathign flag.
+	 * @see PATHING_FLAG
+	 */
 	int ping;
 
-	typedef PlayerStatistics Statistics;
-
-	Statistics currentStats;
-
-	DirectControlStruct myControl;
-	DirectControlClientState dccs;
-
-	void StopControllingUnit();
+	PlayerStatistics currentStats;
+	FPSUnitController fpsController;
 
 private:
 	std::set<int> controlledTeams;

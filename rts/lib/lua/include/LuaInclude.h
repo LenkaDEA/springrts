@@ -1,10 +1,19 @@
 #ifndef SPRING_LUA_INCLUDE
 #define SPRING_LUA_INCLUDE
 
-
+#include <string>
 #include "lua.h"
+#include "lib/lua/src/lstate.h"
 #include "lualib.h"
 #include "lauxlib.h"
+#include "lib/streflop/streflop_cond.h"
+#include <boost/thread/recursive_mutex.hpp>
+
+
+inline void lua_pushsstring(lua_State* L, const std::string& str)
+{
+	lua_pushlstring(L, str.data(), str.size());
+}
 
 
 inline bool lua_israwnumber(lua_State* L, int index)
@@ -38,7 +47,13 @@ inline int lua_toint(lua_State* L, int idx)
 
 inline float lua_tofloat(lua_State* L, int idx)
 {
-  return (float)lua_tonumber(L, idx);
+  const float n = lua_tonumber(L, idx);
+#ifdef DEBUG
+  if (math::isinf(n) || math::isnan(n)) luaL_argerror(L, idx, "number expected, got NAN (check your code for div0)");
+  //assert(!math::isinf(d));
+  //assert(!math::isnan(d));
+#endif
+  return n;
 }
 
 
@@ -53,5 +68,25 @@ inline float luaL_optfloat(lua_State* L, int idx, float def)
   return (float)luaL_optnumber(L, idx, def);
 }
 
+inline bool luaL_optboolean(lua_State* L, int idx, bool def)
+{
+  return lua_isboolean(L, idx) ? lua_toboolean(L, idx) : def;
+}
+
+struct luaContextData;
+extern boost::recursive_mutex* getLuaMutex(bool userMode, bool primary);
+
+inline lua_State *LUA_OPEN(luaContextData* lcd = NULL, bool userMode = true, bool primary = true) {
+	lua_State *L_New = lua_open();
+	L_New->lcd = lcd;
+	L_New->luamutex = getLuaMutex(userMode, primary);
+	return L_New;
+}
+
+inline void LUA_CLOSE(lua_State *L_Old) {
+	if(L_Old->luamutex != getLuaMutex(false, false) && L_Old->luamutex != getLuaMutex(false, true))
+		delete L_Old->luamutex;
+	lua_close(L_Old);
+}
 
 #endif // SPRING_LUA_INCLUDE

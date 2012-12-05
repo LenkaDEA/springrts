@@ -1,16 +1,26 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "OverviewController.h"
 
 #include "Map/Ground.h"
 #include "Game/UI/MiniMap.h"
 #include "Game/UI/MouseHandler.h"
-#include "LogOutput.h"
+#include "Sim/Misc/GlobalConstants.h"
+#include "System/Log/ILog.h"
 
 COverviewController::COverviewController()
 {
 	enabled = false;
+	minimizeMinimap = false;
+
+	pos.x = gs->mapx * 0.5f * SQUARE_SIZE;
+	pos.z = gs->mapy * 0.5f * SQUARE_SIZE;
+	const float height = std::max(pos.x / globalRendering->aspectRatio, pos.z);
+	pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + (2.5f * height);
+
+	dir = float3(0.0f, -1.0f, -0.001f).ANormalize();
 }
 
 void COverviewController::KeyMove(float3 move)
@@ -29,19 +39,8 @@ void COverviewController::MouseWheelMove(float move)
 {
 }
 
-float3 COverviewController::GetPos()
+void COverviewController::SetDir(const float3& newDir)
 {
-	// map not created when constructor run
-	pos.x = gs->mapx * 4.0f;
-	pos.z = gs->mapy * 4.0f;
-	const float height = std::max(pos.x / gu->aspectRatio, pos.z);
-	pos.y = ground->GetHeight(pos.x, pos.z) + (2.5f * height);
-	return pos;
-}
-
-float3 COverviewController::GetDir()
-{
-	return float3(0.0f, -1.0f, -0.001f).ANormalize();
 }
 
 void COverviewController::SetPos(const float3& newPos)
@@ -50,11 +49,11 @@ void COverviewController::SetPos(const float3& newPos)
 
 float3 COverviewController::SwitchFrom() const
 {
-	float3 dir=mouse->dir;
-	float length=ground->LineGroundCol(pos,pos+dir*50000);
-	float3 rpos=pos+dir*length;
+	float3 dir = mouse->dir;
+	float length = ground->LineGroundCol(pos, pos + dir * 50000, false);
+	float3 rpos = pos + dir * length;
 
-	if (!gu->dualScreenMode) {
+	if (!globalRendering->dualScreenMode) {
 		minimap->SetMinimized(minimizeMinimap);
 	}
 
@@ -64,10 +63,10 @@ float3 COverviewController::SwitchFrom() const
 void COverviewController::SwitchTo(bool showText)
 {
 	if (showText) {
-		logOutput.Print("Switching to Overview style camera");
+		LOG("Switching to Overview style camera");
 	}
 
-	if (!gu->dualScreenMode) {
+	if (!globalRendering->dualScreenMode) {
 		minimizeMinimap = minimap->GetMinimized();
 		minimap->SetMinimized(true);
 	}

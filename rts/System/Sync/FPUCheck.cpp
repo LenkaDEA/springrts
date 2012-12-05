@@ -85,7 +85,7 @@ void good_fpu_control_registers(const char* text)
 
 #if defined(STREFLOP_SSE)
 	// struct
-	streflop::fpenv_t fenv;
+	streflop::sfpenv_t fenv;
 	streflop::fegetenv(&fenv);
 
 	bool ret = ((fenv.sse_mode & 0xFF80) == sse_a || (fenv.sse_mode & 0xFF80) == sse_b) &&

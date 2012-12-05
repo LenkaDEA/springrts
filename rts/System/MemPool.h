@@ -3,6 +3,7 @@
 #ifndef _MEM_POOL_H_
 #define _MEM_POOL_H_
 
+#include <stddef.h>
 #include <new>
 #include <cstring> // for size_t
 

@@ -24,6 +24,8 @@
 
 // TODO: add event driven system (like alttab, resolution changed, dualscreen, ...)
 
+#include <stddef.h>
+
 namespace GLContext
 {
 	typedef void (*Func)(void* data);

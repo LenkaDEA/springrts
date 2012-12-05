@@ -1,3 +1,0 @@
-spec: .gear/springrts.spec
-copy: .gear/*.patch
-tar: .

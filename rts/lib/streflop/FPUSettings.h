@@ -56,30 +56,30 @@ namespace streflop {
 // Give warning in case these flags would be defined already, this is indication
 // of potential confusion!
 
-#if defined(FE_INVALID) || defined(FE_DENORMAL) || defined(FE_DIVBYZERO) || defined(FE_OVERFLOW) || defined(FE_UNDERFLOW) || defined(FE_INEXACT) || defined(FE_DOWNWARD) || defined(FE_TONEAREST) || defined(FE_TOWARDZERO) || defined(FE_UPWARD)
+#if defined(sFE_INVALID) || defined(FE_DENORMAL) || defined(sFE_DIVBYZERO) || defined(sFE_OVERFLOW) || defined(sFE_UNDERFLOW) || defined(sFE_INEXACT) || defined(FE_DOWNWARD) || defined(FE_TONEAREST) || defined(FE_TOWARDZERO) || defined(FE_UPWARD)
 
 #warning STREFLOP: FE_XXX flags were already defined and will be redefined! Check you do not use the system libm.
-#undef FE_INVALID
+#undef sFE_INVALID
 #undef FE_DENORMAL
-#undef FE_DIVBYZERO
-#undef FE_OVERFLOW
-#undef FE_UNDERFLOW
-#undef FE_INEXACT
-#undef FE_INEXACT
+#undef sFE_DIVBYZERO
+#undef sFE_OVERFLOW
+#undef sFE_UNDERFLOW
+#undef sFE_INEXACT
+#undef sFE_INEXACT
 #undef FE_ALL_EXCEPT
 #undef FE_DOWNWARD
 #undef FE_TONEAREST
 #undef FE_TOWARDZERO
 #undef FE_UPWARD
-#endif // defined(FE_INVALID) || ...
+#endif // defined(sFE_INVALID) || ...
 
 
 // Flags for FPU exceptions
 enum FPU_Exceptions {
 
     // Invalid operation. If not signaling, gives NaN instead
-    FE_INVALID = 0x0001,
-    #define FE_INVALID FE_INVALID
+    sFE_INVALID = 0x0001,
+    #define sFE_INVALID sFE_INVALID
 
     // Extension: for x86 and SSE
     // Denormal operand. If not signaling, use denormal arithmetic as usual
@@ -87,20 +87,20 @@ enum FPU_Exceptions {
     #define FE_DENORMAL FE_DENORMAL
 
     // Division by zero. If not signaling, uses +/- infinity
-    FE_DIVBYZERO = 0x0004,
-    #define FE_DIVBYZERO FE_DIVBYZERO
+    sFE_DIVBYZERO = 0x0004,
+    #define sFE_DIVBYZERO sFE_DIVBYZERO
 
     // Overflow. If not signaling, round to nearest (including infinity) according to rounding mode
-    FE_OVERFLOW = 0x0008,
-    #define FE_OVERFLOW FE_OVERFLOW
+    sFE_OVERFLOW = 0x0008,
+    #define sFE_OVERFLOW sFE_OVERFLOW
 
     // Underflow. If not signaling, use 0 instead
-    FE_UNDERFLOW = 0x0010,
-    #define FE_UNDERFLOW FE_UNDERFLOW
+    sFE_UNDERFLOW = 0x0010,
+    #define sFE_UNDERFLOW sFE_UNDERFLOW
 
     // Rounding was not exact (ex: sqrt(2) is never exact) or when overflow causes rounding
-    FE_INEXACT = 0x0020,
-    #define FE_INEXACT FE_INEXACT
+    sFE_INEXACT = 0x0020,
+    #define sFE_INEXACT sFE_INEXACT
 
     // Combination of all the above
     FE_ALL_EXCEPT  = 0x003F
@@ -157,7 +157,7 @@ inline int feraiseexcept(FPU_Exceptions excepts) {
 }
 
 /// Clear exceptions for these flags
-inline int feclearexcept(int excepts) {
+inline int sfeclearexcept(int excepts) {
     unsigned short fpu_mode;
     STREFLOP_FSTCW(fpu_mode);
     fpu_mode |= excepts;
@@ -185,30 +185,30 @@ inline int fesetround(FPU_RoundMode roundMode) {
 typedef short int fpenv_t;
 
 /// Default env. Defined in SMath.cpp to be 0, and initialized on first use to the permanent holder
-extern fpenv_t FE_DFL_ENV;
+extern sfpenv_t sFE_DFL_ENV; // TODO: may be fpenv_t instead of sfpenv_t ?
 
 /// Get FP env into the given structure
-inline int fegetenv(fpenv_t *envp) {
+inline int fegetenv(sfpenv_t *envp) {
     // check that default env exists, otherwise save it now
-    if (!FE_DFL_ENV) STREFLOP_FSTCW(FE_DFL_ENV);
+    if (!sFE_DFL_ENV) STREFLOP_FSTCW(sFE_DFL_ENV);
     // Now store env into argument
     STREFLOP_FSTCW(*envp);
     return 0;
 }
 
 /// Sets FP env from the given structure
-inline int fesetenv(const fpenv_t *envp) {
+inline int fesetenv(const sfpenv_t *envp) {
     // check that default env exists, otherwise save it now
-    if (!FE_DFL_ENV) STREFLOP_FSTCW(FE_DFL_ENV);
+    if (!sFE_DFL_ENV) STREFLOP_FSTCW(sFE_DFL_ENV);
     // Now overwrite current env by argument
     STREFLOP_FLDCW(*envp);
     return 0;
 }
 
 /// get env and clear exceptions
-inline int feholdexcept(fpenv_t *envp) {
+inline int feholdexcept(sfpenv_t *envp) {
     fegetenv(envp);
-    feclearexcept(FE_ALL_EXCEPT);
+    sfeclearexcept(FE_ALL_EXCEPT);
     return 0;
 }
 
@@ -234,7 +234,7 @@ template<> inline void streflop_init<Simple>() {
 #if defined(USE_GML)
 	if (Threading::IsSimThread())
 #endif
-    feraiseexcept(streflop::FPU_Exceptions(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW));
+    feraiseexcept(streflop::FPU_Exceptions(sFE_INVALID | sFE_DIVBYZERO | sFE_OVERFLOW));
 #endif
 }
 
@@ -249,7 +249,7 @@ template<> inline void streflop_init<Double>() {
 #if defined(USE_GML)
 	if (Threading::IsSimThread())
 #endif
-    feraiseexcept(streflop::FPU_Exceptions(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW));
+    feraiseexcept(streflop::FPU_Exceptions(sFE_INVALID | sFE_DIVBYZERO | sFE_OVERFLOW));
 #endif
 }
 
@@ -265,7 +265,7 @@ template<> inline void streflop_init<Extended>() {
 #if defined(USE_GML)
 	if (Threading::IsSimThread())
 #endif
-    feraiseexcept(streflop::FPU_Exceptions(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW));
+    feraiseexcept(streflop::FPU_Exceptions(sFE_INVALID | sFE_DIVBYZERO | sFE_OVERFLOW));
 #endif
 }
 #endif // defined(Extended)
@@ -289,7 +289,7 @@ inline int feraiseexcept(FPU_Exceptions excepts) {
 }
 
 /// Clear exceptions for these flags
-inline int feclearexcept(int excepts) {
+inline int sfeclearexcept(int excepts) {
     // Just in case the compiler would store a value on the st(x) registers
     unsigned short x87_mode;
     STREFLOP_FSTCW(x87_mode);
@@ -322,46 +322,46 @@ inline int fesetround(FPU_RoundMode roundMode) {
 }
 
 /// stores both x87 and SSE words
-struct fpenv_t {
+struct sfpenv_t {
     int sse_mode;
     short int x87_mode;
 };
 
 /// Default env. Defined in SMath.cpp, structs are initialized to 0
-extern fpenv_t FE_DFL_ENV;
+extern sfpenv_t sFE_DFL_ENV;
 
 /// Get FP env into the given structure
-inline int fegetenv(fpenv_t *envp) {
+inline int fegetenv(sfpenv_t *envp) {
     // check that default env exists, otherwise save it now
-    if (!FE_DFL_ENV.x87_mode) STREFLOP_FSTCW(FE_DFL_ENV.x87_mode);
+    if (!sFE_DFL_ENV.x87_mode) STREFLOP_FSTCW(sFE_DFL_ENV.x87_mode);
     // Now store env into argument
     STREFLOP_FSTCW(envp->x87_mode);
 
     // For SSE
-    if (!FE_DFL_ENV.sse_mode) STREFLOP_STMXCSR(FE_DFL_ENV.sse_mode);
+    if (!sFE_DFL_ENV.sse_mode) STREFLOP_STMXCSR(sFE_DFL_ENV.sse_mode);
     // Now store env into argument
     STREFLOP_STMXCSR(envp->sse_mode);
     return 0;
 }
 
 /// Sets FP env from the given structure
-inline int fesetenv(const fpenv_t *envp) {
+inline int fesetenv(const sfpenv_t *envp) {
     // check that default env exists, otherwise save it now
-    if (!FE_DFL_ENV.x87_mode) STREFLOP_FSTCW(FE_DFL_ENV.x87_mode);
+    if (!sFE_DFL_ENV.x87_mode) STREFLOP_FSTCW(sFE_DFL_ENV.x87_mode);
     // Now overwrite current env by argument
     STREFLOP_FLDCW(envp->x87_mode);
 
     // For SSE
-    if (!FE_DFL_ENV.sse_mode) STREFLOP_STMXCSR(FE_DFL_ENV.sse_mode);
+    if (!sFE_DFL_ENV.sse_mode) STREFLOP_STMXCSR(sFE_DFL_ENV.sse_mode);
     // Now overwrite current env by argument
     STREFLOP_LDMXCSR(envp->sse_mode);
     return 0;
 }
 
 /// get env and clear exceptions
-inline int feholdexcept(fpenv_t *envp) {
+inline int feholdexcept(sfpenv_t *envp) {
     fegetenv(envp);
-    feclearexcept(FE_ALL_EXCEPT);
+    sfeclearexcept(FE_ALL_EXCEPT);
     return 0;
 }
 
@@ -438,7 +438,7 @@ inline int feraiseexcept(FPU_Exceptions excepts) {
 }
 
 /// Clear exceptions for these flags
-inline int feclearexcept(int excepts) {
+inline int sfeclearexcept(int excepts) {
     // Use positive logic
     SoftFloat::float_exception_realtraps &= ~( excepts );
     return 0;
@@ -471,23 +471,23 @@ inline int fesetround(FPU_RoundMode roundMode) {
 }
 
 /// SoftFloat environment comprises non-volatile state variables
-struct fpenv_t {
+struct sfpenv_t {
     char tininess;
     char rounding_mode;
     int exception_realtraps;
 };
 
 /// Default env. Defined in SMath.cpp, initialized to some invalid value for detection
-extern fpenv_t FE_DFL_ENV;
+extern sfpenv_t sFE_DFL_ENV;
 
 /// Get FP env into the given structure
-inline int fegetenv(fpenv_t *envp) {
+inline int fegetenv(sfpenv_t *envp) {
     // check that default env exists, otherwise save it now
-    if (FE_DFL_ENV.tininess==42) {
+    if (sFE_DFL_ENV.tininess==42) {
         // First use: save default environment now
-        FE_DFL_ENV.tininess = SoftFloat::float_detect_tininess;
-        FE_DFL_ENV.rounding_mode = SoftFloat::float_rounding_mode;
-        FE_DFL_ENV.exception_realtraps = SoftFloat::float_exception_realtraps;
+        sFE_DFL_ENV.tininess = SoftFloat::float_detect_tininess;
+        sFE_DFL_ENV.rounding_mode = SoftFloat::float_rounding_mode;
+        sFE_DFL_ENV.exception_realtraps = SoftFloat::float_exception_realtraps;
     }
     // Now get the current env in the given argument
     envp->tininess = SoftFloat::float_detect_tininess;
@@ -497,13 +497,13 @@ inline int fegetenv(fpenv_t *envp) {
 }
 
 /// Sets FP env from the given structure
-inline int fesetenv(const fpenv_t *envp) {
+inline int fesetenv(const sfpenv_t *envp) {
     // check that default env exists, otherwise save it now
-    if (FE_DFL_ENV.tininess==42) {
+    if (sFE_DFL_ENV.tininess==42) {
         // First use: save default environment now
-        FE_DFL_ENV.tininess = SoftFloat::float_detect_tininess;
-        FE_DFL_ENV.rounding_mode = SoftFloat::float_rounding_mode;
-        FE_DFL_ENV.exception_realtraps = SoftFloat::float_exception_realtraps;
+        sFE_DFL_ENV.tininess = SoftFloat::float_detect_tininess;
+        sFE_DFL_ENV.rounding_mode = SoftFloat::float_rounding_mode;
+        sFE_DFL_ENV.exception_realtraps = SoftFloat::float_exception_realtraps;
     }
     // Now get the current env in the given argument
     SoftFloat::float_detect_tininess = envp->tininess;
@@ -513,9 +513,9 @@ inline int fesetenv(const fpenv_t *envp) {
 }
 
 /// get env and clear exceptions
-inline int feholdexcept(fpenv_t *envp) {
+inline int feholdexcept(sfpenv_t *envp) {
     fegetenv(envp);
-    feclearexcept(FE_ALL_EXCEPT);
+    sfeclearexcept(FE_ALL_EXCEPT);
     return 0;
 }
 

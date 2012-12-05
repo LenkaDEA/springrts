@@ -148,7 +148,7 @@ ADD_LIBRARY(springserver SHARED
 		${sources_engine_System_Log_sinkFile}
 		${sources_engine_System_Log_sinkOutputDebugString}
 	)
-TARGET_LINK_LIBRARIES(springserver springserver-static)
+TARGET_LINK_LIBRARIES(springserver springserver-static z)
 
 # Compile dedicated server executable
 ADD_EXECUTABLE(engine-dedicated
@@ -158,7 +158,7 @@ ADD_EXECUTABLE(engine-dedicated
 		${sources_engine_System_Log_sinkOutputDebugString}
 		main
 	)
-TARGET_LINK_LIBRARIES(engine-dedicated springserver-static)
+TARGET_LINK_LIBRARIES(engine-dedicated springserver-static z)
 
 ### Install the executable
 INSTALL(TARGETS springserver     DESTINATION ${LIBDIR})

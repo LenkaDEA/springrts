@@ -71,7 +71,7 @@ ENDIF (WIN32)
 
 ### Build the executable
 ADD_EXECUTABLE(engine-default ${engineSources} ${ENGINE_ICON} ${engineHeaders})
-TARGET_LINK_LIBRARIES(engine-default ${engineLibraries})
+TARGET_LINK_LIBRARIES(engine-default ${engineLibraries} z)
 SET_TARGET_PROPERTIES(engine-default PROPERTIES OUTPUT_NAME "spring")
 
 

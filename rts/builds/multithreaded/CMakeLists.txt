@@ -64,7 +64,7 @@ ENDIF (WIN32)
 
 ### Build the executable
 ADD_EXECUTABLE(engine-multithreaded ${engineSources} ${ENGINE_ICON_GML} ${engineHeaders})
-TARGET_LINK_LIBRARIES(engine-multithreaded gml ${engineLibraries})
+TARGET_LINK_LIBRARIES(engine-multithreaded gml ${engineLibraries} z)
 SET_TARGET_PROPERTIES(engine-multithreaded PROPERTIES OUTPUT_NAME "spring-multithreaded")
 
 

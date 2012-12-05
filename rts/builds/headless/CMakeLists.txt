@@ -55,7 +55,7 @@ ENDIF (MINGW)
 
 ### Build the executable
 ADD_EXECUTABLE(engine-headless ${engineSources} ${ENGINE_ICON_HL})
-TARGET_LINK_LIBRARIES(engine-headless ${engineHeadlessLibraries})
+TARGET_LINK_LIBRARIES(engine-headless ${engineHeadlessLibraries} z)
 SET_TARGET_PROPERTIES(engine-headless PROPERTIES OUTPUT_NAME "spring-headless")
 
 IF    (MINGW)

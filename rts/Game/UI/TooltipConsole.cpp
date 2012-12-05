@@ -1,16 +1,18 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "TooltipConsole.h"
 #include "MouseHandler.h"
-#include "Rendering/GL/myGL.h"
-#include "Rendering/glFont.h"
+#include "Game/GlobalUnsynced.h"
 #include "Game/PlayerHandler.h"
 #include "Map/Ground.h"
 #include "Map/MapDamage.h"
 #include "Map/MapInfo.h"
 #include "Map/MetalMap.h"
 #include "Map/ReadMap.h"
+#include "Rendering/GL/myGL.h"
+#include "Rendering/glFont.h"
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureDef.h"
 #include "Sim/Misc/LosHandler.h"
@@ -18,17 +20,20 @@
 #include "Sim/Misc/Wind.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitHandler.h"
-#include "EventHandler.h"
-#include "ConfigHandler.h"
-#include "Util.h"
+#include "System/EventHandler.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Util.h"
 
-CTooltipConsole* tooltip = 0;
+CONFIG(std::string, TooltipGeometry).defaultValue("0.0 0.0 0.41 0.1");
+CONFIG(bool, TooltipOutlineFont).defaultValue(true);
+
+CTooltipConsole* tooltip = NULL;
 
 
-CTooltipConsole::CTooltipConsole(void) : disabled(false)
+CTooltipConsole::CTooltipConsole()
+	: enabled(true)
 {
-	const std::string geo = configHandler->GetString("TooltipGeometry",
-	                                                "0.0 0.0 0.41 0.1");
+	const std::string geo = configHandler->GetString("TooltipGeometry");
 	const int vars = sscanf(geo.c_str(), "%f %f %f %f", &x, &y, &w, &h);
 	if (vars != 4) {
 		x = 0.00f;
@@ -37,18 +42,18 @@ CTooltipConsole::CTooltipConsole(void) : disabled(false)
 		h = 0.10f;
 	}
 
-	outFont = !!configHandler->Get("TooltipOutlineFont", 1);
+	outFont = configHandler->GetBool("TooltipOutlineFont");
 }
 
 
-CTooltipConsole::~CTooltipConsole(void)
+CTooltipConsole::~CTooltipConsole()
 {
 }
 
 
-void CTooltipConsole::Draw(void)
+void CTooltipConsole::Draw()
 {
-	if (disabled) {
+	if (!enabled) {
 		return;
 	}
 
@@ -63,10 +68,10 @@ void CTooltipConsole::Draw(void)
 		glRectf(x, y, (x + w), (y + h));
 	}
 
-	const float fontSize   = (h * gu->viewSizeY) * (smallFont->GetLineHeight() / 5.75f);
+	const float fontSize   = (h * globalRendering->viewSizeY) * (smallFont->GetLineHeight() / 5.75f);
 
 	float curX = x + 0.01f;
-	float curY = y + h - 0.5f * fontSize * smallFont->GetLineHeight() / gu->viewSizeY;
+	float curY = y + h - 0.5f * fontSize * smallFont->GetLineHeight() / globalRendering->viewSizeY;
 	glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
 
 	smallFont->Begin();
@@ -82,9 +87,9 @@ void CTooltipConsole::Draw(void)
 }
 
 
-bool CTooltipConsole::IsAbove(int x,int y)
+bool CTooltipConsole::IsAbove(int x, int y)
 {
-	if (disabled) {
+	if (!enabled) {
 		return false;
 	}
 
@@ -130,11 +135,7 @@ static void GetDecoyResources(const CUnit* unit,
 	}
 
 	if (active) {
-		if (ud->isMetalMaker) {
-			mMake += (ud->makesMetal * uh->metalMakerEfficiency);
-		} else {
-			mMake += ud->makesMetal;
-		}
+		mMake += ud->makesMetal;
 		if (ud->extractsMetal > 0.0f) {
 			if (rd->extractsMetal > 0.0f) {
 				mMake += unit->metalExtract * (ud->extractsMetal / rd->extractsMetal);
@@ -237,6 +238,8 @@ std::string CTooltipConsole::MakeUnitString(const CUnit* unit)
 		s += buf;
 	}
 
+	s += "\n\xff\xff\xff\xff" + teamHandler->Team(unit->team)->GetControllerName();
+
 	return s;
 }
 
@@ -311,13 +314,21 @@ std::string CTooltipConsole::MakeGroundString(const float3& pos)
 	}
 
 	char tmp[512];
-	const CMapInfo::TerrainType* tt = &mapInfo->terrainTypes[readmap->typemap[std::min(gs->hmapx*gs->hmapy-1, std::max(0,((int)pos.z/16)*gs->hmapx+((int)pos.x/16)))]];
-	string ttype = tt->name;
-	sprintf(tmp, "Pos %.0f %.0f Elevation %.0f\nTerrain type: %s\n"
-	             "Speeds T/K/H/S %.2f %.2f %.2f %.2f\nHardness %.0f Metal %.1f",
-	        pos.x, pos.z, pos.y, ttype.c_str(),
-	        tt->tankSpeed, tt->kbotSpeed, tt->hoverSpeed, tt->shipSpeed,
-	        tt->hardness * mapDamage->mapHardness,
-	        readmap->metalMap->GetMetalAmount((int)(pos.x/16), (int)(pos.z/16)));
+	const int px = pos.x / 16;
+	const int pz = pos.z / 16;
+	const int typeMapIdx = std::min(gs->hmapx * gs->hmapy - 1, std::max(0, pz * gs->hmapx + px));
+	const unsigned char* typeMap = readmap->GetTypeMapSynced();
+	const CMapInfo::TerrainType* tt = &mapInfo->terrainTypes[typeMap[typeMapIdx]];
+
+	sprintf(tmp,
+		"Pos %.0f %.0f Elevation %.0f\n"
+		"Terrain type: %s\n"
+		"Speeds T/K/H/S %.2f %.2f %.2f %.2f\n"
+		"Hardness %.0f Metal %.1f",
+		pos.x, pos.z, pos.y, tt->name.c_str(),
+		tt->tankSpeed, tt->kbotSpeed, tt->hoverSpeed, tt->shipSpeed,
+		tt->hardness * mapDamage->mapHardness,
+		readmap->metalMap->GetMetalAmount(px, pz)
+	);
 	return tmp;
 }

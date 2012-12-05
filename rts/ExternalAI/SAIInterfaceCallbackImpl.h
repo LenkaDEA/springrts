@@ -1,22 +1,7 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#ifndef _SAIINTERFACECALLBACKIMPL_H
-#define _SAIINTERFACECALLBACKIMPL_H
+#ifndef S_AI_INTERFACE_CALLBACK_IMPL_H
+#define S_AI_INTERFACE_CALLBACK_IMPL_H
 
 // Doc-comments for the functions in this header can be found in this file
 #include "Interface/SAIInterfaceCallback.h"
@@ -27,9 +12,14 @@ EXPORT(int              ) aiInterfaceCallback_Engine_AIInterface_ABIVersion_getW
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getMajor(int UNUSED_interfaceId);
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getMinor(int UNUSED_interfaceId);
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getPatchset(int UNUSED_interfaceId);
+EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getCommits(int UNUSED_interfaceId);
+EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getHash(int UNUSED_interfaceId);
+EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getBranch(int UNUSED_interfaceId);
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getAdditional(int UNUSED_interfaceId);
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getBuildTime(int UNUSED_interfaceId);
+EXPORT(bool             ) aiInterfaceCallback_Engine_Version_isRelease(int UNUSED_interfaceId);
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getNormal(int UNUSED_interfaceId);
+EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getSync(int UNUSED_interfaceId);
 EXPORT(const char*      ) aiInterfaceCallback_Engine_Version_getFull(int UNUSED_interfaceId);
 
 
@@ -67,4 +57,4 @@ int  aiInterfaceCallback_getInstanceFor(const CAIInterfaceLibraryInfo* info, str
 void aiInterfaceCallback_release(int interfaceId);
 #endif // defined __cplusplus && !defined BUILDING_AI
 
-#endif // _SAIINTERFACECALLBACKIMPL_H
+#endif // S_AI_INTERFACE_CALLBACK_IMPL_H

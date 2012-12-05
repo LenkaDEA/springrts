@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef CHAT_MESSAGE_H
 #define CHAT_MESSAGE_H
 
@@ -27,4 +29,4 @@ public:
 	std::string msg;
 };
 
-#endif
+#endif // CHAT_MESSAGE_H

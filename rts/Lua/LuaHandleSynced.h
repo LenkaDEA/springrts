@@ -1,79 +1,84 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_HANDLE_SYNCED
 #define LUA_HANDLE_SYNCED
-// LuaHandleSynced.h: interface for the CLuaHandleSynced class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <map>
 #include <string>
 using std::map;
 using std::string;
 
-
 #include "LuaHandle.h"
-
+#include "LuaRulesParams.h"
 
 struct lua_State;
-
+class LuaSyncedCtrl;
 
 class CLuaHandleSynced : public CLuaHandle
 {
 	public:
+		static const LuaRulesParams::Params&  GetGameParams() {return gameParams;};
+		static const LuaRulesParams::HashMap& GetGameParamsMap() {return gameParamsMap;};
+
+	public:
 		bool Initialize(const string& syncData);
 		string GetSyncData();
 
-		bool GetAllowChanges() const { return allowChanges; }
+		void UpdateThreading();
+
+		inline bool GetAllowChanges() const { return IsDrawCallIn() ? allowChangesDraw : allowChanges; }
+		inline void SetAllowChanges(bool ac, bool all = false) { if (all) allowChangesDraw = allowChanges = ac; else if (IsDrawCallIn()) allowChangesDraw = ac; else allowChanges = ac; }
 
 	public: // call-ins
-		bool HasCallIn(const string& name);
-		virtual bool SyncedUpdateCallIn(const string& name);
-		virtual bool UnsyncedUpdateCallIn(const string& name);
+		bool HasCallIn(lua_State* L, const string& name);
+		virtual bool SyncedUpdateCallIn(lua_State* L, const string& name);
+		virtual bool UnsyncedUpdateCallIn(lua_State* L, const string& name);
 
-		void GameFrame(int frameNumber);
 		bool GotChatMsg(const string& msg, int playerID);
 		bool RecvLuaMsg(const string& msg, int playerID);
-		void RecvFromSynced(int args); // not an engine call-in
+		virtual void RecvFromSynced(lua_State* srcState, int args); // not an engine call-in
 
 		bool SyncedActionFallback(const string& line, int playerID);
 
 	public: // custom call-in
 		bool HasSyncedXCall(const string& funcName);
-		bool HasUnsyncedXCall(const string& funcName);
-		int XCall(lua_State* srcState, const string& funcName);
+		bool HasUnsyncedXCall(lua_State* srcState, const string& funcName);
+		int XCall(lua_State* L, lua_State* srcState, const string& funcName);
 		int SyncedXCall(lua_State* srcState, const string& funcName);
 		int UnsyncedXCall(lua_State* srcState, const string& funcName);
 
 	protected:
-		CLuaHandleSynced(const string& name, int order, const string& msgPrefix);
+		CLuaHandleSynced(const string& name, int order);
 		virtual ~CLuaHandleSynced();
 		void Init(const string& syncedFile,
 		          const string& unsyncedFile,
 		          const string& modes);
-		bool SetupSynced(const string& code, const string& filename);
-		bool SetupUnsynced(const string& code, const string& filename);
+		bool SetupSynced(lua_State* L, const string& code, const string& filename);
+		bool SetupUnsynced(lua_State* L, const string& code, const string& filename);
 
 		// hooks to add code during initialization
-		virtual bool AddSyncedCode() = 0;
-		virtual bool AddUnsyncedCode() = 0;
+		virtual bool AddSyncedCode(lua_State* L) = 0;
+		virtual bool AddUnsyncedCode(lua_State* L) = 0;
 
 		string LoadFile(const string& filename, const string& modes) const;
 
-		bool CopyGlobalToUnsynced(const char* name);
-		bool SetupUnsyncedFunction(const char* funcName);
-		bool LoadUnsyncedCode(const string& code, const string& debug);
-		bool SyncifyRandomFuncs();
-		bool CopyRealRandomFuncs();
-		bool LightCopyTable(int dstIndex, int srcIndex);
+		bool CopyGlobalToUnsynced(lua_State* L, const char* name);
+		bool SetupUnsyncedFunction(lua_State* L, const char* funcName);
+		bool LoadUnsyncedCode(lua_State* L, const string& code, const string& debug);
+		bool SyncifyRandomFuncs(lua_State* L);
+		bool CopyRealRandomFuncs(lua_State* L);
+		bool LightCopyTable(lua_State* L, int dstIndex, int srcIndex);
 
 	protected:
-		static CLuaHandleSynced* GetActiveHandle() {
-			return dynamic_cast<CLuaHandleSynced*>(activeHandle);
+		static CLuaHandleSynced* GetSyncedHandle(lua_State* L) {
+			assert(dynamic_cast<CLuaHandleSynced*>(CLuaHandle::GetHandle(L)));
+			return static_cast<CLuaHandleSynced*>(CLuaHandle::GetHandle(L));
 		}
 
+	private:
+		bool allowChanges; // sim thread
+		bool allowChangesDraw; // other threads (a non sim thread may load gadgets)
 	protected:
-		const string messagePrefix;
-		bool allowChanges;
-		bool allowUnsafeChanges;
 		bool teamsLocked; // disables CallAsTeam()
 		map<string, string> textCommands; // name, help
 
@@ -82,8 +87,6 @@ class CLuaHandleSynced : public CLuaHandle
 
 		static int LoadStringData(lua_State* L);
 
-		static int SendToUnsynced(lua_State* L);
-
 		static int CallAsTeam(lua_State* L);
 
 		static int AllowUnsafeChanges(lua_State* L);
@@ -91,8 +94,18 @@ class CLuaHandleSynced : public CLuaHandle
 		static int AddSyncedActionFallback(lua_State* L);
 		static int RemoveSyncedActionFallback(lua_State* L);
 
-		static int GetWatchWeapon(lua_State* L);
-		static int SetWatchWeapon(lua_State* L);
+		static int GetWatchUnitDef(lua_State* L);
+		static int SetWatchUnitDef(lua_State* L);
+		static int GetWatchFeatureDef(lua_State* L);
+		static int SetWatchFeatureDef(lua_State* L);
+		static int GetWatchWeaponDef(lua_State* L);
+		static int SetWatchWeaponDef(lua_State* L);
+
+	private:
+		//FIXME: add to CREG?
+		static LuaRulesParams::Params  gameParams;
+		static LuaRulesParams::HashMap gameParamsMap;
+		friend class LuaSyncedCtrl;
 };
 
 

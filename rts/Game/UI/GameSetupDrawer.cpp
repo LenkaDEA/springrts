@@ -1,30 +1,30 @@
-#include "StdAfx.h"
-#include "Rendering/GL/myGL.h"
-#include <assert.h>
-#include <string>
-#include <map>
-#include <SDL_timer.h>
-#include <SDL_keysym.h>
-
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "GameSetupDrawer.h"
 
+#include "KeyBindings.h"
+#include "StartPosSelecter.h"
 #include "Game/GameServer.h"
-
-#include "NetProtocol.h"
-#include "ConfigHandler.h"
 #include "Game/CameraHandler.h"
+#include "Game/Player.h"
 #include "Game/PlayerHandler.h"
 #include "Game/GameSetup.h"
+#include "Game/GlobalUnsynced.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/TeamHandler.h"
-#include "StartPosSelecter.h"
+#include "Rendering/GL/myGL.h"
 #include "Rendering/glFont.h"
-#include "KeyBindings.h"
-#include "EventHandler.h"
+#include "System/NetProtocol.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/EventHandler.h"
+#include "System/mmgr.h"
 
-extern boost::uint8_t *keys;
+#include <SDL_timer.h>
+#include <SDL_keysym.h>
+
+#include <cassert>
+#include <string>
+#include <map>
 
 
 GameSetupDrawer* GameSetupDrawer::instance = NULL;
@@ -41,10 +41,8 @@ void GameSetupDrawer::Enable()
 
 void GameSetupDrawer::Disable()
 {
-	if (instance) {
-		delete instance;
-		instance = NULL;
-	}
+	delete instance;
+	instance = NULL;
 }
 
 void GameSetupDrawer::StartCountdown(unsigned time)
@@ -52,11 +50,11 @@ void GameSetupDrawer::StartCountdown(unsigned time)
 	if (instance) {
 		instance->lastTick = SDL_GetTicks();
 		instance->readyCountdown = (int)time;
-		const std::string modeName = configHandler->GetString("CamModeName", "");
+		const std::string modeName = configHandler->GetString("CamModeName");
 		if (!modeName.empty()) {
 			camHandler->SetCameraMode(modeName);
 		} else {
-			const int modeIndex = configHandler->Get("CamMode", 1);
+			const int modeIndex = configHandler->GetInt("CamMode");
 			camHandler->SetCameraMode(modeIndex);
 		}
 	}
@@ -111,9 +109,12 @@ void GameSetupDrawer::Draw()
 	//! not the most efficent way to do this, but who cares?
 	std::map<int, std::string> playerStates;
 	for (int a = 0; a < numPlayers; a++) {
-		if (!playerHandler->Player(a)->readyToStart) {
+		const CPlayer* player = playerHandler->Player(a);
+
+		if (!player->active) {
+			// player does not become active until we receive NETMSG_PLAYERNAME
 			playerStates[a] = "missing";
-		} else if (!playerHandler->Player(a)->spectator && !playerHandler->Player(a)->readyToStart) {
+		} else if (!player->spectator && !player->readyToStart) {
 			playerStates[a] = "notready";
 		} else {
 			playerStates[a] = "ready";
@@ -122,6 +123,7 @@ void GameSetupDrawer::Draw()
 
 	CStartPosSelecter* selector = CStartPosSelecter::selector;
 	bool ready = (selector == NULL);
+
 	if (eventHandler.GameSetup(state, ready, playerStates)) {
 		if (selector) {
 			selector->ShowReady(false);
@@ -131,6 +133,7 @@ void GameSetupDrawer::Draw()
 		}
 		return; //! LuaUI says it will do the rendering
 	}
+
 	if (selector) {
 		selector->ShowReady(true);
 	}
@@ -169,9 +172,9 @@ void GameSetupDrawer::Draw()
 		}
 		const float fontScale = 1.0f;
 		const float fontSize  = fontScale * font->GetSize();
-		const float yScale = fontSize * font->GetLineHeight() * gu->pixelY;
+		const float yScale = fontSize * font->GetLineHeight() * globalRendering->pixelY;
 		const float yPos = 0.5f - (0.5f * yScale * numPlayers) + (yScale * (float)a);
-		const float xPos = 10.0f * gu->pixelX;
+		const float xPos = 10.0f * globalRendering->pixelX;
 		font->SetColors(color, NULL);
 		font->glPrint(xPos, yPos, fontSize, FONT_OUTLINE | FONT_NORM, name);
 	}

@@ -1,10 +1,13 @@
-#ifndef GLOBAL_UNSYNCED_H
-#define GLOBAL_UNSYNCED_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _GLOBAL_SYNCED_H
+#define _GLOBAL_SYNCED_H
 
 #include <string>
 
-#include "float3.h"
-#include "creg/creg_cond.h"
+#include "System/float3.h"
+#include "System/creg/creg_cond.h"
+#include "GlobalConstants.h"
 
 
 class CGameSetup;
@@ -12,17 +15,18 @@ class CTeam;
 class CPlayer;
 
 /**
- * @brief Global synced stuff
+ * @brief Global synced data
  *
  * Class contains globally accessible
- * stuff that remains synced.
+ * data that remains synced.
  */
-class CGlobalSyncedStuff
+class CGlobalSynced
 {
 public:
-	CR_DECLARE(CGlobalSyncedStuff);
-	CGlobalSyncedStuff();  //!< Constructor
-	~CGlobalSyncedStuff(); //!< Destructor
+	CR_DECLARE(CGlobalSynced);
+
+	CGlobalSynced();  //!< Constructor
+	~CGlobalSynced(); //!< Destructor
 	void LoadFromSetup(const CGameSetup*);
 
 	int    randInt();    //!< synced random int
@@ -36,6 +40,7 @@ public:
 	unsigned int GetRandSeed()     const { return randSeed; }
 	unsigned int GetInitRandSeed() const { return initRandSeed; }
 
+public:
 	/**
 	* @brief frame number
 	*
@@ -46,7 +51,10 @@ public:
 	/**
 	* @brief speed factor
 	*
-	* Contains the actual gamespeed used by the game
+	* Contains the actual gamespeed factor
+	* used by the game. The total simframes
+	* per second calculate as follow:
+	* simFPS = speedFactor * GAME_SPEED;
 	*/
 	float speedFactor;
 
@@ -73,6 +81,8 @@ public:
 	* (note that the number of vertices is one more)
 	*/
 	int mapx;
+	int mapxm1; // mapx minus one
+	int mapxp1; // mapx plus one
 
 	/**
 	* @brief map y
@@ -80,6 +90,8 @@ public:
 	* The map's number of squares in the y direction
 	*/
 	int mapy;
+	int mapym1; // mapy minus one
+	int mapyp1; // mapy plus one
 
 	/**
 	* @brief map squares
@@ -129,16 +141,18 @@ public:
 	/**
 	* @brief god mode
 	*
-	* Whether god mode is enabled, allows all players to control all units (even specs)
+	* Whether god-mode is enabled, which allows all players (even spectators)
+	* to control all units.
 	*/
 	bool godMode;
 
 	/**
 	* @brief global line-of-sight
 	*
-	* Whether everything on the map is visible at all times
+	* Whether everything on the map is visible at all times to a given ALLYteam
+	* There can never be more allyteams than teams, hence the size is MAX_TEAMS
 	*/
-	bool globalLOS;
+	bool globalLOS[MAX_TEAMS];
 
 	/**
 	* @brief cheat enabled
@@ -157,7 +171,7 @@ public:
 	/**
 	* @brief definition editing enabled
 	*
-	* Whether definition editing is enabled
+	* Whether editing of unit-, feature- and weapon-defs through Lua is enabled.
 	*/
 	bool editDefsEnabled;
 
@@ -184,7 +198,7 @@ private:
 	int initRandSeed;
 };
 
-extern CGlobalSyncedStuff* gs;
+extern CGlobalSynced* gs;
 
 
 class SyncedRNG
@@ -196,4 +210,4 @@ public:
 	};
 };
 
-#endif //GLOBAL_UNSYNCED_H
+#endif // _GLOBAL_SYNCED_H

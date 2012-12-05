@@ -1,35 +1,40 @@
-#ifndef BASEWATER_H
-#define BASEWATER_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "BaseWater.h"
-#include <vector>
+#ifndef DYN_WATER_H
+#define DYN_WATER_H
+
+#include "IWater.h"
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/myGL.h"
 
-class CDynWater : public CBaseWater
+#include <vector>
+
+class CCamera;
+class CDynWater : public IWater
 {
 public:
-	CDynWater(void);
-	~CDynWater(void);
+	CDynWater();
+	~CDynWater();
 
-	virtual void Draw();
-	virtual void UpdateWater(CGame* game);
-	virtual void Update();
-	virtual void AddExplosion(const float3& pos, float strength, float size);
-	int GetID() const { return 2; }
+	void Draw();
+	void UpdateWater(CGame* game);
+	void Update();
+	void AddExplosion(const float3& pos, float strength, float size);
+	int GetID() const { return WATER_RENDERER_DYNAMIC; }
+	const char* GetName() const { return "dynamic"; }
 
 private:
 	void DrawReflection(CGame* game);
 	void DrawRefraction(CGame* game);
-	void DrawWaves(void);
-	void DrawHeightTex(void);
-	void DrawWaterSurface(void);
-	void UpdateCamRestraints(void);
-	void DrawDetailNormalTex(void);
+	void DrawWaves();
+	void DrawHeightTex();
+	void DrawWaterSurface();
+	void DrawDetailNormalTex();
 	void AddShipWakes();
 	void AddExplosions();
 	void DrawUpdateSquare(float dx,float dy, int* resetTexs);
-	void DrawSingleUpdateSquare(float startx,float starty,float endx,float endy);
+	void DrawSingleUpdateSquare(float startx, float starty,float endx,float endy);
+	void UpdateCamRestraints(CCamera* cam);
 
 	int refractSize;
 	GLuint reflectTexture;
@@ -87,23 +92,21 @@ private:
 	float3 oldCamPosBig;
 	float3 camPosBig2;
 
-	int camPosX,camPosZ;
+	int camPosX;
+	int camPosZ;
 
-	void AddFrustumRestraint(float3 side);
-	struct fline {
-		float base;
-		float dir;
-	};
-	std::vector<fline> right,left;
-
-	struct Explosion{
-		Explosion(float3 pos,float strength,float radius): pos(pos),strength(strength),radius(radius){};
+	struct Explosion {
+		Explosion(const float3& pos, float strength, float radius)
+			: pos(pos)
+			, strength(strength)
+			, radius(radius)
+		{}
 		float3 pos;
 		float strength;
 		float radius;
 	};
 	std::vector<Explosion> explosions;
-	void DrawOuterSurface(void);
+	void DrawOuterSurface();
 };
 
-#endif
+#endif // DYN_WATER_H

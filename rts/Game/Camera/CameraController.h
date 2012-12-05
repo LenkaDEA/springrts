@@ -1,12 +1,13 @@
-#ifndef __CAMERA_CONTROLLER_H__
-#define __CAMERA_CONTROLLER_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _CAMERA_CONTROLLER_H
+#define _CAMERA_CONTROLLER_H
 
 #include <string>
 #include <vector>
 #include <map>
 
-#include "float3.h"
-
+#include "System/float3.h"
 
 class CCameraController
 {
@@ -15,7 +16,7 @@ public:
 
 public:
 	CCameraController();
-	virtual ~CCameraController(void);
+	virtual ~CCameraController(void) {}
 
 	virtual const std::string GetName() const = 0;
 
@@ -28,13 +29,13 @@ public:
 
 	virtual void Update() {}
 
-	virtual float3 GetPos() = 0;
-	virtual float3 GetDir() = 0;
-
 	/// In degree!
-	float GetFOV() const { return fov; };
+	        float  GetFOV() const { return fov; }
+	virtual float3 GetPos() const { return pos; }
+	virtual float3 GetDir() const { return dir; }
 
-	virtual void SetPos(const float3& newPos) { pos = newPos; };
+	virtual void SetPos(const float3& newPos) { pos = newPos; }
+	virtual void SetDir(const float3& newDir) { dir = newDir; }
 	virtual bool DisableTrackingByKey() { return true; }
 
 	// return the position to send to new controllers SetPos
@@ -60,20 +61,29 @@ protected:
 	bool SetStateBool(const StateMap& sm, const std::string& name, bool& var);
 	bool SetStateFloat(const StateMap& sm, const std::string& name, float& var);
 
-protected:
+
 	float fov;
-	float mouseScale;
+	float3 pos;
+	float3 dir;
+
+	/**
+	* @brief scrollSpeed
+	* scales the scroll speed in general
+	* (includes middleclick, arrowkey, screenedge scrolling)
+	*/
 	float scrollSpeed;
 
-	float3 pos;
 	/**
+	 * @brief switchVal
 	 * Where to switch from Camera-Unit-distance to Camera-Ground-distance
 	 * for deciding whether to draw 3D view or icon of units.
 	 * * 1.0 = 0 degree  = overview
 	 * * 0.0 = 90 degree = first person
 	 */
 	float switchVal;
+
+	float pixelSize;
 };
 
 
-#endif // __CAMERA_CONTROLLER_H__
+#endif // _CAMERA_CONTROLLER_H

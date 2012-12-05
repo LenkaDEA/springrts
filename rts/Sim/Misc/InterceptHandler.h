@@ -1,39 +1,47 @@
-#ifndef INTERCEPTHANDLER_H
-#define INTERCEPTHANDLER_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "Object.h"
+#ifndef INTERCEPT_HANDLER_H
+#define INTERCEPT_HANDLER_H
+
+#include "System/Object.h"
 
 #include <list>
+#include <map>
 #include <boost/noncopyable.hpp>
-#include "float3.h"
+#include "System/Object.h"
 
 class CWeapon;
 class CWeaponProjectile;
 class CPlasmaRepulser;
 class CProjectile;
+class float3;
 
-class CInterceptHandler : public boost::noncopyable
+class CInterceptHandler : public CObject, boost::noncopyable
 {
 	CR_DECLARE(CInterceptHandler)
 
 public:
-	CInterceptHandler(void);
-	~CInterceptHandler(void);
+	void Update(bool forced);
 
-	void AddInterceptorWeapon(CWeapon* weapon);
-	void RemoveInterceptorWeapon(CWeapon* weapon);
-	void AddInterceptTarget(CWeaponProjectile* target, float3 destination);
+	void AddInterceptorWeapon(CWeapon* weapon) { interceptors.push_back(weapon); }
+	void RemoveInterceptorWeapon(CWeapon* weapon) { interceptors.remove(weapon); }
 
+	void AddInterceptTarget(CWeaponProjectile* target, const float3& destination);
 	void AddShieldInterceptableProjectile(CWeaponProjectile* p);
-	float AddShieldInterceptableBeam(CWeapon* emitter, float3 start, float3 dir, float length, float3& newDir, CPlasmaRepulser*& repulsedBy);
-	void AddPlasmaRepulser(CPlasmaRepulser* r);
-	void RemovePlasmaRepulser(CPlasmaRepulser* r);
+
+	float AddShieldInterceptableBeam(CWeapon* emitter, const float3& start, const float3& dir, float length, float3& newDir, CPlasmaRepulser*& repulsedBy);
+
+	void AddPlasmaRepulser(CPlasmaRepulser* r) { repulsors.push_back(r); }
+	void RemovePlasmaRepulser(CPlasmaRepulser* r) { repulsors.remove(r); }
+
+	void DependentDied(CObject* o);
 
 private:
 	std::list<CWeapon*> interceptors;
-	std::list<CPlasmaRepulser*> plasmaRepulsors;
+	std::list<CPlasmaRepulser*> repulsors;
+	std::map<int, CWeaponProjectile*> interceptables;
 };
 
 extern CInterceptHandler interceptHandler;
 
-#endif /* INTERCEPTHANDLER_H */
+#endif /* INTERCEPT_HANDLER_H */

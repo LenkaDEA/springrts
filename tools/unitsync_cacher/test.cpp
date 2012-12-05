@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #/*START
 #//##########################################################################//#
 
@@ -8,7 +10,7 @@ start=`expr $start + 1`
 tail -n +$start $file > test.tmp.cxx
 echo Clipped $start lines
 
-g++ -I../../../rts/System test.tmp.cxx ../../../game/unitsync.so
+g++ -I../../../rts/System test.tmp.cxx ../../../dist/unitsync.so
 
 ./a.out CastlesSDD.smf ba52.sdd
 
@@ -22,7 +24,7 @@ exit
 /******************************************************************************/
 //  Simple file to help test unitsync, compile with:
 //
-//    g++ -I../../../rts/System test.cxx ../../../game/unitsync.so
+//    g++ -I../../../rts/System test.cxx ../../../dist/unitsync.so
 //
 
 

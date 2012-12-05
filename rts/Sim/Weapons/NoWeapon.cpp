@@ -1,6 +1,7 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include "NoWeapon.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 CR_BIND_DERIVED(CNoWeapon, CWeapon, (NULL));
 

@@ -1,6 +1,6 @@
 // _____________________________________________________
 //
-// RAI - Skirmish AI for TA Spring
+// RAI - Skirmish AI for Spring
 // Author: Reth / Michael Vadovszki
 // _____________________________________________________
 
@@ -12,11 +12,6 @@ struct sRAIUnitDef;
 struct sRAIBuildList;
 class cRAIUnitDefHandler;
 
-//#include "LogFile.h"
-//#include "Sim/Units/UnitDef.h"
-//#include "ExternalAI/IAICallback.h"
-//#include <map>
-//#include <set>
 #include "GResourceMap.h"
 #include "GTerrainMap.h"
 using std::map;

@@ -1,37 +1,57 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include <assert.h>
 #include <zlib.h>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "GameData.h"
 
-#include "BaseNetProtocol.h"
-#include "Net/PackPacket.h"
-#include "Net/UnpackPacket.h"
+#include "System/BaseNetProtocol.h"
+#include "System/Net/PackPacket.h"
+#include "System/Net/UnpackPacket.h"
 
 using namespace netcode;
 
 GameData::GameData()
+	: mapChecksum(0)
+	, modChecksum(0)
+	, randomSeed(0)
 {
-	mapChecksum = 0;
-	modChecksum = 0;
 }
 
 GameData::GameData(boost::shared_ptr<const RawPacket> pckt)
 {
 	assert(pckt->data[0] == NETMSG_GAMEDATA);
+
 	UnpackPacket packet(pckt, 3);
 	boost::uint16_t compressedSize;
 	packet >> compressedSize;
 	compressed.resize(compressedSize);
 	packet >> compressed;
-	long unsigned size = 40000;
-	std::vector<boost::uint8_t> buffer(size);
-	const int error = uncompress(&buffer[0], &size, &compressed[0], compressed.size());
-	assert(error == Z_OK);
+
+	// "the LSB does not describe any mechanism by which a
+	// compressor can communicate the size required to the
+	// uncompressor" ==> we must reserve some fixed-length
+	// buffer (starting at 256K bytes to handle very large
+	// scripts) for each new decompression attempt
+	unsigned long bufSize = 256 * 1024;
+	unsigned long rawSize = bufSize;
+
+	std::vector<boost::uint8_t> buffer(bufSize);
+
+	int ret;
+	while ((ret = uncompress(&buffer[0], &rawSize, &compressed[0], compressed.size())) == Z_BUF_ERROR) {
+		bufSize *= 2;
+		rawSize  = bufSize;
+
+		buffer.resize(bufSize);
+	}
+	if (ret != Z_OK)
+		throw netcode::UnpackPacketException("Error while decompressing GameData");
+
 	setupText = reinterpret_cast<char*>(&buffer[0]);
+
 	packet >> mapChecksum;
 	packet >> modChecksum;
 	packet >> randomSeed;
@@ -41,7 +61,7 @@ const netcode::RawPacket* GameData::Pack() const
 {
 	if (compressed.empty())
 	{
-		long unsigned bufsize = setupText.size()*1.02+32;
+		long unsigned bufsize = (setupText.size() * 1.02) + 32;
 		compressed.resize(bufsize);
 		const int error = compress(&compressed[0], &bufsize, reinterpret_cast<const boost::uint8_t*>(setupText.c_str()), setupText.length());
 		compressed.resize(bufsize);

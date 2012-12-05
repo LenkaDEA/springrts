@@ -1,22 +1,23 @@
-#include "StdAfx.h"
-// CommandColors.cpp: implementation of the CCommandColors class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include "CommandColors.h"
+
+#include "System/mmgr.h"
+
+#include "Rendering/GL/myGL.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/SimpleParser.h"
+#include "System/Util.h"
+
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
 #include <map>
 
-#include "mmgr.h"
-
-#include "Rendering/GL/myGL.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/SimpleParser.h"
-#include "Util.h"
-
-using namespace std;
+using std::string;
+using std::vector;
+using std::map;
 
 /******************************************************************************/
 
@@ -200,10 +201,18 @@ static bool SafeAtoI(unsigned int& var, const string& value)
 }
 
 
-bool CCommandColors::LoadConfig(const string& filename)
+bool CCommandColors::LoadConfigFromFile(const string& filename)
 {
 	CFileHandler ifs(filename);
-	CSimpleParser parser(ifs);
+	std::string cfg;
+	ifs.LoadStringData(cfg);
+	return LoadConfigFromString(cfg);
+}
+
+
+bool CCommandColors::LoadConfigFromString(const string& cfg)
+{
+	CSimpleParser parser(cfg);
 
 	while (true) {
 		const string line = parser.GetCleanLine();
@@ -211,7 +220,7 @@ bool CCommandColors::LoadConfig(const string& filename)
 			break;
 		}
 
-		vector<string> words = parser.Tokenize(line, 1);
+		const vector<string> &words = parser.Tokenize(line, 1);
 
 		const string command = StringToLower(words[0]);
 
@@ -340,7 +349,7 @@ const CCommandColors::DrawData*
 		return NULL;
 	} else {
 		return &(it->second);
-	};
+	}
 }
 
 

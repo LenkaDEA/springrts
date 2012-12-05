@@ -1,11 +1,11 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_GL_H
 #define LUA_GL_H
-// LuaOpenGL.h: interface for the CLuaOpenGL class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 #include <set>
+#include "Lua/LuaHandle.h"
 
 
 struct lua_State;
@@ -31,8 +31,8 @@ class LuaOpenGL {
 
 		static bool PushEntries(lua_State* L);
 
-		static bool IsDrawingEnabled() { return drawingEnabled; }
-		static void SetDrawingEnabled(bool value) { drawingEnabled = value; }
+		static bool IsDrawingEnabled(lua_State* L) { return GET_HANDLE_CONTEXT_DATA(drawingEnabled); }
+		static void SetDrawingEnabled(lua_State* L, bool value) { GET_HANDLE_CONTEXT_DATA(drawingEnabled) = value; }
 
 		static bool CanUseShaders() { return canUseShaders; }
 
@@ -101,7 +101,6 @@ class LuaOpenGL {
 	private:
 		static DrawMode drawMode;
 		static DrawMode prevDrawMode; // for minimap (when drawn in Screen mode)
-		static bool drawingEnabled;
 		static bool safeMode;
 		static bool canUseShaders;
 		static float screenWidth;
@@ -202,20 +201,6 @@ class LuaOpenGL {
 		static int GetTextWidth(lua_State* L);
 		static int GetTextHeight(lua_State* L);
 
-		static int Map1(lua_State* L);
-		static int Map2(lua_State* L);
-		static int MapGrid1(lua_State* L);
-		static int MapGrid2(lua_State* L);
-		static int Eval(lua_State* L);
-		static int EvalEnable(lua_State* L);
-		static int EvalDisable(lua_State* L);
-		static int EvalMesh1(lua_State* L);
-		static int EvalMesh2(lua_State* L);
-		static int EvalCoord1(lua_State* L);
-		static int EvalCoord2(lua_State* L);
-		static int EvalPoint1(lua_State* L);
-		static int EvalPoint2(lua_State* L);
-
 		static int Unit(lua_State* L);
 		static int UnitRaw(lua_State* L);
 		static int UnitShape(lua_State* L);
@@ -272,14 +257,6 @@ class LuaOpenGL {
 		static int GetShadowMapParams(lua_State* L);
 
 		static int GetSun(lua_State* L);
-
-		static int RenderMode(lua_State* L);
-		static int SelectBuffer(lua_State* L);
-		static int SelectBufferData(lua_State* L);
-		static int InitNames(lua_State* L);
-		static int LoadName(lua_State* L);
-		static int PushName(lua_State* L);
-		static int PopName(lua_State* L);
 };
 
 

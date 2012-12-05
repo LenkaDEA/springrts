@@ -1,5 +1,5 @@
 // GML - OpenGL Multithreading Library
-// for Spring http://spring.clan-sy.com
+// for Spring http://springrts.com
 // Author: Mattias "zerver" Radeskog
 // (C) Ware Zerver Tech. http://zerver.net
 // Ware Zerver Tech. licenses this library
@@ -294,8 +294,13 @@
 #undef glUniform2fv
 #undef glUniform3fv
 #undef glUniform4fv
+#undef glMapBufferRange
+#undef glPrimitiveRestartIndexNV
+#undef glDrawRangeElements
 
 // #####################################################################
+
+#define GML_NULL_CHECK(name) (GLEW_GET_FUN(__glew##name) ? &gml##name : GLEW_GET_FUN(__glew##name))
 
 #define glDisable gmlDisable
 #define glEnable gmlEnable
@@ -320,7 +325,7 @@
 #define glColor3f gmlColor3f
 #define glTexImage2D gmlTexImage2D
 #define glColor4fv gmlColor4fv
-#define glBindProgramARB gmlBindProgramARB
+#define glBindProgramARB GML_NULL_CHECK(BindProgramARB)
 #define glScalef gmlScalef
 #define glViewport gmlViewport
 #define glDeleteTextures gmlDeleteTextures
@@ -369,7 +374,7 @@
 #define glDeleteFramebuffersEXT gmlDeleteFramebuffersEXT
 #define glLoadMatrixf gmlLoadMatrixf
 #define glShadeModel gmlShadeModel
-#define glUseProgram gmlUseProgram
+#define glUseProgram GML_NULL_CHECK(UseProgram)
 #define glClientActiveTextureARB gmlClientActiveTextureARB
 #define glDeleteRenderbuffersEXT gmlDeleteRenderbuffersEXT
 #define glFlush gmlFlush
@@ -405,9 +410,9 @@
 #define glUniform1f gmlUniform1f
 #define glClearStencil gmlClearStencil
 #define glColorPointer gmlColorPointer
-#define glDeleteShader gmlDeleteShader
+#define glDeleteShader GML_NULL_CHECK(DeleteShader)
 #define glDrawElements gmlDrawElements
-#define glGenerateMipmapEXT gmlGenerateMipmapEXT
+#define glGenerateMipmapEXT GML_NULL_CHECK(GenerateMipmapEXT)
 #define glMaterialf gmlMaterialf
 #define glNormalPointer gmlNormalPointer
 #define glProgramEnvParameter4fvARB gmlProgramEnvParameter4fvARB
@@ -462,8 +467,8 @@
 #define glCopyTexImage2D gmlCopyTexImage2D
 #define glDeleteBuffersARB gmlDeleteBuffersARB
 #define glDeleteFencesNV gmlDeleteFencesNV
-#define glDeleteProgram gmlDeleteProgram
-#define glDeleteProgramsARB gmlDeleteProgramsARB
+#define glDeleteProgram GML_NULL_CHECK(DeleteProgram)
+#define glDeleteProgramsARB GML_NULL_CHECK(DeleteProgramsARB)
 #define glDetachShader gmlDetachShader
 #define glDisableVertexAttribArrayARB gmlDisableVertexAttribArrayARB
 #define glDrawBuffersARB gmlDrawBuffersARB
@@ -473,12 +478,12 @@
 #define glFinishFenceNV gmlFinishFenceNV
 #define glFogCoordf gmlFogCoordf
 #define glLightf gmlLightf
-#define glLinkProgram gmlLinkProgram
+#define glLinkProgram GML_NULL_CHECK(LinkProgram)
 #define glNormal3fv gmlNormal3fv
 #define glRasterPos2i gmlRasterPos2i
 #define glReadBuffer gmlReadBuffer
 #define glScissor gmlScissor
-#define glShaderSource gmlShaderSource
+#define glShaderSource GML_NULL_CHECK(ShaderSource)
 #define glShaderSourceARB gmlShaderSourceARB
 #define glTexCoord2fv gmlTexCoord2fv
 #define glTexParameterfv gmlTexParameterfv
@@ -490,7 +495,7 @@
 #define gluLookAt gmluLookAt
 #define glLightModelfv gmlLightModelfv
 #define glDeleteQueries gmlDeleteQueries
-#define glBlendEquation gmlBlendEquation
+#define glBlendEquation GML_NULL_CHECK(BlendEquation)
 #define glStencilMaskSeparate gmlStencilMaskSeparate
 #define glStencilFuncSeparate gmlStencilFuncSeparate
 #define glStencilOpSeparate gmlStencilOpSeparate
@@ -535,20 +540,20 @@
 #define glEdgeFlagPointer gmlEdgeFlagPointer
 #define glTrackMatrixNV gmlTrackMatrixNV
 #define glTestFenceNV gmlTestFenceNV
-#define glCreateProgram gmlCreateProgram
+#define glCreateProgram GML_NULL_CHECK(CreateProgram)
 #define glCreateProgramObjectARB gmlCreateProgramObjectARB
-#define glCreateShader gmlCreateShader
+#define glCreateShader GML_NULL_CHECK(CreateShader)
 #define glCreateShaderObjectARB gmlCreateShaderObjectARB
 #define gluNewQuadric gmluNewQuadric
 #define glGenTextures gmlGenTextures
 #define glGenBuffersARB gmlGenBuffersARB
 #define glGenFencesNV gmlGenFencesNV
-#define glGenProgramsARB gmlGenProgramsARB
+#define glGenProgramsARB GML_NULL_CHECK(GenProgramsARB)
 #define glGenRenderbuffersEXT gmlGenRenderbuffersEXT
 #define glGenFramebuffersEXT gmlGenFramebuffersEXT
 #define glGenQueries gmlGenQueries
 #define glGenLists gmlGenLists
-#define glProgramParameteriEXT gmlProgramParameteriEXT
+#define glProgramParameteriEXT GML_NULL_CHECK(ProgramParameteriEXT)
 #define glBlendColor gmlBlendColor
 #define glMap1f gmlMap1f
 #define glMap2f gmlMap2f
@@ -584,3 +589,6 @@
 #define glUniform2fv gmlUniform2fv
 #define glUniform3fv gmlUniform3fv
 #define glUniform4fv gmlUniform4fv
+#define glMapBufferRange gmlMapBufferRange
+#define glPrimitiveRestartIndexNV gmlPrimitiveRestartIndexNV
+#define glDrawRangeElements gmlDrawRangeElements

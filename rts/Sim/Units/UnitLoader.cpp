@@ -1,82 +1,54 @@
-// UnitLoader.cpp: implementation of the CUnitLoader class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
-#include "Rendering/GL/myGL.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "UnitLoader.h"
 #include "Unit.h"
+#include "UnitDef.h"
 #include "UnitDefHandler.h"
+
+#include "Scripts/UnitScript.h"
+
 #include "UnitTypes/Builder.h"
 #include "UnitTypes/ExtractorBuilding.h"
 #include "UnitTypes/Factory.h"
 #include "UnitTypes/TransportUnit.h"
-#include "COB/UnitScript.h"
-#include "COB/UnitScriptFactory.h"
+
 #include "CommandAI/AirCAI.h"
 #include "CommandAI/BuilderCAI.h"
 #include "CommandAI/CommandAI.h"
 #include "CommandAI/FactoryCAI.h"
 #include "CommandAI/MobileCAI.h"
 #include "CommandAI/TransportCAI.h"
+
 #include "Game/GameHelper.h"
 #include "Map/Ground.h"
 #include "Map/MapDamage.h"
-#include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
-#include "Platform/errorhandler.h"
-#include "Rendering/UnitModels/IModelParser.h"
-#include "Sim/Misc/CollisionVolume.h"
+
+#include "Sim/Features/FeatureHandler.h"
 #include "Sim/Misc/TeamHandler.h"
-#include "Sim/MoveTypes/AirMoveType.h"
-#include "Sim/MoveTypes/GroundMoveType.h"
-#include "Sim/MoveTypes/TAAirMoveType.h"
-#include "Sim/MoveTypes/StaticMoveType.h"
-#include "Sim/Weapons/BeamLaser.h"
-#include "Sim/Weapons/bombdropper.h"
-#include "Sim/Weapons/Cannon.h"
-#include "Sim/Weapons/DGunWeapon.h"
-#include "Sim/Weapons/EmgCannon.h"
-#include "Sim/Weapons/FlameThrower.h"
-#include "Sim/Weapons/LaserCannon.h"
-#include "Sim/Weapons/LightningCannon.h"
-#include "Sim/Weapons/MeleeWeapon.h"
-#include "Sim/Weapons/MissileLauncher.h"
-#include "Sim/Weapons/NoWeapon.h"
-#include "Sim/Weapons/PlasmaRepulser.h"
-#include "Sim/Weapons/Rifle.h"
-#include "Sim/Weapons/StarburstLauncher.h"
-#include "Sim/Weapons/TorpedoLauncher.h"
-#include "Sim/Weapons/WeaponDefHandler.h"
-#include "Sound/AudioChannel.h"
-#include "myMath.h"
-#include "LogOutput.h"
-#include "Exceptions.h"
-#include "TimeProfiler.h"
+#include "Sim/Units/UnitHandler.h"
 
-//////////////////////////////////////////////////////////////////////
-// Construction/Destruction
-//////////////////////////////////////////////////////////////////////
+#include "System/EventBatchHandler.h"
+#include "System/Exceptions.h"
+#include "System/Log/ILog.h"
+#include "System/Platform/Watchdog.h"
+#include "System/TimeProfiler.h"
 
-CUnitLoader unitLoader;
-
-CUnitLoader::CUnitLoader()
+CUnitLoader* CUnitLoader::GetInstance()
 {
-	CGroundMoveType::CreateLineTable();
-}
-
-CUnitLoader::~CUnitLoader()
-{
-	CGroundMoveType::DeleteLineTable();
+	static CUnitLoader instance;
+	return &instance;
 }
 
 
-CUnit* CUnitLoader::LoadUnit(const std::string& name, float3 pos, int team,
+
+CUnit* CUnitLoader::LoadUnit(const std::string& name, const float3& pos, int team,
                              bool build, int facing, const CUnit* builder)
 {
 	const UnitDef* ud = unitDefHandler->GetUnitDefByName(name);
+
 	if (ud == NULL) {
 		throw content_error("Couldn't find unittype " +  name);
 	}
@@ -85,454 +57,345 @@ CUnit* CUnitLoader::LoadUnit(const std::string& name, float3 pos, int team,
 }
 
 
-CUnit* CUnitLoader::LoadUnit(const UnitDef* ud, float3 pos, int team,
+CUnit* CUnitLoader::LoadUnit(const UnitDef* ud, const float3& pos, int team,
                              bool build, int facing, const CUnit* builder)
 {
-	GML_RECMUTEX_LOCK(sel); // LoadUnit - for anti deadlock purposes.
-	GML_RECMUTEX_LOCK(quad); // LoadUnit - make sure other threads cannot access an incomplete unit
+	CUnit* unit = NULL;
 
-	SCOPED_TIMER("Unit loader");
+	SCOPED_TIMER("UnitLoader::LoadUnit");
 
-	CUnit* unit;
+	{
+		GML_RECMUTEX_LOCK(sel); // LoadUnit - for anti deadlock purposes.
+		GML_RECMUTEX_LOCK(quad); // LoadUnit - make sure other threads cannot access an incomplete unit
 
-	std::string type = ud->type;
-
-	// clamp to map
-	if (pos.x < 0)
-		pos.x = 0;
-	if (pos.x >= gs->mapx * SQUARE_SIZE)
-		pos.x = gs->mapx-1;
-	if (pos.z < 0)
-		pos.z = 0;
-	if (pos.z >= gs->mapy * SQUARE_SIZE)
-		pos.z = gs->mapy-1;
-
-	if (!build) {
-		pos.y = ground->GetHeight2(pos.x, pos.z);
-		if (ud->floater && pos.y < 0.0f) {
-			// adjust to waterline iif we are submerged
- 			pos.y = -ud->waterline;
+		if (team < 0) {
+			team = teamHandler->GaiaTeamID(); // FIXME use gs->gaiaTeamID ?  (once it is always enabled)
+			if (team < 0)
+				throw content_error("Invalid team and no gaia team to put unit in");
 		}
-	}
 
-	if (team < 0) {
-		team = teamHandler->GaiaTeamID(); // FIXME use gs->gaiaTeamID ?  (once it is always enabled)
-		if (team < 0)
-			throw content_error("Invalid team and no gaia team to put unit in");
-	}
+		if (ud->IsTransportUnit()) {
+			unit = new CTransportUnit();
+		} else if (ud->IsFactoryUnit()) {
+			// special static builder structures that can always be given
+			// move orders (which are passed on to all mobile buildees)
+			unit = new CFactory();
+		} else if (ud->IsMobileBuilderUnit() || ud->IsStaticBuilderUnit()) {
+			// all other types of non-structure "builders", including hubs and
+			// nano-towers (the latter should not have any build-options at all,
+			// whereas the former should be unable to build any mobile units)
+			unit = new CBuilder();
+		} else if (ud->IsBuildingUnit()) {
+			// static non-builder structures
+			if (ud->IsExtractorUnit()) {
+				unit = new CExtractorBuilding();
+			} else {
+				unit = new CBuilding();
+			}
+		} else {
+			// regular mobile unit
+			unit = new CUnit();
+		}
 
+		unit->PreInit(ud, team, facing, pos, build);
 
-	if (type == "GroundUnit" || type == "Bomber" || type == "Fighter") {
-		unit = new CUnit;
-	} else if (type == "Transport") {
-		unit = new CTransportUnit;
-	} else if (type == "Building") {
-		unit = new CBuilding;
-	} else if (type == "Factory") {
-		unit = new CFactory;
-	} else if (type == "Builder") {
-		unit = new CBuilder;
-	} else if (type == "MetalExtractor") {
-		unit = new CExtractorBuilding;
-	} else {
-		LogObject() << "Unknown unit type " << type.c_str() << "\n";
-		return NULL;
-	}
-
-
-	unit->UnitInit(ud, team, pos);
-	unit->beingBuilt = build;
-
-	unit->buildFacing = abs(facing) % 4;
-	unit->xsize = ((unit->buildFacing & 1) == 0) ? ud->xsize : ud->zsize;
-	unit->zsize = ((unit->buildFacing & 1) == 1) ? ud->xsize : ud->zsize;
-
-	unit->power = ud->power;
-	unit->maxHealth = ud->health;
-	unit->health = ud->health;
-	//unit->metalUpkeep = ud->metalUpkeep*16.0f/GAME_SPEED;
-	//unit->energyUpkeep = ud->energyUpkeep*16.0f/GAME_SPEED;
-	unit->controlRadius = (int)(ud->controlRadius / SQUARE_SIZE);
-	unit->losHeight = ud->losHeight;
-	unit->metalCost = ud->metalCost;
-	unit->energyCost = ud->energyCost;
-	unit->buildTime = ud->buildTime;
-	unit->aihint = ud->aihint;
-	unit->tooltip = ud->humanName + " - " + ud->tooltip;
-	unit->armoredMultiple = std::max(0.0001f, ud->armoredMultiple);		//armored multiple of 0 will crash spring
-	unit->wreckName = ud->wreckName;
-
-	unit->realLosRadius = (int) (ud->losRadius);
-	unit->realAirLosRadius = (int) (ud->airLosRadius);
-	unit->upright = ud->upright;
-	unit->radarRadius      = ud->radarRadius    / (SQUARE_SIZE * 8);
-	unit->sonarRadius      = ud->sonarRadius    / (SQUARE_SIZE * 8);
-	unit->jammerRadius     = ud->jammerRadius   / (SQUARE_SIZE * 8);
-	unit->sonarJamRadius   = ud->sonarJamRadius / (SQUARE_SIZE * 8);
-	unit->seismicRadius    = ud->seismicRadius  / (SQUARE_SIZE * 8);
-	unit->seismicSignature = ud->seismicSignature;
-	unit->hasRadarCapacity = unit->radarRadius  || unit->sonarRadius    ||
-	                         unit->jammerRadius || unit->sonarJamRadius ||
-	                         unit->seismicRadius;
-	unit->stealth = ud->stealth;
-	unit->sonarStealth = ud->sonarStealth;
-	unit->category = ud->category;
-	unit->armorType = ud->armorType;
-	unit->floatOnWater =
-		ud->floater || (ud->movedata && ((ud->movedata->moveType == MoveData::Hover_Move) ||
-		                                 (ud->movedata->moveType == MoveData::Ship_Move)));
-	unit->maxSpeed = ud->speed / GAME_SPEED;
-	unit->maxReverseSpeed = ud->rSpeed / GAME_SPEED;
-	unit->decloakDistance = ud->decloakDistance;
-
-	unit->flankingBonusMode        = ud->flankingBonusMode;
-	unit->flankingBonusDir         = ud->flankingBonusDir;
-	unit->flankingBonusMobility    = ud->flankingBonusMobilityAdd * 1000;
-	unit->flankingBonusMobilityAdd = ud->flankingBonusMobilityAdd;
-	unit->flankingBonusAvgDamage = (ud->flankingBonusMax + ud->flankingBonusMin) * 0.5f;
-	unit->flankingBonusDifDamage = (ud->flankingBonusMax - ud->flankingBonusMin) * 0.5f;
-
-
-	if(ud->highTrajectoryType==1)
-		unit->useHighTrajectory=true;
-
-	if(ud->fireState >= 0)
-		unit->fireState = ud->fireState;
-
-	if(build){
-		unit->ChangeLos(1,1);
-		unit->health=0.1f;
-	} else {
-		unit->ChangeLos((int)(ud->losRadius),(int)(ud->airLosRadius));
-	}
-
-	if (type == "GroundUnit") {
-		new CMobileCAI(unit);
-	}
-	else if (type == "Transport") {
-		new CTransportCAI(unit);
-	}
-	else if (type == "Factory") {
-		new CFactoryCAI(unit);
-	}
-	else if (type == "Builder") {
-		new CBuilderCAI(unit);
-	}
-	else if (type == "Bomber") {
-		if (ud->hoverAttack) {
+		if (ud->IsTransportUnit()) {
+			new CTransportCAI(unit);
+		} else if (ud->IsFactoryUnit()) {
+			new CFactoryCAI(unit);
+		} else if (ud->IsMobileBuilderUnit() || ud->IsStaticBuilderUnit()) {
+			new CBuilderCAI(unit);
+		} else if (ud->IsNonHoveringAirUnit()) {
+			// non-hovering fighter or bomber aircraft; coupled to StrafeAirMoveType
+			new CAirCAI(unit);
+		} else if (ud->IsAirUnit()) {
+			// all other aircraft; coupled to HoverAirMoveType
+			new CMobileCAI(unit);
+		} else if (ud->IsGroundUnit()) {
 			new CMobileCAI(unit);
 		} else {
-			new CAirCAI(unit);
+			new CCommandAI(unit);
 		}
 	}
-	else if(type == "Fighter"){
-		if (ud->hoverAttack) {
-			new CMobileCAI(unit);
-		} else {
-			new CAirCAI(unit);
-		}
-	}
-	else {
-		new CCommandAI(unit);
-	}
 
-	if (ud->canmove && !ud->canfly && (type != "Factory")) {
-		CGroundMoveType* mt = new CGroundMoveType(unit);
-		mt->maxSpeed = ud->speed / GAME_SPEED;
-		mt->maxReverseSpeed = ud->rSpeed / GAME_SPEED;
-		mt->maxWantedSpeed = ud->speed / GAME_SPEED;
-		mt->turnRate = ud->turnRate;
-		mt->baseTurnRate = ud->turnRate;
+	unit->PostInit(builder);
+	(eventBatchHandler->GetUnitCreatedDestroyedBatch()).enqueue(EventBatchHandler::UD(unit, unit->isCloaked));
 
-		if (mt->accRate <= 0.0f) {
-			LogObject() << "acceleration of unit-type " << ud->name.c_str() << " is zero or negative!\n";
-			mt->accRate = 0.01f;
-		}
-
-		mt->accRate = ud->maxAcc;
-		mt->decRate = ud->maxDec;
-		mt->floatOnWater = (ud->movedata->moveType == MoveData::Hover_Move ||
-		                    ud->movedata->moveType == MoveData::Ship_Move);
-
-		if (!unit->beingBuilt) {
-			// otherwise set this when finished building instead
-			unit->mass = ud->mass;
-		}
-		unit->moveType = mt;
-
-		// Ground-mobility
-		unit->mobility = new MoveData(ud->movedata);
-
-	} else if (ud->canfly) {
-		// Air-mobility
-		unit->mobility = new MoveData(ud->movedata);
-
-		if (!unit->beingBuilt) {
-			// otherwise set this when finished building instead
-			unit->mass = ud->mass;
-		}
-
-		if ((type == "Builder") || ud->hoverAttack || ud->transportCapacity) {
-			CTAAirMoveType* mt = new CTAAirMoveType(unit);
-
-			mt->turnRate = ud->turnRate;
-			mt->maxSpeed = ud->speed / GAME_SPEED;
-			mt->accRate = ud->maxAcc;
-			mt->decRate = ud->maxDec;
-			mt->wantedHeight = ud->wantedHeight + gs->randFloat() * 5;
-			mt->orgWantedHeight = mt->wantedHeight;
-			mt->dontLand = ud->DontLand();
-			mt->collide = ud->collide;
-			mt->altitudeRate = ud->verticalSpeed;
-			mt->bankingAllowed = ud->bankingAllowed;
-			mt->useSmoothMesh = ud->useSmoothMesh;
-
-			unit->moveType = mt;
-		}
-		else {
-			CAirMoveType *mt = new CAirMoveType(unit);
-
-			if(type=="Fighter")
-				mt->isFighter=true;
-
-			mt->collide = ud->collide;
-
-			mt->wingAngle = ud->wingAngle;
-			mt->crashDrag = 1 - ud->crashDrag;
-			mt->invDrag = 1 - ud->drag;
-			mt->frontToSpeed = ud->frontToSpeed;
-			mt->speedToFront = ud->speedToFront;
-			mt->myGravity = ud->myGravity;
-
-			mt->maxBank = ud->maxBank;
-			mt->maxPitch = ud->maxPitch;
-			mt->turnRadius = ud->turnRadius;
-			mt->wantedHeight = (ud->wantedHeight * 1.5f) +
-			                   ((gs->randFloat() - 0.3f) * 15 * (mt->isFighter ? 2 : 1));
-
-			mt->maxAcc = ud->maxAcc;
-			mt->maxAileron = ud->maxAileron;
-			mt->maxElevator = ud->maxElevator;
-			mt->maxRudder = ud->maxRudder;
-
-			mt->useSmoothMesh = ud->useSmoothMesh;
-
-			unit->moveType = mt;
-		}
-	} else {
-		unit->moveType = new CStaticMoveType(unit);
-		unit->upright = true;
-	}
-
-	unit->energyTickMake = ud->energyMake;
-
-	if (ud->tidalGenerator > 0)
-		unit->energyTickMake += ud->tidalGenerator * mapInfo->map.tidalStrength;
-
-
-	unit->model = ud->LoadModel();
-	unit->SetRadius(unit->model->radius);
-
-	modelParser->CreateLocalModel(unit);
-
-
-	// copy the UnitDef volume instance
-	//
-	// aircraft still get half-size spheres for coldet purposes
-	// iif no custom volume is defined (unit->model->radius and
-	// unit->radius themselves are no longer altered)
-	unit->collisionVolume = new CollisionVolume(ud->collisionVolume, unit->model->radius * ((ud->canfly)? 0.5f: 1.0f));
-
-	if (unit->model->radius <= 60.0f) {
-		// the interval-based method fails too easily for units
-		// with small default volumes, force use of raytracing
-		unit->collisionVolume->SetTestType(COLVOL_TEST_CONT);
-	}
-
-
-	if (ud->floater) {
-		// restrict our depth to our waterline
-		unit->pos.y = std::max(-ud->waterline, ground->GetHeight2(unit->pos.x, unit->pos.z));
-	} else {
-		unit->pos.y = ground->GetHeight2(unit->pos.x, unit->pos.z);
-	}
-
-	unit->script = CUnitScriptFactory::CreateScript(ud->scriptPath, unit);
-
-	unit->weapons.reserve(ud->weapons.size());
-	for (unsigned int i = 0; i < ud->weapons.size(); i++) {
-		unit->weapons.push_back(LoadWeapon(ud->weapons[i].def, unit, &ud->weapons[i]));
-	}
-
-	// Call initializing script functions
-	unit->script->Create();
-
-	unit->heading = GetHeadingFromFacing(facing);
-	unit->frontdir = GetVectorFromHeading(unit->heading);
-	unit->updir = UpVector;
-	unit->rightdir = unit->frontdir.cross(unit->updir);
-
-	unit->curYardMap = ud->yardmaps[facing];
-
-	unit->Init(builder);
-
-	if (!build) {
-		unit->FinishedBuilding();
-	}
 	return unit;
 }
 
-CWeapon* CUnitLoader::LoadWeapon(const WeaponDef *weapondef, CUnit* owner, const UnitDef::UnitDefWeapon* udw)
+
+
+void CUnitLoader::ParseAndExecuteGiveUnitsCommand(const std::vector<std::string>& args, int team)
 {
-	CWeapon* weapon;
-
-	if (!weapondef) {
-		logOutput.Print("Error: No weapon def?");
+	if (args.size() < 2) {
+		LOG_L(L_WARNING, "[%s] not enough arguments (\"/give [amount] <objectName | 'all'> [team] [@x, y, z]\")", __FUNCTION__);
+		return;
 	}
 
-	if (udw->name == "NOWEAPON") {
-		weapon = new CNoWeapon(owner);
-	} else if (weapondef->type == "Cannon") {
-		weapon = new CCannon(owner);
-		((CCannon*)weapon)->selfExplode = weapondef->selfExplode;
-	} else if (weapondef->type == "Rifle") {
-		weapon = new CRifle(owner);
-	} else if (weapondef->type == "Melee") {
-		weapon = new CMeleeWeapon(owner);
-	} else if (weapondef->type == "AircraftBomb") {
-		weapon = new CBombDropper(owner, false);
-	} else if (weapondef->type == "Shield") {
-		weapon = new CPlasmaRepulser(owner);
-	} else if (weapondef->type == "Flame") {
-		weapon = new CFlameThrower(owner);
-	} else if (weapondef->type == "MissileLauncher") {
-		weapon = new CMissileLauncher(owner);
-	} else if (weapondef->type == "TorpedoLauncher") {
-		if (owner->unitDef->canfly && !weapondef->submissile) {
-			weapon = new CBombDropper(owner, true);
-			if (weapondef->tracks)
-				((CBombDropper*) weapon)->tracking = weapondef->turnrate;
-			((CBombDropper*) weapon)->bombMoveRange = weapondef->range;
+	float3 pos;
+	if (sscanf(args[args.size() - 1].c_str(), "@%f, %f, %f", &pos.x, &pos.y, &pos.z) != 3) {
+		LOG_L(L_WARNING, "[%s] invalid position argument (\"/give [amount] <objectName | 'all'> [team] [@x, y, z]\")", __FUNCTION__);
+		return;
+	}
+
+	int amount = 1;
+	int amountArgIdx = -1;
+	int teamArgIdx = -1;
+
+	if (args.size() == 4) {
+		amountArgIdx = 0;
+		teamArgIdx = 2;
+	}
+	else if (args.size() == 3) {
+		if (args[0].find_first_not_of("0123456789") == std::string::npos) {
+			amountArgIdx = 0;
 		} else {
-			weapon = new CTorpedoLauncher(owner);
-			if (weapondef->tracks)
-				((CTorpedoLauncher*) weapon)->tracking = weapondef->turnrate;
+			teamArgIdx = 1;
 		}
-	} else if (weapondef->type == "LaserCannon") {
-		weapon = new CLaserCannon(owner);
-		((CLaserCannon*) weapon)->color = weapondef->visuals.color;
-	} else if (weapondef->type == "BeamLaser") {
-		weapon = new CBeamLaser(owner);
-		((CBeamLaser*) weapon)->color = weapondef->visuals.color;
-	} else if (weapondef->type == "LightningCannon") {
-		weapon = new CLightningCannon(owner);
-		((CLightningCannon*) weapon)->color = weapondef->visuals.color;
-	} else if (weapondef->type == "EmgCannon") {
-		weapon = new CEmgCannon(owner);
-	} else if (weapondef->type == "DGun") {
-		weapon = new CDGunWeapon(owner);
-	} else if (weapondef->type == "StarburstLauncher"){
-		weapon = new CStarburstLauncher(owner);
-		if (weapondef->tracks)
-			((CStarburstLauncher*) weapon)->tracking = weapondef->turnrate;
-		else
-			((CStarburstLauncher*) weapon)->tracking = 0;
-		((CStarburstLauncher*) weapon)->uptime = weapondef->uptime * GAME_SPEED;
-	} else {
-		LogObject() << "Unknown weapon type " << weapondef->type.c_str() << "\n";
-		return 0;
-	}
-	weapon->weaponDef = weapondef;
-
-	weapon->reloadTime = (int) (weapondef->reload * GAME_SPEED);
-	if (weapon->reloadTime == 0)
-		weapon->reloadTime = 1;
-	weapon->range = weapondef->range;
-//	weapon->baseRange = weapondef->range;
-	weapon->heightMod = weapondef->heightmod;
-	weapon->projectileSpeed = weapondef->projectilespeed;
-//	weapon->baseProjectileSpeed = weapondef->projectilespeed / GAME_SPEED;
-
-	weapon->areaOfEffect = weapondef->areaOfEffect;
-	weapon->accuracy = weapondef->accuracy;
-	weapon->sprayAngle = weapondef->sprayAngle;
-
-	weapon->stockpileTime = (int) (weapondef->stockpileTime * GAME_SPEED);
-
-	weapon->salvoSize = weapondef->salvosize;
-	weapon->salvoDelay = (int) (weapondef->salvodelay * GAME_SPEED);
-	weapon->projectilesPerShot = weapondef->projectilespershot;
-
-	weapon->metalFireCost = weapondef->metalcost;
-	weapon->energyFireCost = weapondef->energycost;
-
-	weapon->fireSoundId = weapondef->firesound.getID(0);
-	weapon->fireSoundVolume = weapondef->firesound.getVolume(0);
-
-	weapon->onlyForward = weapondef->onlyForward;
-	if (owner->unitDef->type == "Fighter" && !owner->unitDef->hoverAttack) {
-		// fighter aircraft have too big tolerance in TA
-		weapon->maxAngleDif = cos(weapondef->maxAngle * 0.4f / 180 * PI);
-	} else {
-		weapon->maxAngleDif = cos(weapondef->maxAngle / 180 * PI);
 	}
 
-	weapon->SetWeaponNum(owner->weapons.size());
+	if (amountArgIdx >= 0) {
+		amount = atoi(args[amountArgIdx].c_str());
 
-	weapon->badTargetCategory = udw->badTargetCat;
-	weapon->onlyTargetCategory = weapondef->onlyTargetCategory & udw->onlyTargetCat;
-
-	if (udw->slavedTo) {
-		const int index = (udw->slavedTo - 1);
-		if ((index < 0) || (static_cast<size_t>(index) >= owner->weapons.size())) {
-			throw content_error("Bad weapon slave in " + owner->unitDef->name);
+		if ((amount < 0) || (args[amountArgIdx].find_first_not_of("0123456789") != std::string::npos)) {
+			LOG_L(L_WARNING, "[%s] invalid amount argument: %s", __FUNCTION__, args[amountArgIdx].c_str());
+			return;
 		}
-		weapon->slavedTo = owner->weapons[index];
 	}
 
-	weapon->mainDir = udw->mainDir;
-	weapon->maxMainDirAngleDif = udw->maxAngleDif;
+	int featureAllyTeam = -1;
+	if (teamArgIdx >= 0) {
+		team = atoi(args[teamArgIdx].c_str());
 
-	weapon->fuelUsage = udw->fuelUsage;
-	weapon->avoidFriendly = weapondef->avoidFriendly;
-	weapon->avoidFeature = weapondef->avoidFeature;
-	weapon->avoidNeutral = weapondef->avoidNeutral;
-	weapon->targetBorder = weapondef->targetBorder;
-	weapon->cylinderTargetting = weapondef->cylinderTargetting;
-	weapon->minIntensity = weapondef->minIntensity;
-	weapon->heightBoostFactor = weapondef->heightBoostFactor;
-	weapon->collisionFlags = weapondef->collisionFlags;
-	weapon->Init();
+		if ((!teamHandler->IsValidTeam(team)) || (args[teamArgIdx].find_first_not_of("0123456789") != std::string::npos)) {
+			LOG_L(L_WARNING, "[%s] invalid team argument: %s", __FUNCTION__, args[teamArgIdx].c_str());
+			return;
+		}
 
-	return weapon;
+		featureAllyTeam = teamHandler->AllyTeam(team);
+	}
+
+	const std::string& objectName = (amountArgIdx >= 0) ? args[1] : args[0];
+
+	if (objectName.empty()) {
+		LOG_L(L_WARNING, "[%s] invalid object-name argument", __FUNCTION__);
+		return;
+	}
+
+	GiveUnits(objectName, pos, amount, team, featureAllyTeam);
 }
+
+
+void CUnitLoader::GiveUnits(const std::string& objectName, float3 pos, int amount, int team, int featureAllyTeam)
+{
+	const CTeam* receivingTeam = teamHandler->Team(team);
+
+	if (objectName == "all") {
+		unsigned int numRequestedUnits = unitDefHandler->unitDefs.size() - 1; /// defid=0 is not valid
+		unsigned int currentNumUnits = receivingTeam->units.size();
+
+		// make sure team unit-limit is not exceeded
+		if ((currentNumUnits + numRequestedUnits) > receivingTeam->maxUnits) {
+			numRequestedUnits = receivingTeam->maxUnits - currentNumUnits;
+		}
+
+		// make sure square is entirely on the map
+		const int sqSize = math::ceil(math::sqrt((float) numRequestedUnits));
+		const float sqHalfMapSize = sqSize / 2 * 10 * SQUARE_SIZE;
+
+		pos.x = std::max(sqHalfMapSize, std::min(pos.x, float3::maxxpos - sqHalfMapSize - 1));
+		pos.z = std::max(sqHalfMapSize, std::min(pos.z, float3::maxzpos - sqHalfMapSize - 1));
+
+		for (int a = 1; a <= numRequestedUnits; ++a) {
+			Watchdog::ClearPrimaryTimers(); // the other thread may be waiting for a mutex held by this one, triggering hang detection
+			const float px = pos.x + (a % sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
+			const float pz = pos.z + (a / sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
+			const float3 unitPos = float3(px, ground->GetHeightReal(px, pz), pz);
+			const UnitDef* unitDef = unitDefHandler->GetUnitDefByID(a);
+
+			if (unitDef != NULL) {
+				const CUnit* unit = LoadUnit(unitDef, unitPos, team, false, 0, NULL);
+
+				if (unit != NULL) {
+					FlattenGround(unit);
+				}
+			}
+		}
+	} else {
+		unsigned int numRequestedUnits = amount;
+		unsigned int currentNumUnits = receivingTeam->units.size();
+
+		if (receivingTeam->AtUnitLimit()) {
+			LOG_L(L_WARNING,
+				"[%s] unable to give more units to team %d (current: %u, team limit: %u, global limit: %u)",
+				__FUNCTION__, team, currentNumUnits, receivingTeam->maxUnits, uh->MaxUnits()
+			);
+			return;
+		}
+
+		// make sure team unit-limit is not exceeded
+		if ((currentNumUnits + numRequestedUnits) > receivingTeam->maxUnits) {
+			numRequestedUnits = receivingTeam->maxUnits - currentNumUnits;
+		}
+
+		const UnitDef* unitDef = unitDefHandler->GetUnitDefByName(objectName);
+		const FeatureDef* featureDef = featureHandler->GetFeatureDef(objectName, false);
+
+		if (unitDef == NULL && featureDef == NULL) {
+			LOG_L(L_WARNING, "[%s] %s is not a valid object-name", __FUNCTION__, objectName.c_str());
+			return;
+		}
+
+		if (unitDef != NULL) {
+			const int xsize = unitDef->xsize;
+			const int zsize = unitDef->zsize;
+			const int squareSize = math::ceil(math::sqrt((float) numRequestedUnits));
+			const float3 squarePos = float3(
+				pos.x - (((squareSize - 1) * xsize * SQUARE_SIZE) / 2),
+				pos.y,
+				pos.z - (((squareSize - 1) * zsize * SQUARE_SIZE) / 2)
+			);
+
+			int total = numRequestedUnits;
+
+			for (int z = 0; z < squareSize; ++z) {
+				for (int x = 0; x < squareSize && total > 0; ++x) {
+					const float px = squarePos.x + x * xsize * SQUARE_SIZE;
+					const float pz = squarePos.z + z * zsize * SQUARE_SIZE;
+
+					const float3 unitPos = float3(px, ground->GetHeightReal(px, pz), pz);
+					Watchdog::ClearPrimaryTimers();
+					const CUnit* unit = LoadUnit(unitDef, unitPos, team, false, 0, NULL);
+
+					if (unit != NULL) {
+						FlattenGround(unit);
+					}
+
+					--total;
+				}
+			}
+
+			LOG("[%s] spawned %i %s unit(s) for team %i",
+					__FUNCTION__, numRequestedUnits, objectName.c_str(), team);
+		}
+
+		if (featureDef != NULL) {
+			if (featureAllyTeam < 0) {
+				team = -1; // default to world features
+			}
+
+			const int xsize = featureDef->xsize;
+			const int zsize = featureDef->zsize;
+			const int squareSize = math::ceil(math::sqrt((float) numRequestedUnits));
+			const float3 squarePos = float3(
+				pos.x - (((squareSize - 1) * xsize * SQUARE_SIZE) / 2),
+				pos.y,
+				pos.z - (((squareSize - 1) * zsize * SQUARE_SIZE) / 2)
+			);
+
+			int total = amount; // FIXME -- feature count limit?
+
+			for (int z = 0; z < squareSize; ++z) {
+				for (int x = 0; x < squareSize && total > 0; ++x) {
+					const float px = squarePos.x + x * xsize * SQUARE_SIZE;
+					const float pz = squarePos.z + z * zsize * SQUARE_SIZE;
+					const float3 featurePos = float3(px, ground->GetHeightReal(px, pz), pz);
+
+					Watchdog::ClearPrimaryTimers();
+					CFeature* feature = new CFeature();
+					// Initialize() adds the feature to the FeatureHandler -> no memory-leak
+					feature->Initialize(featurePos, featureDef, 0, 0, team, featureAllyTeam, NULL);
+
+					--total;
+				}
+			}
+
+			LOG("[%s] spawned %i %s feature(s) for team %i",
+					__FUNCTION__, numRequestedUnits, objectName.c_str(), team);
+		}
+	}
+}
+
+
 
 
 void CUnitLoader::FlattenGround(const CUnit* unit)
 {
 	const UnitDef* unitDef = unit->unitDef;
-	const float groundheight = ground->GetHeight2(unit->pos.x, unit->pos.z);
+	const float groundheight = ground->GetHeightReal(unit->pos.x, unit->pos.z);
 
-	if (!mapDamage->disabled && unitDef->levelGround &&
-		!(unitDef->floater && groundheight <= 0) &&
-		!(unitDef->canmove && (unitDef->speed > 0.0f))) {
-		// if we are float-capable, only flatten
-		// if the terrain here is above sea level
+	if (mapDamage->disabled) return;
+	if (!unitDef->levelGround) return;
+	if (!unitDef->IsImmobileUnit()) return;
+	if (unitDef->floatOnWater && groundheight <= 0.0f) return;
 
-		BuildInfo bi(unitDef, unit->pos, unit->buildFacing);
-		bi.pos = helper->Pos2BuildPos(bi);
-		const float hss = 0.5f * SQUARE_SIZE;
-		const int tx1 = (int) std::max(0.0f ,(bi.pos.x - (bi.GetXSize() * hss)) / SQUARE_SIZE);
-		const int tz1 = (int) std::max(0.0f ,(bi.pos.z - (bi.GetZSize() * hss)) / SQUARE_SIZE);
-		const int tx2 = std::min(gs->mapx, tx1 + bi.GetXSize());
-		const int tz2 = std::min(gs->mapy, tz1 + bi.GetZSize());
+	// if we are float-capable, only flatten
+	// if the terrain here is above sea level
+	BuildInfo bi(unitDef, unit->pos, unit->buildFacing);
+	bi.pos = helper->Pos2BuildPos(bi, true);
 
-		for (int z = tz1; z <= tz2; z++) {
-			for (int x = tx1; x <= tx2; x++) {
-				readmap->SetHeight(z * (gs->mapx + 1) + x, bi.pos.y);
-			}
+	const float hss = 0.5f * SQUARE_SIZE;
+	const int tx1 = (int) std::max(0.0f ,(bi.pos.x - (bi.GetXSize() * hss)) / SQUARE_SIZE);
+	const int tz1 = (int) std::max(0.0f ,(bi.pos.z - (bi.GetZSize() * hss)) / SQUARE_SIZE);
+	const int tx2 = std::min(gs->mapx, tx1 + bi.GetXSize());
+	const int tz2 = std::min(gs->mapy, tz1 + bi.GetZSize());
+
+	for (int z = tz1; z <= tz2; z++) {
+		for (int x = tx1; x <= tx2; x++) {
+			readmap->SetHeight(z * gs->mapxp1 + x, bi.pos.y);
 		}
-
-		mapDamage->RecalcArea(tx1, tx2, tz1, tz2);
 	}
+
+	mapDamage->RecalcArea(tx1, tx2, tz1, tz2);
+}
+
+void CUnitLoader::RestoreGround(const CUnit* unit)
+{
+	const UnitDef* unitDef = unit->unitDef;
+	const float groundheight = ground->GetHeightReal(unit->pos.x, unit->pos.z);
+
+	if (mapDamage->disabled) return;
+	if (!unitDef->levelGround) return;
+	if (!unitDef->IsImmobileUnit()) return;
+	if (unitDef->floatOnWater && groundheight <= 0.0f) return;
+
+	BuildInfo bi(unitDef, unit->pos, unit->buildFacing);
+	bi.pos = helper->Pos2BuildPos(bi, true);
+	const float hss = 0.5f * SQUARE_SIZE;
+	const int tx1 = (int) std::max(0.0f ,(bi.pos.x - (bi.GetXSize() * hss)) / SQUARE_SIZE);
+	const int tz1 = (int) std::max(0.0f ,(bi.pos.z - (bi.GetZSize() * hss)) / SQUARE_SIZE);
+	const int tx2 = std::min(gs->mapx, tx1 + bi.GetXSize());
+	const int tz2 = std::min(gs->mapy, tz1 + bi.GetZSize());
+
+
+	const float* heightmap = readmap->GetCornerHeightMapSynced();
+	int num = 0;
+	float heightdiff = 0.0f;
+	for (int z = tz1; z <= tz2; z++) {
+		for (int x = tx1; x <= tx2; x++) {
+			int index = z * gs->mapxp1 + x;
+			heightdiff += heightmap[index] - readmap->GetOriginalHeightMapSynced()[index];
+			++num;
+		}
+	}
+	// adjust the terrain profile to match orgheightmap
+	heightdiff /= (float)num;
+	heightdiff += unit->pos.y - bi.pos.y;
+	for (int z = tz1; z <= tz2; z++) {
+		for (int x = tx1; x <= tx2; x++) {
+			int index = z * gs->mapxp1 + x;
+			readmap->SetHeight(index, heightdiff + readmap->GetOriginalHeightMapSynced()[index]);
+		}
+	}
+	// but without affecting the build height
+	heightdiff = bi.pos.y - helper->Pos2BuildPos(bi, true).y;
+	for (int z = tz1; z <= tz2; z++) {
+		for (int x = tx1; x <= tx2; x++) {
+			int index = z * gs->mapxp1 + x;
+			readmap->SetHeight(index, heightdiff + heightmap[index]);
+		}
+	}
+
+	mapDamage->RecalcArea(tx1, tx2, tz1, tz2);
 }

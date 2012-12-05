@@ -1,5 +1,5 @@
 // GML - OpenGL Multithreading Library
-// for Spring http://spring.clan-sy.com
+// for Spring http://springrts.com
 // Author: Mattias "zerver" Radeskog
 // (C) Ware Zerver Tech. http://zerver.net
 // Ware Zerver Tech. licenses this library
@@ -9,9 +9,11 @@
 
 // GML works by "patching" all OpenGL calls. It is injected via a #include "gml.h" statement located in myGL.h.
 // All files that need GL should therefore include myGL.h. INCLUDING gl.h, glu.h, glext.h ... IS FORBIDDEN.
-// When a client thread (gmlThreadNumber > 0) executes a GL call, it is redirected into a queue.
+// When a client thread (gmlThreadNumber > 2) executes a GL call, it is redirected into a queue.
 // The server thread (gmlThreadNumber = 0) will then consume GL calls from the queues of each thread.
 // When the server thread makes a GL call, it calls directly into OpenGL of course.
+// The game load thread (gmlThreadNumber = 1) can also make GL calls.
+// The sim thread (gmlThreadNumber = 2) is allowed to make GL calls only if gmlShareLists is enabled.
 
 // Since a single server thread makes all GL calls, there is no point in multithreading code that contains
 // lots of GL calls but almost no CPU intensive calculations. Also, there is no point in multithreading
@@ -32,13 +34,31 @@
 // Please note: Some functions may require more advanced coding to implement
 // If a function is not yet supported by GML, a compile error pointing to 'GML_FUNCTION_NOT_IMPLEMENTED' will occur
 
-#include "StdAfx.h"
 
 #ifdef USE_GML
+
+#include <GL/glew.h>
 #include "gmlcls.h"
-#include "LogOutput.h"
+#include "gmlque.h"
+
+#include "Game/UI/KeyBindings.h"
+#include "Lua/LuaConfig.h"
+#include "System/Log/ILog.h"
+#include "System/Platform/Threading.h"
+
 
 const char *gmlProfMutex = "lua";
+unsigned gmlLockTime = 0;
+
+int gmlProcNumLoop = 25;
+int gmlProcInterval = 8;
+bool gmlShareLists = true;
+int gmlMaxServerThreadNum = GML_SIM_THREAD_NUM;
+int gmlMaxShareThreadNum = GML_MAX_NUM_THREADS;
+int gmlNoGLThreadNum = GML_NO_THREAD_NUM;
+volatile bool gmlMultiThreadSim = true;
+volatile bool gmlStartSim = false;
+volatile bool gmlKeepRunning = false;
 
 #define EXEC_RUN (BYTE *)NULL
 #define EXEC_SYNC (BYTE *)-1
@@ -65,7 +85,10 @@ int gmlItemsConsumed=0;
 
 int gmlNextTickUpdate=0;
 unsigned gmlCurrentTicks;
+bool gmlCheckCallChain=false;
+int gmlCallChainWarning=0;
 
+std::set<Threading::NativeThreadId> threadnums;
 
 // gmlCPUCount returns the number of CPU cores
 // it was taken from the latest version of boost
@@ -141,8 +164,9 @@ void gmlInit() {
 		gmlGetFloatvCache[gmlFloatParams[i]]=fi;
 	}
 	for(int i=0; i<sizeof(gmlStringParams)/sizeof(GLenum); ++i) {
-		std::string si=(char *)glGetString(gmlStringParams[i]);
-		gmlGetStringCache[gmlStringParams[i]]=si;
+		const char* pstring = (const char*) glGetString(gmlStringParams[i]);
+		const std::string si = (pstring != NULL)? pstring: "[NULL]";
+		gmlGetStringCache[gmlStringParams[i]] = si;
 	}
 	gmlInited=TRUE;
 }
@@ -166,8 +190,6 @@ EXTERN inline GLhandleARB glCreateShaderObjectARB_GEOMETRY_EXT() {
 	return glCreateShaderObjectARB(GL_GEOMETRY_SHADER_EXT);
 }
 gmlQueue gmlQueues[GML_MAX_NUM_THREADS];
-
-boost::thread *gmlThreads[GML_MAX_NUM_THREADS];
 
 gmlSingleItemServer<GLhandleARB, GLhandleARB (*)(void)> gmlShaderServer_VERTEX(&glCreateShader_VERTEX, 2, 0);
 gmlSingleItemServer<GLhandleARB, GLhandleARB (*)(void)> gmlShaderServer_FRAGMENT(&glCreateShader_FRAGMENT, 2, 0);
@@ -210,32 +232,45 @@ gmlMultiItemServer<GLuint, GLsizei, void (GML_GLAPIENTRY *)(GLsizei, GLuint *)> 
 boost::mutex caimutex;
 boost::mutex decalmutex;
 boost::mutex treemutex;
-boost::mutex modelmutex;
-boost::mutex texmutex;
 boost::mutex mapmutex;
 boost::mutex inmapmutex;
 boost::mutex tempmutex;
 boost::mutex posmutex;
 boost::mutex runitmutex;
-boost::mutex simmutex;
 boost::mutex netmutex;
 boost::mutex histmutex;
-boost::mutex logmutex;
 boost::mutex timemutex;
 boost::mutex watermutex;
 boost::mutex dquemutex;
 boost::mutex scarmutex;
 boost::mutex trackmutex;
-boost::mutex projmutex;
 boost::mutex rprojmutex;
 boost::mutex rflashmutex;
 boost::mutex rpiecemutex;
 boost::mutex rfeatmutex;
+boost::mutex drawmutex;
+boost::mutex scallmutex;
+boost::mutex ulbatchmutex;
+boost::mutex flbatchmutex;
+boost::mutex olbatchmutex;
+boost::mutex plbatchmutex;
+boost::mutex glbatchmutex;
+boost::mutex mlbatchmutex;
+boost::mutex llbatchmutex;
+boost::mutex cmdmutex;
+boost::mutex luauimutex;
+boost::mutex xcallmutex;
+boost::mutex blockmutex;
+boost::mutex tnummutex;
+boost::mutex ntexmutex;
+boost::mutex lodmutex;
+boost::mutex catmutex;
+boost::mutex grpchgmutex;
 
 #include <boost/thread/recursive_mutex.hpp>
 boost::recursive_mutex unitmutex;
 boost::recursive_mutex selmutex;
-boost::recursive_mutex &luamutex=selmutex;
+//boost::recursive_mutex luamutex;
 boost::recursive_mutex quadmutex;
 boost::recursive_mutex featmutex;
 boost::recursive_mutex grassmutex;
@@ -244,8 +279,55 @@ boost::recursive_mutex filemutex;
 boost::recursive_mutex &qnummutex=quadmutex;
 boost::recursive_mutex &groupmutex=selmutex;
 boost::recursive_mutex &grpselmutex=selmutex;
+boost::recursive_mutex laycmdmutex;
+//boost::recursive_mutex luadrawmutex;
+boost::recursive_mutex projmutex;
+boost::recursive_mutex objmutex;
+boost::recursive_mutex modelmutex;
+
+gmlMutex simmutex;
+
+#if GML_DEBUG_MUTEX
+boost::mutex lmmutex;
+std::map<std::string, int> lockmaps[GML_MAX_NUM_THREADS];
+std::map<boost::recursive_mutex *, int> lockmmaps[GML_MAX_NUM_THREADS];
 #endif
 
+void PrintMTStartupMessage(int showMTInfo) {
+	if (showMTInfo != MT_LUA_NONE) {
+		LOG("\n************** SPRING MULTITHREADING VERSION IMPORTANT NOTICE **************");
+		LOG("Engine or game settings have forced Spring MT to use compatibility mode %d", showMTInfo);
+		if (showMTInfo == MT_LUA_SINGLE) {
+			CKeyBindings::HotkeyList lslist = keyBindings->GetHotkeys("luaui selector");
+			std::string lskey = lslist.empty() ? "" : " (press " + lslist.front() + ")";
+			LOG("If your game uses lua based rendering, it may run very slow with Spring MT");
+			LOG("A high LUA-SYNC-CPU(MT) value in the upper right corner could indicate a problem");
+			LOG("Consider changing the engine setting 'MultiThreadLua' to 2 to improve performance,");
+			LOG("or try to disable LuaShaders and all rendering widgets%s\n", lskey.c_str());
+		} else if (showMTInfo == MT_LUA_SINGLE_BATCH) {
+			LOG("If your game uses lua gadget based rendering, it may run very slow with Spring MT");
+			LOG("A high LUA-SYNC-CPU(MT) value in the upper right corner could indicate a problem\n");
+		} else if (showMTInfo == MT_LUA_DUAL_EXPORT) {
+			LOG("If your game uses lua gadgets that export data, it may run very slow with Spring MT");
+			LOG("A high LUA-EXP-SIZE(MT) value in the upper right corner could indicate a problem\n");
+		}
+	}
+}
+
+void gmlPrintCallChainWarning(const char *func) {
+	LOG_SL("GML", L_WARNING, "(%d/%d) Invalid attempt to invoke LuaUI (%s) from another Lua environment, this game is using engine features that may require LuaThreadingModel > 2 to work properly with Spring MT.", gmlCallChainWarning, GML_MAX_CALL_CHAIN_WARNINGS, func);
+}
+
+#endif
+
+bool ThreadRegistered() {
+	boost::mutex::scoped_lock tnumlock(tnummutex);
+	Threading::NativeThreadId thid = Threading::GetCurrentThreadId();
+	if (threadnums.find(thid) != threadnums.end())
+		return true;
+	threadnums.insert(thid);
+	return false;
+}
 // GMLqueue implementation
 gmlQueue::gmlQueue():
 ReadPos(0),WritePos(0),WriteSize(0),Read(0),Write(0),Locked1(FALSE),Locked2(FALSE),Reloc(FALSE),Sync(EXEC_RUN),WasSynced(FALSE),
@@ -318,7 +400,7 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 
 	if(Write==Queue1) {
 		if(final) {
-			while(*(BYTE * volatile *)&Pos2!=Queue2)
+			while(!Empty(2))
 				boost::thread::yield();
 
 			if(WasSynced) {
@@ -329,12 +411,12 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 		}
 
 		Pos1=WritePos;
-		Locks1.Unlock();
 		Locked1=FALSE;
+		Locks1.Unlock();
 	}
 	else {
 		if(final) {
-			while(*(BYTE * volatile *)&Pos1!=Queue1)
+			while(!Empty(1))
 				boost::thread::yield();
 
 			if(WasSynced) {
@@ -345,8 +427,8 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 		}
 
 		Pos2=WritePos;
-		Locks2.Unlock();
 		Locked2=FALSE;
+		Locks2.Unlock();
 	}
 
 	if(final && WasSynced) {
@@ -358,7 +440,7 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 #else
 	if(Write==Queue1) {
 		if(final) {
-			while(*(BYTE * volatile *)&Pos2!=Queue2)
+			while(!Empty(2))
 				boost::thread::yield();
 		}
 		if(WasSynced) {
@@ -368,12 +450,12 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 			WasSynced=FALSE;
 		}
 		Pos1=WritePos;
-		Locks1.Unlock();
 		Locked1=FALSE;
+		Locks1.Unlock();
 	}
 	else {
 		if(final) {
-			while(*(BYTE * volatile *)&Pos1!=Queue1)
+			while(!Empty(1))
 				boost::thread::yield();
 		}
 		if(WasSynced) {
@@ -383,8 +465,8 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 			WasSynced=FALSE;
 		}
 		Pos2=WritePos;
-		Locks2.Unlock();
 		Locked2=FALSE;
+		Locks2.Unlock();
 	}
 #endif
 	Write=NULL;
@@ -394,7 +476,7 @@ void gmlQueue::ReleaseWrite(BOOL_ final) {
 
 BOOL_ gmlQueue::GetWrite(BOOL_ critical) {
 	while(1) {
-		if(!Locked1 && Pos1==Queue1) {
+		if(!Locked1 && Empty(1)) {
 			if(Locks1.Lock()) {
 				Locked1=TRUE;
 				ReleaseWrite(critical==2);
@@ -403,7 +485,7 @@ BOOL_ gmlQueue::GetWrite(BOOL_ critical) {
 				return TRUE;
 			}
 		}
-		if(!Locked2 && Pos2==Queue2) {
+		if(!Locked2 && Empty(2)) {
 			if(Locks2.Lock()) {
 				Locked2=TRUE;
 				ReleaseWrite(critical==2);
@@ -423,13 +505,13 @@ void gmlQueue::ReleaseRead() {
 		return;
 	if(Read==Queue1) {
 		Pos1=Queue1;
-		Locks1.Unlock();
 		Locked1=FALSE;
+		Locks1.Unlock();
 	}
 	else {
 		Pos2=Queue2;
-		Locks2.Unlock();
 		Locked2=FALSE;
+		Locks2.Unlock();
 	}
 	Read=NULL;
 	ReadPos=NULL;
@@ -437,7 +519,7 @@ void gmlQueue::ReleaseRead() {
 
 BOOL_ gmlQueue::GetRead(BOOL_ critical) {
 	while(1) {
-		if(!Locked1 && Pos1!=Queue1) {
+		if(!Locked1 && !Empty(1)) {
 			if(Locks1.Lock()) {
 				Locked1=TRUE;
 				Read=Queue1;
@@ -445,7 +527,7 @@ BOOL_ gmlQueue::GetRead(BOOL_ critical) {
 				return TRUE;
 			}
 		}
-		if(!Locked2 && Pos2!=Queue2) {
+		if(!Locked2 && !Empty(2)) {
 			if(Locks2.Lock()) {
 				Locked2=TRUE;
 				Read=Queue2;
@@ -463,11 +545,11 @@ BOOL_ gmlQueue::GetRead(BOOL_ critical) {
 void gmlQueue::SyncRequest() {
 	// make sure server is finished with other queue
 	if(Write==Queue1) {
-		while(*(BYTE * volatile *)&Pos2!=Queue2)
+		while(!Empty(2))
 			boost::thread::yield();
 	}
 	else {
-		while(*(BYTE * volatile *)&Pos1!=Queue1)
+		while(!Empty(1))
 			boost::thread::yield();
 	}
 
@@ -546,6 +628,10 @@ void gmlQueue::SyncRequest() {
 
 #define GML_MAKEHANDLER4(name)\
 	GML_EXEC(name,GML_DATA_D(name))\
+	GML_NEXT(name)
+
+#define GML_MAKEHANDLER4R(name)\
+	GML_EXEC_RET(name,GML_DATA_D(name))\
 	GML_NEXT(name)
 
 #define GML_MAKEHANDLER5(name)\
@@ -695,6 +781,22 @@ void gmlQueue::SyncRequest() {
 		GML_CALL(DrawArrays,GML_DATA(name,A),0,GML_DATA(name,B))\
 	GML_NEXT_SIZE(name)
 
+#define GML_MAKEHANDLER6VDRE(name)\
+	GML_CASE(name):\
+	ptr=(BYTE *)(GML_DT(name)+1);\
+	GML_MAKESUBHANDLER4(GL_VERTEX_ARRAY,glVertexPointer,VP,name)\
+	GML_MAKESUBHANDLER4(GL_COLOR_ARRAY,glColorPointer,CP,name)\
+	GML_MAKESUBHANDLER4(GL_TEXTURE_COORD_ARRAY,glTexCoordPointer,TCP,name)\
+	GML_MAKESUBHANDLER3(GL_INDEX_ARRAY,glIndexPointer,IP,name)\
+	GML_MAKESUBHANDLER3(GL_NORMAL_ARRAY,glNormalPointer,NP,name)\
+	GML_MAKESUBHANDLER2(GL_EDGE_FLAG_ARRAY,glEdgeFlagPointer,EFP,name)\
+	GML_MAKESUBHANDLERVA(name)\
+	if(GML_DATA(name,ClientState) & GML_ELEMENT_ARRAY_BUFFER)\
+		GML_CALL(name,GML_DATA(name,A),GML_DATA(name,B),GML_DATA(name,C),GML_DATA(name,D),GML_DATA(name,E),GML_DATA(name,F))\
+	else\
+		GML_CALL(DrawArrays,GML_DATA(name,A),0,GML_DATA(name,D))\
+	GML_NEXT_SIZE(name)
+
 const char *gmlNOPDummy=(gmlFunctionNames[GML_NOP]="gmlNOP");
 #define GML_MAKENAME(name) EXTERN const char *gml##name##Dummy=(gmlFunctionNames[gml##name##Enum]=GML_QUOTE(gml##name));
 #include "gmlfun.h"
@@ -702,7 +804,8 @@ const char *gmlNOPDummy=(gmlFunctionNames[GML_NOP]="gmlNOP");
 gmlItemSequenceServer<GLuint, GLsizei,GLuint (GML_GLAPIENTRY *)(GLsizei)> gmlListServer(&glGenLists, &gmlDeleteLists, 100, 25, 20, 5);
 
 #if GML_CALL_DEBUG
-lua_State *gmlCurrentLuaState = NULL;
+lua_State *gmlCurrentLuaStates[GML_MAX_NUM_THREADS] = { NULL };
+lua_State *gmlLuaUIState=NULL;
 #endif
 
 // queue handler - exequtes one GL command from queue (pointed to by p)
@@ -985,6 +1088,9 @@ inline void QueueHandler(BYTE *&p, BYTE *&ptr) {
 		GML_MAKEHANDLER3V(Uniform2fv)
 		GML_MAKEHANDLER3V(Uniform3fv)
 		GML_MAKEHANDLER3V(Uniform4fv)
+		GML_MAKEHANDLER4R(MapBufferRange)
+		GML_MAKEHANDLER1(PrimitiveRestartIndexNV)
+		GML_MAKEHANDLER6VDRE(DrawRangeElements)
 	}
 }
 
@@ -1011,12 +1117,12 @@ void gmlQueue::ExecuteDebug() {
 
 	while(p<e) {
 		if(*(int *)p!=GML_NOP)
-			logOutput.Print("GML error: Sim thread called %s",gmlFunctionNames[*(int *)p]);
+			LOG_SL("GML", L_ERROR, "Sim thread called %s", gmlFunctionNames[*(int*)p]);
 		QueueHandler(p,ptr);
 //		++procs;
 	}
 //	if(procs>1 || (procs==1 && *(int *)Read!=GML_NOP))
-//		logOutput.Print("GML error: %d OpenGL calls detected in SimFrame()",procs);
+//		LOG_SL("GML", L_ERROR, "%d OpenGL calls detected in SimFrame()", procs);
 }
 
 #include "gmlsrv.h"
@@ -1035,7 +1141,7 @@ void gmlQueue::ExecuteSynced(void (gmlQueue::*execfun)() ) {
 		while((s=(BYTE *)Sync)==EXEC_RUN) {
 			if(Reloc)
 				Realloc();
-			if((updsrv++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL)
+			if(!gmlShareLists && ((updsrv++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL))
 				gmlUpdateServers();
 			if(GetRead()) {
 				(this->*execfun)();
@@ -1077,7 +1183,7 @@ void gmlQueue::ExecuteSynced(void (gmlQueue::*execfun)() ) {
 			while(TRUE) {
 				if(Reloc)
 					e=Realloc(&p);
-				if((updsrv++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL)
+				if(!gmlShareLists && ((updsrv++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&gmlItemsConsumed>=GML_UPDSRV_INTERVAL))
 					gmlUpdateServers();
 				BYTE *s=(BYTE *)Sync;
 				if(s!=EXEC_RUN) {

@@ -1,5 +1,5 @@
 // GML - OpenGL Multithreading Library
-// for Spring http://spring.clan-sy.com
+// for Spring http://springrts.com
 // Author: Mattias "zerver" Radeskog
 // (C) Ware Zerver Tech. http://zerver.net
 // Ware Zerver Tech. licenses this library
@@ -10,8 +10,6 @@
 #ifndef GMLCLASSES_H
 #define GMLCLASSES_H
 
-#include <GL/glew.h>
-
 #include "gmlcnt.h"
 
 #include <boost/thread/mutex.hpp>
@@ -21,43 +19,11 @@
 #include <set>
 #include <string.h>
 
+#include "gmlcnf.h"
+
 #define GML_QUOTE(x) #x
 
-#ifdef USE_GML
-#	define GML_ENABLE 1 // multithreaded drawing of units and ground
-#else
-#	define GML_ENABLE 0 // manually enable opengl multithreading here
-#endif
-
-#ifdef USE_GML_SIM
-#	define GML_ENABLE_SIM (GML_ENABLE && 1) // runs a completely independent thread loop for the Sim
-#else
-#	define GML_ENABLE_SIM 0  // manually enable sim thread here
-#endif
-
-#ifdef USE_GML_DEBUG
-#	define GML_CALL_DEBUG 0  // manually force enable call debugging here
-#else
-#	define GML_CALL_DEBUG (GML_ENABLE && GML_ENABLE_SIM && 1) // checks for calls made from the wrong thread (enabled by default)
-#endif
-
-#define GML_ENABLE_DRAW (GML_ENABLE && 0) // draws everything in a separate thread (for testing only, will degrade performance)
-#define GML_SERVER_GLCALL 1 // allows the server thread (0) to make direct GL calls
-#define GML_INIT_QUEUE_SIZE 10 // initial queue size, will be reallocated, but must be >= 4
-#define GML_USE_NO_ERROR 1 // glGetError always returns success (to improve performance)
-#define GML_USE_DEFAULT 1// compile/link/buffer status always returns TRUE/COMPLETE (to improve performance)
-#define GML_USE_CACHE 1 // certain glGet calls may use data cached during gmlInit (to improve performance)
-//#define GML_USE_QUADRIC_SERVER 1 // use server thread to create/delete quadrics
-#define GML_AUX_PREALLOC 128*1024 // preallocation size for aux queue to reduce risk for hang if gl calls happen to be made from Sim thread
-#define GML_ENABLE_ITEMSERVER_CHECK (GML_ENABLE_SIM && 1) // if calls to itemserver are made from Sim, output errors to log
-#define GML_UPDSRV_INTERVAL 10
-#define GML_ALTERNATE_SYNCMODE 1 // mutex-protected synced execution, slower but more portable
-#define GML_ENABLE_TLS_CHECK 1 // check if Thread Local Storage appears to be working
-#define GML_GCC_TLS_FIX 1 // fix buggy TLS in GCC by using the Win32 TIB (faster also!)
-#define GML_MSC_TLS_OPT 1 // use the Win32 TIB for TLS in MSVC (possibly faster)
-#define GML_64BIT_USE_GS 1 // 64-bit OS will use the GS register for TLS (untested feature)
-#define GML_LOCKED_GMLCOUNT_ASSIGNMENT 0 // experimental feature, probably not needed
-//#define BOOST_AC_USE_PTHREADS
+extern bool ThreadRegistered();
 
 // memory barriers for different platforms
 #if defined(__APPLE__) || defined(__FreeBSD__)
@@ -140,6 +106,9 @@ inline int get_threadnum(void) {
 #			define gmlThreadNumber get_threadnum()
 #			undef set_threadnum
 inline void set_threadnum(int val) {
+	if (ThreadRegistered())
+		return;
+
 	__asm {
 		mov EAX, [val]
 #			if !defined(_WIN64) || !GML_64BIT_USE_GS
@@ -170,6 +139,9 @@ inline int get_threadnum(void) {
 #			define gmlThreadNumber get_threadnum()
 #			undef set_threadnum
 inline void set_threadnum(int val) {
+	if (ThreadRegistered())
+		return;
+
 #			if GML_USE_SPEEDY_TLS
 	if (speedy_tls_init(sizeof(int))<0) { // this works because we only set the thread number once per thread
 		handleerror(NULL, "Failed to initialize Thread Local Storage", "GML error:", MBF_OK | MBF_EXCL);
@@ -199,8 +171,9 @@ extern unsigned gmlCPUCount();
 #else
 #	define GML_CPU_COUNT (gmlThreadCountOverride ? gmlThreadCountOverride : gmlCPUCount() )
 #endif
-#define GML_MAX_NUM_THREADS (32+1) // one extra for the aux (Sim) thread
-#define GML_IF_SERVER_THREAD(thread) if(!GML_ENABLE || thread == 0)
+#define GML_MAX_NUM_THREADS (32+2) // extra for the Sim & Loading threads
+#define GML_IF_SERVER_THREAD(thread) if(!GML_ENABLE || (thread <= gmlMaxServerThreadNum))
+#define GML_IF_SHARE_THREAD(thread) if(!GML_ENABLE || (thread <= gmlMaxShareThreadNum))
 extern int gmlItemsConsumed;
 
 typedef unsigned char BYTE;
@@ -376,6 +349,10 @@ public:
 	long size() const {
 		return added;
 	}
+
+	const bool empty() const {
+		return !added;
+	}
 	
 	const T &operator[](int i) const {
 		return data[i];
@@ -539,11 +516,14 @@ class gmlVector {
 	int shrinksize;
 	
 public:
-	gmlVector():doshrink(0),shrinksize(0),
+	gmlVector() :
 #if GML_ORDERED_VOLATILE
 		count(0),
 #endif
-		added(0) {
+		added(0),
+		doshrink(0),
+		shrinksize(0)
+	{
 		data=(T *)malloc(1*sizeof(T));
 		maxsize=1;
 	}
@@ -614,6 +594,10 @@ public:
 	
 	const long size() const {
 		return added;
+	}
+
+	const bool empty() const {
+		return !added;
 	}
 	
 	const T &operator[](const int i) const {
@@ -689,108 +673,10 @@ public:
 	}
 };
 
-struct VAdata {
-	GLint size;
-	GLenum type;
-	GLboolean normalized;
-	GLsizei stride;
-	const GLvoid *pointer;
-	GLuint buffer;
-	VAdata(){}
-	VAdata(GLint si, GLenum ty, GLboolean no, GLsizei st, const GLvoid *po, GLuint buf):
-	size(si),type(ty),normalized(no),stride(st),pointer(po),buffer(buf) {}
-};
-
-struct VAstruct {
-	GLuint target;
-	GLint size;
-	GLenum type;
-	GLboolean normalized;
-	GLvoid * pointer;
-	GLuint buffer;
-	int totalsize;
-};
-
-
-struct gmlQueue {
-	std::map<GLuint,VAdata> VAmap;
-	std::set<GLuint> VAset;
-	
-	BYTE *ReadPos;
-	BYTE *WritePos;
-	BYTE *Pos1;
-	BYTE *Pos2;
-	
-	BYTE *WriteSize;
-	BYTE *Size1;
-	BYTE *Size2;
-	
-	BYTE *Read;
-	BYTE *Write;
-	BYTE *Queue1;
-	BYTE *Queue2;
-	
-	gmlLock Locks1;
-	gmlLock Locks2;
-	volatile BOOL_ Locked1;
-	volatile BOOL_ Locked2;
-	
-	volatile BOOL_ Reloc;
-	BYTE * volatile Sync;
-	BOOL_ WasSynced;
-	
-	GLenum ClientState;
-	// VertexPointer
-	GLint VPsize;
-	GLenum VPtype;
-	GLsizei VPstride;
-	const GLvoid *VPpointer;
-	// ColorPointer
-	GLint CPsize;
-	GLenum CPtype;
-	GLsizei CPstride;
-	const GLvoid *CPpointer;
-	// EdgeFlagPointer
-	GLsizei EFPstride;
-	const GLboolean *EFPpointer;
-	// IndexPointer
-	GLenum IPtype;
-	GLsizei IPstride;
-	const GLvoid *IPpointer;
-	// NormalPointer
-	GLenum NPtype;
-	GLsizei NPstride;
-	const GLvoid *NPpointer;
-	// TexCoordPointer
-	GLint TCPsize;
-	GLenum TCPtype;
-	GLsizei TCPstride;
-	const GLvoid *TCPpointer;
-
-	GLuint ArrayBuffer;
-	GLuint ElementArrayBuffer;
-	GLuint PixelPackBuffer;
-	GLuint PixelUnpackBuffer;
-	
-	gmlQueue();
-	
-	BYTE *Realloc(BYTE **e=NULL);
-	BYTE *WaitRealloc(BYTE **e=NULL);
-	void ReleaseWrite(BOOL_ final=TRUE);
-	BOOL_ GetWrite(BOOL_ critical);
-	void ReleaseRead();
-	BOOL_ GetRead(BOOL_ critical=FALSE);
-	void SyncRequest();
-	void Execute();
-	void ExecuteSynced(void (gmlQueue::*execfun)() =&gmlQueue::Execute);
-	void ExecuteDebug();
-};
-
-
 
 template<class T,class S, class C>
 class gmlItemSequenceServer {
-	typedef void (*delitemseqfun)(T, S);
+	typedef void (GML_GLAPIENTRY * delitemseqfun)(T, S);
 	C genfun;
 	delitemseqfun delfun;
 	gmlCount req;
@@ -997,7 +883,7 @@ public:
 
 
 // Circular Queue - a "crash free" queue because it wraps around and keeps array index within bounds
-#include "creg/creg_cond.h"
+#include "System/creg/creg_cond.h"
 
 template<class T,int S>
 class gmlCircularQueue {
@@ -1010,7 +896,7 @@ public:
 	}
 	~gmlCircularQueue() {
 	}
-	void push_back(T &a) {
+	void push_back(const T &a) {
 		elements[back] = a;
 		if(csize == msize) {
 			if(front == msize)
@@ -1025,7 +911,7 @@ public:
 		else
 			++back;
 	}
-	void push_front(T &a) {
+	void push_front(const T &a) {
 		int newfront = (front == 0) ? msize : front - 1;
 		elements[newfront] = a;
 		front = newfront;
@@ -1065,6 +951,9 @@ public:
 	T &operator[](size_t i) {
 		return elements[(front + i) % (msize + 1)];
 	}
+	const T &operator[](size_t i) const {
+		return elements[(front + i) % (msize + 1)];
+	}
 	bool empty() {
 		return csize == 0;
 	}
@@ -1079,27 +968,34 @@ public:
 		back = (front + i) % (msize + 1);
 	}
 
-template<class U>
+template<class U, class V, class W>
 	class CQIter {
 		size_t p;
-		gmlCircularQueue *q;
+		W *q;
 	public:
 		CQIter() {} 
-		CQIter(size_t d, gmlCircularQueue *r) {p=d; q=r;}
-		void operator=(const CQIter<U> &i) {p=i.p;}
-		CQIter<U> &operator++() {++p; return *this;} 
-		CQIter<U> operator++(int) {return CQIter<U>(p++);} 
-		int operator!=(const CQIter<U> &i) const {return p<i.p;}
-		U &operator*() {return (*q)[p];}
-		U *operator->() {return &(*q)[p];}
+		CQIter(size_t d, W *r) {p=d; q=r;}
+		void operator=(const CQIter<U,V,W> &i) {p=i.p;}
+		CQIter<U,V,W> &operator++() {++p; return *this;} 
+		CQIter<U,V,W> operator++(int) {return CQIter<U,V,W>(p++);} 
+		int operator!=(const CQIter<U,V,W> &i) const {return p<i.p;}
+		V &operator*() {return (*q)[p];}
+		V *operator->() {return &(*q)[p];}
 	};
-	typedef CQIter<T> iterator;
+	typedef CQIter<T, T, gmlCircularQueue> iterator;
+	typedef CQIter<T, const T, const gmlCircularQueue> const_iterator;
 
 	iterator begin() {
 		return iterator(front, this);
 	}
 	iterator end() {
 		return iterator(front + csize, this);
+	}
+	const_iterator begin() const {
+		return const_iterator(front, this);
+	}
+	const_iterator end() const {
+		return const_iterator(front + csize, this);
 	}
 };
 

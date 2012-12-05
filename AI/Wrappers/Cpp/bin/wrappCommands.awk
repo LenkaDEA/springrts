@@ -1,4 +1,4 @@
-#!/bin/awk
+#!/usr/bin/awk -f
 #
 # This awk script creates the C++ wrapper classes for the C command structs in:
 # rts/ExternalAI/Interface/AISCommands.h
@@ -263,20 +263,20 @@ function printPointerAICommandWrapperEnd(outFile_wh) {
 	print("") >> outFile_wh;
 	print("	public final static AICommand wrapp(int topic, Pointer data) {") >> outFile_wh;
 	print("") >> outFile_wh;
-	print("		AICommand _ret = null;") >> outFile_wh;
+	print("		AICommand internal_ret = null;") >> outFile_wh;
 	print("") >> outFile_wh;
 	print("		if (topic < 1 || topic >= topic_cmdClass.size()) {") >> outFile_wh;
-	print("			return _ret;") >> outFile_wh;
+	print("			return internal_ret;") >> outFile_wh;
 	print("		}") >> outFile_wh;
 	print("") >> outFile_wh;
 	print("		try {") >> outFile_wh;
 	print("			Constructor<? extends AICommand> cmdCtor = topic_cmdCtor.get(topic);") >> outFile_wh;
-	print("			_ret = cmdCtor.newInstance(data);") >> outFile_wh;
+	print("			internal_ret = cmdCtor.newInstance(data);") >> outFile_wh;
 	print("		} catch (Throwable t) {") >> outFile_wh;
-	print("			_ret = null;") >> outFile_wh;
+	print("			internal_ret = null;") >> outFile_wh;
 	print("		}") >> outFile_wh;
 	print("") >> outFile_wh;
-	print("		return _ret;") >> outFile_wh;
+	print("		return internal_ret;") >> outFile_wh;
 	print("	}") >> outFile_wh;
 	print("") >> outFile_wh;
 	print("}") >> outFile_wh;
@@ -387,7 +387,7 @@ function printPointerAICommandWrapperEnd(outFile_wh) {
 }
 
 # beginn of struct S*Command
-/^\struct S.*Command( \{)?/ {
+/^struct S.*Command( \{)?/ {
 
 	isInsideCmdStruct = 1;
 	ind_cmdMember = 0;

@@ -1,94 +1,135 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "SolidObject.h"
 #include "Map/ReadMap.h"
-#include "LogOutput.h"
 #include "Map/Ground.h"
+#include "Sim/Misc/CollisionVolume.h"
+#include "Sim/Misc/DamageArray.h"
 #include "Sim/Misc/GroundBlockingObjectMap.h"
-#include "myMath.h"
+#include "Sim/MoveTypes/MoveInfo.h"
+#include "System/myMath.h"
+
+int CSolidObject::deletingRefID = -1;
+const float CSolidObject::DEFAULT_MASS = 1e5f;
+const float CSolidObject::MINIMUM_MASS = 1e0f; // 1.0f
+const float CSolidObject::MAXIMUM_MASS = 1e6f;
 
 CR_BIND_DERIVED(CSolidObject, CWorldObject, );
 CR_REG_METADATA(CSolidObject,
 (
+	CR_MEMBER(health),
 	CR_MEMBER(mass),
+	CR_MEMBER(crushResistance),
+
 	CR_MEMBER(blocking),
-	CR_MEMBER(floatOnWater),
-	CR_MEMBER(isUnderWater),
+	CR_MEMBER(crushable),
 	CR_MEMBER(immobile),
+	CR_MEMBER(crushKilled),
+	CR_MEMBER(blockEnemyPushing),
 	CR_MEMBER(blockHeightChanges),
+
+	CR_MEMBER(luaDraw),
+	CR_MEMBER(noSelect),
+
 	CR_MEMBER(xsize),
 	CR_MEMBER(zsize),
-	CR_MEMBER(height),
+ 	CR_MEMBER(footprint),
+
 	CR_MEMBER(heading),
 	CR_ENUM_MEMBER(physicalState),
+
+	CR_MEMBER(frontdir),
+	CR_MEMBER(rightdir),
+	CR_MEMBER(updir),
+
+	CR_MEMBER(relMidPos),
 	CR_MEMBER(midPos),
+	// can not get creg work on templates
+	CR_MEMBER(mapPos),
+
+//	CR_MEMBER(drawPos),
+//	CR_MEMBER(drawMidPos),
+
 	CR_MEMBER(isMoving),
-	CR_MEMBER(residualImpulse),
-	CR_MEMBER(mobility),
-	// can't get creg work on templates
-	CR_MEMBER(mapPos.x),
-	CR_MEMBER(mapPos.y),
-	CR_MEMBER(buildFacing),
+	CR_MEMBER(isUnderWater),
 	CR_MEMBER(isMarkedOnBlockingMap),
+
 	CR_MEMBER(speed),
+	CR_MEMBER(residualImpulse),
+
+	CR_MEMBER(team),
+	CR_MEMBER(allyteam),
+
+	CR_MEMBER(moveDef),
+	CR_MEMBER(collisionVolume),
+
+	CR_MEMBER(buildFacing),
+
 	CR_RESERVED(16))
 );
 
 
 CSolidObject::CSolidObject():
-	mass(100000),
+	health(0.0f),
+	mass(DEFAULT_MASS),
+	crushResistance(0.0f),
 	blocking(false),
-	floatOnWater(false),
+	crushable(false),
 	immobile(false),
+	crushKilled(false),
+	blockEnemyPushing(true),
 	blockHeightChanges(false),
+
+	luaDraw(false),
+	noSelect(false),
+
 	xsize(1),
 	zsize(1),
-	height(1),
+	footprint(1,1),
 	heading(0),
 	physicalState(OnGround),
 	isMoving(false),
 	isUnderWater(false),
 	isMarkedOnBlockingMap(false),
-	speed(0, 0, 0),
-	residualImpulse(0, 0, 0),
-	mobility(0),
+	speed(ZeroVector),
+	residualImpulse(ZeroVector),
+	team(0),
+	allyteam(0),
+	moveDef(NULL),
+	collisionVolume(NULL),
+	frontdir(0.0f, 0.0f, 1.0f),
+	rightdir(-1.0f, 0.0f, 0.0f),
+	updir(0.0f, 1.0f, 0.0f),
+	relMidPos(ZeroVector),
 	midPos(pos),
-	curYardMap(0),
+	mapPos(GetMapPos()),
+	blockMap(NULL),
 	buildFacing(0)
 {
-	mapPos = GetMapPos();
 }
 
 CSolidObject::~CSolidObject() {
-	if (mobility) {
-		delete mobility;
-	}
-
-	mobility = 0x0;
 	blocking = false;
+
+	delete moveDef;
+	moveDef = NULL;
+
+	delete collisionVolume;
+	collisionVolume = NULL;
 }
 
 
 
-/*
- * removes this object from the GroundBlockingMap
- * if it is currently marked on it, does nothing
- * otherwise
- */
 void CSolidObject::UnBlock() {
 	if (isMarkedOnBlockingMap) {
 		groundBlockingObjectMap->RemoveGroundBlockingObject(this);
-		// isMarkedOnBlockingMap is now false
 	}
+
+	assert(!isMarkedOnBlockingMap);
 }
 
-/*
- * adds this object to the GroundBlockingMap
- * if and only if its collidable property is
- * set (blocking), else does nothing (except
- * call UnBlock())
- */
 void CSolidObject::Block() {
 	UnBlock();
 
@@ -99,42 +140,91 @@ void CSolidObject::Block() {
 		return;
 	}
 
-	// use the object's current yardmap if available
-	if (curYardMap != 0) {
-		groundBlockingObjectMap->AddGroundBlockingObject(this, curYardMap, 255);
+	groundBlockingObjectMap->AddGroundBlockingObject(this);
+
+	assert(isMarkedOnBlockingMap);
+}
+
+
+YardMapStatus CSolidObject::GetGroundBlockingAtPos(float3 gpos) const
+{
+	if (!blockMap)
+		return YARDMAP_OPEN;
+
+	const int hxsize = footprint.x >> 1;
+	const int hzsize = footprint.y >> 1;
+
+	float3 frontv;
+	float3 rightv;
+
+	if (true) {
+		// use continuous floating-point space
+		gpos   -= pos;
+		gpos.x += SQUARE_SIZE / 2; //??? needed to move to SQUARE-center? (possibly current input is wrong)
+		gpos.z += SQUARE_SIZE / 2;
+
+		frontv =  frontdir;
+		rightv = -rightdir; //??? spring's unit-rightdir is in real the LEFT vector :x
 	} else {
-		groundBlockingObjectMap->AddGroundBlockingObject(this);
+		// use old fixed space (4 facing dirs & ints for unit positions)
+
+		// form the rotated axis vectors
+		static float3 up   ( 0.0f, 0.0f, -1.0f);
+		static float3 down ( 0.0f, 0.0f,  1.0f);
+		static float3 left (-1.0f, 0.0f,  0.0f);
+		static float3 right( 1.0f, 0.0f,  0.0f);
+		static float3 fronts[] = {down, right, up, left};
+		static float3 rights[] = {right, up, left, down};
+
+		// get used axis vectors
+		frontv = fronts[buildFacing];
+		rightv = rights[buildFacing];
+
+		gpos   -= float3(mapPos.x * SQUARE_SIZE, 0.0f, mapPos.y * SQUARE_SIZE);
+
+		// need to revert some of the transformations of CSolidObject::GetMapPos()
+		gpos.x += SQUARE_SIZE / 2 - (this->xsize >> 1) * SQUARE_SIZE; 
+		gpos.z += SQUARE_SIZE / 2 - (this->zsize >> 1) * SQUARE_SIZE;
 	}
 
-	// isMarkedOnBlockingMap is now true
+	// transform worldspace pos to unit rotation dependent `centered blockmap space` [-hxsize .. +hxsize] x [-hzsize .. +hzsize]
+	float by = frontv.dot(gpos) / SQUARE_SIZE;
+	float bx = rightv.dot(gpos) / SQUARE_SIZE;
+
+	// outside of `blockmap space`?
+	if ((math::fabsf(bx) >= hxsize) || (math::fabsf(by) >= hzsize))
+		return YARDMAP_OPEN;
+
+	// transform: [(-hxsize + eps) .. (+hxsize - eps)] x [(-hzsize + eps) .. (+hzsize - eps)] -> [0 .. (xsize - 1)] x [0 .. (zsize - 1)]
+	bx += hxsize;
+	by += hzsize;
+	assert(int(bx) >= 0 && int(bx) < footprint.x);
+	assert(int(by) >= 0 && int(by) < footprint.y);
+
+	// read from blockmap
+	return blockMap[int(bx) + int(by) * footprint.x];
 }
 
 
-
-bool CSolidObject::AddBuildPower(float amount, CUnit* builder) {
-	return false;
-}
-
-int2 CSolidObject::GetMapPos()
+// FIXME move somewhere else?
+int2 CSolidObject::GetMapPos(const float3& position) const
 {
-	return GetMapPos(pos);
+	int2 mp;
+
+	mp.x = (int(position.x + SQUARE_SIZE / 2) / SQUARE_SIZE) - (xsize / 2);
+	mp.y = (int(position.z + SQUARE_SIZE / 2) / SQUARE_SIZE) - (zsize / 2);
+	mp.x = Clamp(mp.x, 0, gs->mapx - xsize);
+	mp.y = Clamp(mp.y, 0, gs->mapy - zsize);
+
+	return mp;
 }
 
-int2 CSolidObject::GetMapPos(const float3 &position)
-{
-	int2 p;
-	p.x = (int(position.x + SQUARE_SIZE / 2) / SQUARE_SIZE) - xsize / 2;
-	p.y = (int(position.z + SQUARE_SIZE / 2) / SQUARE_SIZE) - zsize / 2;
 
-	if (p.x < 0)
-		p.x = 0;
-	if (p.x > gs->mapx - xsize)
-		p.x = gs->mapx - xsize;
 
-	if (p.y < 0)
-		p.y = 0;
-	if (p.y > gs->mapy - zsize)
-		p.y = gs->mapy - zsize;
+void CSolidObject::Kill(const float3& impulse, bool crushKill) {
+	crushKilled = crushKill;
 
-	return p;
+	DamageArray damage;
+	DoDamage(damage * (health + 1.0f), impulse, NULL, -DAMAGE_EXTSOURCE_KILLED);
 }
+

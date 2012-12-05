@@ -1,5 +1,7 @@
-#ifndef _LOCALCONNECTION 
-#define _LOCALCONNECTION
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _LOCAL_CONNECTION_H
+#define _LOCAL_CONNECTION_H
 
 #include <boost/thread/mutex.hpp>
 #include <deque>
@@ -9,46 +11,44 @@
 namespace netcode {
 
 /**
-@brief Class for local connection between server / client
-Directly connects to each others inputbuffer to increase performance. The server and the client have to run in one instance of spring for this to work, otherwise a normal UDP connection had to be used.
-IMPORTANT: You must not have more than two instances of this
+ * @brief Class for local connection between server / client
+ * Directly connects the respective input-buffers, to increase performance.
+ * The server and the client have to run in one instance (same process)
+ * of spring for this to work.
+ * Otherwise, a normal UDP connection had to be used.
+ * IMPORTANT: You must not have more than two instances of this.
  */
 class CLocalConnection : public CConnection
 {
 public:
 	/**
-	@brief Constructor
-	@throw network_error When there already 2 instances
-	*/
+	 * @brief Constructor
+	 * @throw network_error When there already 2 instances
+	 */
 	CLocalConnection();
 	virtual ~CLocalConnection();
-	
-	/**
-	@brief Send packet to other instance
-	
-	Use this, since it doesn't need memcpy'ing
-	 */
-	virtual void SendData(boost::shared_ptr<const RawPacket> data);
 
-	virtual boost::shared_ptr<const RawPacket> Peek(unsigned ahead) const;
+	// START overriding CConnection
 
-	/**
-	@brief Get data
-	*/
-	virtual boost::shared_ptr<const RawPacket> GetData();
+	void SendData(boost::shared_ptr<const RawPacket> data);
+	bool HasIncomingData() const;
+	boost::shared_ptr<const RawPacket> Peek(unsigned ahead) const;
+	void DeleteBufferPacketAt(unsigned index);
+	boost::shared_ptr<const RawPacket> GetData();
+	void Flush(const bool forced);
+	bool CheckTimeout(int seconds, bool initial) const;
 
-	/// does nothing
-	virtual void Flush(const bool forced = false);
-	
-	/// is always false
-	virtual bool CheckTimeout() const;
-	
-	virtual std::string Statistics() const;
-	virtual std::string GetFullAddress() const
-	{
-		return "shared memory";
-	};
-	virtual bool HasIncomingData() const;
+	void ReconnectTo(CConnection& conn) {}
+	bool CanReconnect() const;
+	bool NeedsReconnect();
+	void Unmute() {}
+	void Close(bool flush) {}
+	void SetLossFactor(int factor) {}
+
+	std::string Statistics() const;
+	std::string GetFullAddress() const;
+
+	// END overriding CConnection
 
 private:
 	static std::deque< boost::shared_ptr<const RawPacket> > Data[2];
@@ -56,12 +56,13 @@ private:
 
 	unsigned OtherInstance() const;
 
-	/// we can have 2 Instances, one in serverNet and one in net
-	static unsigned Instances;
+	/// we can have 2 instances, one in serverNet and one in net
+	static unsigned instances;
 	/// which instance we are
 	unsigned instance;
 };
 
 } // namespace netcode
 
-#endif
+#endif // _LOCAL_CONNECTION_H
+

@@ -1,12 +1,14 @@
-#include "StdAfx.h"
-#include <assert.h>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "Console.h" 
 
-#include "LogOutput.h"
+#include "System/Log/ILog.h"
 #include "Action.h"
+
+#include <assert.h>
+
 
 void CommandReceiver::RegisterAction(const std::string& name)
 {
@@ -21,8 +23,9 @@ Console& Console::Instance()
 
 void Console::AddCommandReceiver(const std::string& name, CommandReceiver* rec)
 {
-	if (commandMap.find(name) != commandMap.end())
-		logOutput.Print("Overwriting command: %s", name.c_str());
+	if (commandMap.find(name) != commandMap.end()) {
+		LOG_L(L_WARNING, "Overwriting command: %s", name.c_str());
+	}
 	commandMap[name] = rec;
 }
 
@@ -30,23 +33,24 @@ bool Console::ExecuteAction(const Action& action)
 {
 	if (action.command == "commands")
 	{
-		logOutput.Print("Registered commands:");
-		for (std::map<const std::string, CommandReceiver*>::iterator it = commandMap.begin(); it != commandMap.end(); ++it)
+		LOG("Registered commands:");
+		std::map<const std::string, CommandReceiver*>::const_iterator cri;
+		for (cri = commandMap.begin(); cri != commandMap.end(); ++cri)
 		{
-			logOutput.Print(it->first);
+			LOG("%s", cri->first.c_str());
 		}
 		return true;
 	}
-	
-	std::map<const std::string, CommandReceiver*>::iterator it = commandMap.find(action.command);
-	if (it == commandMap.end())
+
+	std::map<const std::string, CommandReceiver*>::iterator cri = commandMap.find(action.command);
+	if (cri == commandMap.end()) {
 		return false;
-	else
-	{
-		it->second->PushAction(action);
+	} else {
+		cri->second->PushAction(action);
 		return true;
 	}
 }
+
 
 Console::Console()
 {

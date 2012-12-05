@@ -1,39 +1,33 @@
-#ifdef _MSC_VER
-#include "StdAfx.h"
-#endif
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "LobbyConnection.h"
 #include "SelectMenu.h"
 
 #include <SDL_keysym.h>
 #include <SDL_timer.h>
 #include <boost/bind.hpp>
 #include <sstream>
-#ifndef _WIN32
-	#include <unistd.h>
-	#define EXECLP execlp
-#else
-	#include <process.h>
-	#define EXECLP _execlp
-#endif
 #include <stack>
 #include <boost/cstdint.hpp>
 
-#include "LobbyConnection.h"
-#include "Game/ClientSetup.h"
 #include "SelectionWidget.h"
+#include "ScriptHandler.h"
+#include "Game/ClientSetup.h"
+#include "Game/GlobalUnsynced.h"
 #include "Game/PreGame.h"
 #include "Rendering/glFont.h"
-#include "LogOutput.h"
-#include "Exceptions.h"
-#include "TdfParser.h"
-#include "Util.h"
-#include "FileSystem/ArchiveScanner.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/VFSHandler.h"
-#include "FileSystem/FileSystem.h"
-#include "ConfigHandler.h"
-#include "InputHandler.h"
-#include "Game/StartScripts/ScriptHandler.h"
-#include "Game/StartScripts/SkirmishAITestScript.h"
+#include "Rendering/GL/myGL.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Exceptions.h"
+#include "System/Log/ILog.h"
+#include "System/TdfParser.h"
+#include "System/Util.h"
+#include "System/Input/InputHandler.h"
+#include "System/FileSystem/ArchiveScanner.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/VFSHandler.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/MsgStrings.h"
 #include "aGui/Gui.h"
 #include "aGui/VerticalLayout.h"
 #include "aGui/HorizontalLayout.h"
@@ -48,8 +42,9 @@ using std::string;
 using agui::Button;
 using agui::HorizontalLayout;
 
-extern boost::uint8_t* keys;
-extern bool globalQuit;
+CONFIG(std::string, address).defaultValue("");
+CONFIG(bool, NoHelperAIs).defaultValue(false);
+CONFIG(std::string, LastSelectedSetting).defaultValue("");
 
 class ConnectWindow : public agui::Window
 {
@@ -59,14 +54,14 @@ public:
 		agui::gui->AddElement(this);
 		SetPos(0.5, 0.5);
 		SetSize(0.4, 0.2);
-		
+
 		agui::VerticalLayout* wndLayout = new agui::VerticalLayout(this);
 		HorizontalLayout* input = new HorizontalLayout(wndLayout);
 		/*agui::TextElement* label = */new agui::TextElement("Address:", input); // will be deleted in input
 		address = new agui::LineEdit(input);
 		address->DefaultAction.connect(boost::bind(&ConnectWindow::Finish, this, true));
 		address->SetFocus(true);
-		address->SetContent(configHandler->GetString("address", ""));
+		address->SetContent(configHandler->GetString("address"));
 		HorizontalLayout* buttons = new HorizontalLayout(wndLayout);
 		Button* connect = new Button("Connect", buttons);
 		connect->Clicked.connect(boost::bind(&ConnectWindow::Finish, this, true));
@@ -77,7 +72,7 @@ public:
 
 	boost::signal<void (std::string)> Connect;
 	agui::LineEdit* address;
-	
+
 private:
 	void Finish(bool connect)
 	{
@@ -103,7 +98,8 @@ public:
 		value = new agui::LineEdit(input);
 		value->DefaultAction.connect(boost::bind(&SettingsWindow::Finish, this, true));
 		value->SetFocus(true);
-		value->SetContent(configHandler->GetString(name, ""));
+		if (configHandler->IsSet(name))
+			value->SetContent(configHandler->GetString(name));
 		HorizontalLayout* buttons = new HorizontalLayout(wndLayout);
 		Button* ok = new Button("OK", buttons);
 		ok->Clicked.connect(boost::bind(&SettingsWindow::Finish, this, true));
@@ -114,7 +110,7 @@ public:
 
 	boost::signal<void (std::string)> OK;
 	agui::LineEdit* value;
-	
+
 private:
 	void Finish(bool set)
 	{
@@ -134,23 +130,28 @@ std::string CreateDefaultSetup(const std::string& map, const std::string& mod, c
 	game->add_name_value("Gametype", mod);
 
 	TdfParser::TdfSection* modopts = game->construct_subsection("MODOPTIONS");
-	modopts->AddPair("GameMode", 3);
 	modopts->AddPair("MaxSpeed", 20);
-	modopts->add_name_value("Scriptname", script);
 
 	game->AddPair("IsHost", 1);
+	game->AddPair("OnlyLocal", 1);
 	game->add_name_value("MyPlayerName", playername);
 
-	game->AddPair("NoHelperAIs", configHandler->Get("NoHelperAIs", 0));
+	game->AddPair("NoHelperAIs", configHandler->GetBool("NoHelperAIs"));
 
 	TdfParser::TdfSection* player0 = game->construct_subsection("PLAYER0");
 	player0->add_name_value("Name", playername);
 	player0->AddPair("Team", 0);
 
-	const bool isSkirmishAITestScript =
-			(script.substr(0, CSkirmishAITestScript::SCRIPT_NAME_PRELUDE.size())
-			== CSkirmishAITestScript::SCRIPT_NAME_PRELUDE);
-	if (!isSkirmishAITestScript) {
+	const bool isSkirmishAITestScript = CScriptHandler::Instance().IsSkirmishAITestScript(script);
+	if (isSkirmishAITestScript) {
+		SkirmishAIData aiData = CScriptHandler::Instance().GetSkirmishAIData(script);
+		TdfParser::TdfSection* ai = game->construct_subsection("AI0");
+		ai->add_name_value("Name", "Enemy");
+		ai->add_name_value("ShortName", aiData.shortName);
+		ai->add_name_value("Version", aiData.version);
+		ai->AddPair("Host", 0);
+		ai->AddPair("Team", 1);
+	} else {
 		TdfParser::TdfSection* player1 = game->construct_subsection("PLAYER1");
 		player1->add_name_value("Name", "Enemy");
 		player1->AddPair("Team", 1);
@@ -188,9 +189,9 @@ SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWind
 	mySettings = new ClientSetup();
 
 	mySettings->isHost = server;
-	mySettings->myPlayerName = configHandler->GetString("name", "UnnamedPlayer");
+	mySettings->myPlayerName = configHandler->GetString("name");
 	if (mySettings->myPlayerName.empty()) {
-		mySettings->myPlayerName = "UnnamedPlayer";
+		mySettings->myPlayerName = UnnamedPlayerName;
 	} else {
 		mySettings->myPlayerName = StringReplaceInPlace(mySettings->myPlayerName, ' ', '_');
 	}
@@ -198,7 +199,7 @@ SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWind
 	{ // GUI stuff
 		agui::Picture* background = new agui::Picture(this);;
 		{
-			std::string archive = archiveScanner->ModNameToModArchive("Spring Bitmaps");
+			std::string archive = archiveScanner->ArchiveFromName("Spring Bitmaps");
 			std::string archivePath = archiveScanner->GetArchivePath(archive)+archive;
 			vfsHandler->AddArchive(archivePath, false);
 			background->Load("bitmaps/ui/background.jpg");
@@ -212,17 +213,12 @@ SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWind
 		/*agui::TextElement* title = */new agui::TextElement("Spring", menu); // will be deleted in menu
 		Button* single = new Button("Test the Game", menu);
 		single->Clicked.connect(boost::bind(&SelectMenu::Single, this));
-		Button* multi = new Button("Start the Lobby", menu);
-		multi->Clicked.connect(boost::bind(&SelectMenu::Multi, this));
 		Button* update = new Button("Lobby connect (WIP)", menu);
 		update->Clicked.connect(boost::bind(&SelectMenu::ShowUpdateWindow, this, true));
 
-		userSetting = configHandler->GetString("LastSelectedSetting", "");
+		userSetting = configHandler->GetString("LastSelectedSetting");
 		Button* editsettings = new Button("Edit settings", menu);
 		editsettings->Clicked.connect(boost::bind(&SelectMenu::ShowSettingsList, this));
-
-		Button* settings = new Button("Start SpringSettings", menu);
-		settings->Clicked.connect(boost::bind(&SelectMenu::Settings, this));
 
 		Button* direct = new Button("Direct connect", menu);
 		direct->Clicked.connect(boost::bind(&SelectMenu::ShowConnectWindow, this, true));
@@ -240,8 +236,11 @@ SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWind
 SelectMenu::~SelectMenu()
 {
 	ShowConnectWindow(false);
+	ShowSettingsWindow(false, "");
+	ShowUpdateWindow(false);
 	CleanWindow();
-	delete updWindow;
+
+	delete mySettings;
 }
 
 bool SelectMenu::Draw()
@@ -264,7 +263,7 @@ bool SelectMenu::Update()
 			updWindow = NULL;
 		}
 	}
-	
+
 	return true;
 }
 
@@ -290,32 +289,14 @@ void SelectMenu::Single()
 		pregame = new CPreGame(mySettings);
 		pregame->LoadSetupscript(CreateDefaultSetup(selw->userMap, selw->userMod, selw->userScript, mySettings->myPlayerName));
 		agui::gui->RmElement(this);
+		//delete this;
 	}
-}
-
-void SelectMenu::Settings()
-{
-#ifdef __unix__
-	const std::string settingsProgram = "springsettings";
-#else
-	const std::string settingsProgram = "springsettings.exe";
-#endif
-	EXECLP(settingsProgram.c_str(), Quote(settingsProgram).c_str(), NULL);
-}
-
-void SelectMenu::Multi()
-{
-#ifdef __unix__
-	const std::string defLobby = configHandler->GetString("DefaultLobby", "springlobby");
-#else
-	const std::string defLobby = configHandler->GetString("DefaultLobby", "springlobby.exe");
-#endif
-	EXECLP(defLobby.c_str(), Quote(defLobby).c_str(), NULL);
 }
 
 void SelectMenu::Quit()
 {
-	globalQuit = true;
+	gu->globalQuit = true;
+	//delete this;
 }
 
 void SelectMenu::ShowConnectWindow(bool show)
@@ -380,13 +361,13 @@ void SelectMenu::ShowSettingsList()
 		curSelect = new ListSelectWnd("Select setting");
 		curSelect->Selected.connect(boost::bind(&SelectMenu::SelectSetting, this, _1));
 		curSelect->WantClose.connect(boost::bind(&SelectMenu::CleanWindow, this));
-	}	
+	}
 	curSelect->list->RemoveAllItems();
 	const std::map<std::string, std::string> &data = configHandler->GetData();
 	for(std::map<std::string,std::string>::const_iterator iter = data.begin(); iter != data.end(); ++iter)
 		curSelect->list->AddItem(iter->first + " = " + iter->second, "");
 	if(data.find(userSetting) != data.end())
-		curSelect->list->SetCurrentItem(userSetting + " = " + configHandler->GetString(userSetting, ""));
+		curSelect->list->SetCurrentItem(userSetting + " = " + configHandler->GetString(userSetting));
 	curSelect->list->RefreshQuery();
 }
 
@@ -410,7 +391,7 @@ void SelectMenu::CleanWindow() {
 void SelectMenu::DirectConnect(const std::string& addr)
 {
 	configHandler->SetString("address", addr);
-	mySettings->hostip = addr;
+	mySettings->hostIP = addr;
 	mySettings->isHost = false;
 	pregame = new CPreGame(mySettings);
 	agui::gui->RmElement(this);
@@ -420,13 +401,10 @@ bool SelectMenu::HandleEventSelf(const SDL_Event& ev)
 {
 	switch (ev.type) {
 		case SDL_KEYDOWN: {
-			if (ev.key.keysym.sym == SDLK_ESCAPE)
-			{
-				logOutput.Print("User exited");
-				globalQuit=true;
-			}
-			else if (ev.key.keysym.sym == SDLK_RETURN)
-			{
+			if (ev.key.keysym.sym == SDLK_ESCAPE) {
+				LOG("User exited");
+				Quit();
+			} else if (ev.key.keysym.sym == SDLK_RETURN) {
 				Single();
 				return true;
 			}

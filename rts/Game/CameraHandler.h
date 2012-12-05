@@ -1,5 +1,7 @@
-#ifndef __CAMERAHANDLER_H__
-#define __CAMERAHANDLER_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _CAMERA_HANDLER_H
+#define _CAMERA_HANDLER_H
 
 #include <vector>
 #include <map>
@@ -41,17 +43,29 @@ public:
 
 	/**
 	 * @brief restore a camera state
-	 * @param fv the state to set
+	 * @param sm the state to set
 	 * @return false when vector has wrong size or garbage data, true when aplied without errors
 	 */
 	bool SetState(const CCameraController::StateMap& sm);
 
-	CCameraController& GetCurrentController() {return *currCamCtrl;};
-	int GetCurrentControllerNum() const {return currCamCtrlNum;};
+	CCameraController& GetCurrentController() { return *currCamCtrl; }
+	int GetCurrentControllerNum() const { return currCamCtrlNum; }
 	const std::string GetCurrentControllerName() const;
-	const std::vector<CCameraController*>& GetAvailableControllers() const {return camControllers;};
+	const std::vector<CCameraController*>& GetAvailableControllers() const { return camControllers; }
 
 	virtual void PushAction(const Action&);
+
+	enum {
+		CAMERA_MODE_FIRSTPERSON = 0,
+		CAMERA_MODE_OVERHEAD    = 1,
+		CAMERA_MODE_TOTALWAR    = 2,
+		CAMERA_MODE_ROTOVERHEAD = 3,
+		CAMERA_MODE_FREE        = 4,
+		CAMERA_MODE_SMOOTH      = 5,
+		CAMERA_MODE_ORBIT       = 6,
+		CAMERA_MODE_OVERVIEW    = 7,
+		CAMERA_MODE_LAST        = 8,
+	};
 
 private:
 	std::vector<CCameraController*> camControllers;
@@ -71,4 +85,4 @@ private:
 
 extern CCameraHandler* camHandler;
 
-#endif // __CAMERAHANDLER_H__
+#endif // _CAMERA_HANDLER_H

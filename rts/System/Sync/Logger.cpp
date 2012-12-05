@@ -1,6 +1,5 @@
-/* Author: Tobi Vollebregt */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
 
 #ifdef SYNCDEBUG
 
@@ -13,7 +12,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "Logger.h"
-#include "Util.h"
+#include "System/Util.h"
+#include "System/SafeCStrings.h"
 
 
 #ifdef WIN32
@@ -125,9 +125,12 @@ void CLogger::FlushBuffer()
 		get_executable_name(buf1, sizeof(buf1));
 		int len = strlen(buf1);
 		strncpy(buf2, buf1, sizeof(buf2));
+		buf2[sizeof(buf2)-1] = '\0'; // make sure the string is terminated
 		if (len > 4 && buf2[len-4] == '.')
 			buf2[len-4] = 0;
-		strncat(buf2, ".dbg", sizeof(buf2));
+		// NOTE STRCAT_T: will always terminate destination with '/0'
+		//   2nd param: destination buffer size
+		STRCAT_T(buf2, sizeof(buf2), ".dbg");
 
 		fprintf(logfile, "trying debug symbols file: '%s'\n", buf2);
 
@@ -152,8 +155,8 @@ void CLogger::FlushBuffer()
 	command << ADDR2LINE << " \"--exe=" << exename << "\" --functions --demangle --inline";
 
 	for (it = buffer.begin(); it != buffer.end(); ++it) {
-		int open = it->find('{');
-		int close = it->find('}', open + 1);
+		const int open = it->find('{');
+		const int close = it->find('}', open + 1);
 		if (open != std::string::npos && close != std::string::npos) {
 			command << " " << it->substr(open + 1, close - open - 1);
 			runTheCommand = true;
@@ -161,7 +164,6 @@ void CLogger::FlushBuffer()
 	}
 
 	if (runTheCommand) {
-
 		// We got some addresses, so run the addr2line command.
 		// (This is usually the branch taken by the host)
 
@@ -173,39 +175,35 @@ void CLogger::FlushBuffer()
 
 		if (!p) {
 			fprintf(logfile, "  %s\n", strerror(errno));
-			goto no_filtering;
+			runTheCommand = false;
+		} else {
+			// Pipe the buffer through the addr2line command.
+			for (it = buffer.begin(); it != buffer.end(); ++it) {
+				const int open = it->find('{');
+				const int close = it->find('}', open + 1);
+				if (open != std::string::npos && close != std::string::npos) {
+					fgets(buf1, sizeof(buf1), p);
+					fgets(buf2, sizeof(buf2), p);
+					CppFilt(buf1, sizeof(buf1));
+					if ((nl = strchr(buf1, '\n'))) *nl = 0;
+					if ((nl = strchr(buf2, '\n'))) *nl = 0;
+					fprintf(logfile, "%s%s [%s]%s\n", it->substr(0, open).c_str(), buf1, buf2, it->substr(close + 1).c_str());
+				} else {
+					fprintf(logfile, "%s\n", it->c_str());
+				}
+			}
+
+			// Close pipe & clear buffer.
+			pclose(p);
 		}
+	}
 
-		// Pipe the buffer through the addr2line command.
-
-		for (it = buffer.begin(); it != buffer.end(); ++it) {
-			int open = it->find('{');
-			int close = it->find('}', open + 1);
-			if (open != std::string::npos && close != std::string::npos) {
-				fgets(buf1, sizeof(buf1), p);
-				fgets(buf2, sizeof(buf2), p);
-				CppFilt(buf1, sizeof(buf1));
-				if ((nl = strchr(buf1, '\n'))) *nl = 0;
-				if ((nl = strchr(buf2, '\n'))) *nl = 0;
-				fprintf(logfile, "%s%s [%s]%s\n", it->substr(0, open).c_str(), buf1, buf2, it->substr(close + 1).c_str());
-			} else
-				fprintf(logfile, "%s\n", it->c_str());
-		}
-
-		// Close pipe & clear buffer.
-
-		pclose(p);
-
-	} else {
-
-no_filtering:
-
+	if (!runTheCommand) {
 		// Just dump the buffer to the file.
 		// (this is usually the branch taken by the clients)
-
-		for (it = buffer.begin(); it != buffer.end(); ++it)
+		for (it = buffer.begin(); it != buffer.end(); ++it) {
 			fprintf(logfile, "%s\n", it->c_str());
-
+		}
 	}
 
 	buffer.clear();

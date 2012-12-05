@@ -1,19 +1,4 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include <cstdio>
 
@@ -22,24 +7,26 @@ using std::sprintf;
 #include "SAIInterfaceCallbackImpl.h"
 
 #include "Game/GameVersion.h"
-#include "Game/GameSetup.h"
-#include "FileSystem/FileSystem.h"
-#include "FileSystem/FileSystemHandler.h"
 #include "Sim/Misc/GlobalConstants.h" // for MAX_TEAMS
 #include "Sim/Misc/TeamHandler.h" // ActiveTeams()
 #include "ExternalAI/IAILibraryManager.h"
 #include "ExternalAI/AIInterfaceLibraryInfo.h"
 #include "ExternalAI/SkirmishAIHandler.h"
 #include "ExternalAI/Interface/ELevelOfSupport.h"     // for ABI version
-#include "ExternalAI/Interface/SAIFloat3.h"           // for ABI version
 #include "ExternalAI/Interface/AISEvents.h"           // for ABI version
 #include "ExternalAI/Interface/AISCommands.h"         // for ABI version
 #include "ExternalAI/Interface/SSkirmishAILibrary.h"  // for ABI version
 #include "ExternalAI/Interface/SAIInterfaceLibrary.h" // for ABI version and AI_INTERFACE_PROPERTY_*
-#include "LogOutput.h"
+#include "System/SafeCStrings.h"
+#include "System/FileSystem/DataDirsAccess.h"
+#include "System/FileSystem/FileQueryFlags.h"
+#include "System/FileSystem/DataDirLocater.h"
+#include "System/Log/ILog.h"
 
 #include <vector>
 #include <stdlib.h> // malloc(), calloc(), free()
+#include <sstream> // ostringstream
+#include <cstring>
 
 
 static const char* AI_INTERFACES_VERSION_COMMON = "common";
@@ -66,22 +53,37 @@ EXPORT(int) aiInterfaceCallback_Engine_AIInterface_ABIVersion_getWarningPart(int
 }
 
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getMajor(int UNUSED_interfaceId) {
-	return SpringVersion::Major;
+	return SpringVersion::GetMajor().c_str();
 }
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getMinor(int UNUSED_interfaceId) {
-	return SpringVersion::Minor;
+	return SpringVersion::GetMinor().c_str();
 }
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getPatchset(int UNUSED_interfaceId) {
-	return SpringVersion::Patchset;
+	return SpringVersion::GetPatchSet().c_str();
+}
+EXPORT(const char*) aiInterfaceCallback_Engine_Version_getCommits(int UNUSED_interfaceId) {
+	return SpringVersion::GetCommits().c_str();
+}
+EXPORT(const char*) aiInterfaceCallback_Engine_Version_getHash(int UNUSED_interfaceId) {
+	return SpringVersion::GetHash().c_str();
+}
+EXPORT(const char*) aiInterfaceCallback_Engine_Version_getBranch(int UNUSED_interfaceId) {
+	return SpringVersion::GetBranch().c_str();
 }
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getAdditional(int UNUSED_interfaceId) {
-	return SpringVersion::Additional;
+	return SpringVersion::GetAdditional().c_str();
 }
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getBuildTime(int UNUSED_interfaceId) {
-	return SpringVersion::BuildTime;
+	return SpringVersion::GetBuildTime().c_str();
+}
+EXPORT(bool) aiInterfaceCallback_Engine_Version_isRelease(int UNUSED_interfaceId) {
+	return SpringVersion::IsRelease();
 }
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getNormal(int UNUSED_interfaceId) {
 	return SpringVersion::Get().c_str();
+}
+EXPORT(const char*) aiInterfaceCallback_Engine_Version_getSync(int UNUSED_interfaceId) {
+	return SpringVersion::GetSync().c_str();
 }
 EXPORT(const char*) aiInterfaceCallback_Engine_Version_getFull(int UNUSED_interfaceId) {
 	return SpringVersion::GetFull().c_str();
@@ -159,19 +161,20 @@ EXPORT(void) aiInterfaceCallback_Log_log(int interfaceId, const char* const msg)
 	CHECK_INTERFACE_ID(interfaceId);
 
 	const CAIInterfaceLibraryInfo* info = infos[interfaceId];
-	logOutput.Print("AI Interface <%s-%s>: %s", info->GetName().c_str(), info->GetVersion().c_str(), msg);
+	LOG("AI Interface <%s-%s>: %s",
+			info->GetName().c_str(), info->GetVersion().c_str(), msg);
 }
 EXPORT(void) aiInterfaceCallback_Log_exception(int interfaceId, const char* const msg, int severety, bool die) {
 
 	CHECK_INTERFACE_ID(interfaceId);
 
 	const CAIInterfaceLibraryInfo* info = infos[interfaceId];
-	logOutput.Print("AI Interface <%s-%s>: error, severety %i: [%s] %s",
+	LOG_L(L_ERROR, "AI Interface <%s-%s>: severety %i: [%s] %s",
 			info->GetName().c_str(), info->GetVersion().c_str(), severety,
 			(die ? "AI Interface shutting down" : "AI Interface still running"), msg);
 	if (die) {
 		// TODO: FIXME: unload all skirmish AIs of this interface plus the interface itsself
-// 		std::vector<int> teamIds = IAILibraryManager::GetInstance()->GetAllTeamIdsAccociatedWithInterface(info->GetKey());
+// 		const std::vector<int> &teamIds = IAILibraryManager::GetInstance()->GetAllTeamIdsAccociatedWithInterface(info->GetKey());
 // 		std::vector<int>::const_iterator teamId;
 // 		for (teamId = teamIds.begin(); teamId != teamIds.end(); ++teamId) {
 // 			eoh->DestroySkirmishAI(*teamId);
@@ -187,17 +190,15 @@ EXPORT(char) aiInterfaceCallback_DataDirs_getPathSeparator(int UNUSED_interfaceI
 }
 EXPORT(int) aiInterfaceCallback_DataDirs_Roots_getSize(int UNUSED_interfaceId) {
 
-	const std::vector<std::string> dds =
-			FileSystemHandler::GetInstance().GetDataDirectories();
+	const std::vector<std::string>& dds = dataDirLocater.GetDataDirPaths();
 	return dds.size();
 }
 EXPORT(bool) aiInterfaceCallback_DataDirs_Roots_getDir(int UNUSED_interfaceId, char* path, int path_sizeMax, int dirIndex) {
 
-	const std::vector<std::string> dds =
-			FileSystemHandler::GetInstance().GetDataDirectories();
+	const std::vector<std::string>& dds = dataDirLocater.GetDataDirPaths();
 	size_t numDataDirs = dds.size();
 	if (dirIndex >= 0 && (size_t)dirIndex < numDataDirs) {
-		STRCPYS(path, path_sizeMax, dds[dirIndex].c_str());
+		STRCPY_T(path, path_sizeMax, dds[dirIndex].c_str());
 		return true;
 	} else {
 		return false;
@@ -209,23 +210,23 @@ EXPORT(bool) aiInterfaceCallback_DataDirs_Roots_locatePath(int UNUSED_interfaceI
 
 	int locateFlags = 0;
 	if (writeable) {
-		locateFlags = locateFlags | FileSystem::WRITE;
+		locateFlags = locateFlags | FileQueryFlags::WRITE;
 		if (create) {
-			locateFlags = locateFlags | FileSystem::CREATE_DIRS;
+			locateFlags = locateFlags | FileQueryFlags::CREATE_DIRS;
 		}
 	}
 	std::string locatedPath = "";
 	const size_t tmpRelPath_size = strlen(relPath) + 1;
 	char* tmpRelPath = new char[tmpRelPath_size];
-	STRCPYS(tmpRelPath, tmpRelPath_size, relPath);
+	STRCPY_T(tmpRelPath, tmpRelPath_size, relPath);
 	std::string tmpRelPathStr = tmpRelPath;
 	if (dir) {
-		locatedPath = filesystem.LocateDir(tmpRelPathStr, locateFlags);
+		locatedPath = dataDirsAccess.LocateDir(tmpRelPathStr, locateFlags);
 	} else {
-		locatedPath = filesystem.LocateFile(tmpRelPathStr, locateFlags);
+		locatedPath = dataDirsAccess.LocateFile(tmpRelPathStr, locateFlags);
 	}
 	exists = (locatedPath != relPath);
-	STRCPYS(path, path_sizeMax, locatedPath.c_str());
+	STRCPY_T(path, path_sizeMax, locatedPath.c_str());
 
 	delete [] tmpRelPath;
 	return exists;
@@ -297,7 +298,7 @@ EXPORT(const char*) aiInterfaceCallback_DataDirs_getWriteableDir(int interfaceId
 		static const unsigned int sizeMax = 1024;
 		char tmpRes[sizeMax];
 		static const char* const rootPath = "";
-		bool exists = aiInterfaceCallback_DataDirs_locatePath(interfaceId,
+		const bool exists = aiInterfaceCallback_DataDirs_locatePath(interfaceId,
 				tmpRes, sizeMax, rootPath, true, true, true, false);
 		writeableDataDirs[interfaceId] = tmpRes;
 		if (!exists) {
@@ -321,9 +322,14 @@ static void aiInterfaceCallback_init(struct SAIInterfaceCallback* callback) {
 	callback->Engine_Version_getMajor = &aiInterfaceCallback_Engine_Version_getMajor;
 	callback->Engine_Version_getMinor = &aiInterfaceCallback_Engine_Version_getMinor;
 	callback->Engine_Version_getPatchset = &aiInterfaceCallback_Engine_Version_getPatchset;
+	callback->Engine_Version_getCommits = &aiInterfaceCallback_Engine_Version_getCommits;
+	callback->Engine_Version_getHash = &aiInterfaceCallback_Engine_Version_getHash;
+	callback->Engine_Version_getBranch = &aiInterfaceCallback_Engine_Version_getBranch;
 	callback->Engine_Version_getAdditional = &aiInterfaceCallback_Engine_Version_getAdditional;
 	callback->Engine_Version_getBuildTime = &aiInterfaceCallback_Engine_Version_getBuildTime;
+	callback->Engine_Version_isRelease = &aiInterfaceCallback_Engine_Version_isRelease;
 	callback->Engine_Version_getNormal = &aiInterfaceCallback_Engine_Version_getNormal;
+	callback->Engine_Version_getSync = &aiInterfaceCallback_Engine_Version_getSync;
 	callback->Engine_Version_getFull = &aiInterfaceCallback_Engine_Version_getFull;
 	callback->AIInterface_Info_getSize = &aiInterfaceCallback_AIInterface_Info_getSize;
 	callback->AIInterface_Info_getKey = &aiInterfaceCallback_AIInterface_Info_getKey;

@@ -1,5 +1,7 @@
-#ifndef TOOLTIPCONSOLE_H
-#define TOOLTIPCONSOLE_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef TOOL_TIP_CONSOLE_H
+#define TOOL_TIP_CONSOLE_H
 
 #include "InputReceiver.h"
 #include <string>
@@ -10,11 +12,11 @@ class float3;
 
 class CTooltipConsole : public CInputReceiver {
 	public:
-		CTooltipConsole(void);
-		~CTooltipConsole(void);
-		void Draw(void);
-		bool IsAbove(int x,int y);
-		bool disabled;
+		CTooltipConsole();
+		~CTooltipConsole();
+
+		void Draw();
+		bool IsAbove(int x, int y);
 
 		// helpers
 		static std::string MakeUnitString(const CUnit* unit);
@@ -27,6 +29,8 @@ class CTooltipConsole : public CInputReceiver {
 			float metalMake,  float metalUse,
 			float energyMake, float energyUse);
 
+		bool enabled;
+
 	protected:
 		float x, y, w, h;
 		bool outFont;
@@ -34,4 +38,4 @@ class CTooltipConsole : public CInputReceiver {
 
 extern CTooltipConsole* tooltip;
 
-#endif /* TOOLTIPCONSOLE_H */
+#endif /* TOOL_TIP_CONSOLE_H */

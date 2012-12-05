@@ -1,12 +1,13 @@
-#include "StdAfx.h"
-#include "Game/GameHelper.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "Game/TraceRay.h"
 #include "Map/Ground.h"
 #include "Sim/Projectiles/WeaponProjectiles/TorpedoProjectile.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/Unit.h"
 #include "TorpedoLauncher.h"
 #include "WeaponDefHandler.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 CR_BIND_DERIVED(CTorpedoLauncher, CWeapon, (NULL));
 
@@ -29,16 +30,22 @@ CTorpedoLauncher::~CTorpedoLauncher(void)
 
 void CTorpedoLauncher::Update(void)
 {
-	if(targetType!=Target_None){
-		weaponPos=owner->pos+owner->frontdir*relWeaponPos.z+owner->updir*relWeaponPos.y+owner->rightdir*relWeaponPos.x;
-		weaponMuzzlePos=owner->pos+owner->frontdir*relWeaponMuzzlePos.z+owner->updir*relWeaponMuzzlePos.y+owner->rightdir*relWeaponMuzzlePos.x;
-//		if(!onlyForward){
-			wantedDir=targetPos-weaponPos;
-			float dist=wantedDir.Length();
-			predict=dist/projectileSpeed;
-			wantedDir/=dist;
-//		}
+	if (targetType != Target_None) {
+		weaponPos = owner->pos +
+			owner->frontdir * relWeaponPos.z +
+			owner->updir    * relWeaponPos.y +
+			owner->rightdir * relWeaponPos.x;
+		weaponMuzzlePos = owner->pos +
+			owner->frontdir * relWeaponMuzzlePos.z +
+			owner->updir    * relWeaponMuzzlePos.y +
+			owner->rightdir * relWeaponMuzzlePos.x;
+
+		wantedDir = targetPos - weaponPos;
+		const float dist = wantedDir.Length();
+		predict = dist / projectileSpeed;
+		wantedDir /= dist;
 	}
+
 	CWeapon::Update();
 }
 
@@ -60,7 +67,7 @@ void CTorpedoLauncher::FireImpl()
 		startSpeed = weaponDir * weaponDef->startvelocity;
 	}
 
-	new CTorpedoProjectile(weaponMuzzlePos, startSpeed, owner, areaOfEffect, projectileSpeed,
+	new CTorpedoProjectile(weaponMuzzlePos, startSpeed, owner, damageAreaOfEffect, projectileSpeed,
 		tracking, weaponDef->flighttime == 0? (int) (range / projectileSpeed + 25): weaponDef->flighttime,
 		targetUnit, weaponDef);
 }
@@ -71,27 +78,29 @@ bool CTorpedoLauncher::TryTarget(const float3& pos, bool userTarget, CUnit* unit
 		return false;
 
 	if (unit) {
-		if (!(weaponDef->submissile) && unit->unitDef->canhover)
+		// if we cannot leave water and target unit is not in water, bail
+		if (!weaponDef->submissile && !unit->inWater)
 			return false;
-		if (!(weaponDef->submissile) && unit->unitDef->canfly && unit->pos.y > 0)
+	} else {
+		// if we cannot leave water and target position is not in water, bail
+		if (!weaponDef->submissile && ground->GetHeightReal(pos.x, pos.z) > 0.0f)
 			return false;
 	}
-	if (!(weaponDef->submissile) && ground->GetHeight2(pos.x, pos.z) > 0)
-		return 0;
 
-	float3 dir = pos-weaponMuzzlePos;
-	float length = dir.Length();
-	if (length == 0)
+	float3 targetVec = pos - weaponMuzzlePos;
+	float targetDist = targetVec.Length();
+
+	if (targetDist == 0.0f)
 		return true;
 
-	dir /= length;
+	targetVec /= targetDist;
 	// +0.05f since torpedoes have an unfortunate tendency to hit own ships due to movement
 	float spread = (accuracy + sprayAngle) + 0.05f;
 
-	if (avoidFriendly && helper->TestAllyCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, owner)) {
+	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, targetVec, targetDist, spread, owner->allyteam, true, false, false, owner)) {
 		return false;
 	}
-	if (avoidNeutral && helper->TestNeutralCone(weaponMuzzlePos, dir, length, spread, owner)) {
+	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, targetVec, targetDist, spread, owner->allyteam, false, true, false, owner)) {
 		return false;
 	}
 

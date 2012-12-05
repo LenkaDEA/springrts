@@ -1,4 +1,17 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+
+#include "System/mmgr.h"
+
+#include "GameSetup.h"
+#include "System/TdfParser.h"
+#include "System/FileSystem/ArchiveScanner.h"
+#include "Map/MapParser.h"
+#include "Sim/Misc/GlobalConstants.h"
+#include "System/UnsyncedRNG.h"
+#include "System/Exceptions.h"
+#include "System/Util.h"
+#include "System/Log/ILog.h"
 
 #include <algorithm>
 #include <map>
@@ -6,27 +19,25 @@
 #include <cstring>
 #include <boost/format.hpp>
 
-#include "mmgr.h"
-
-#include "GameSetup.h"
-#include "TdfParser.h"
-#include "FileSystem/ArchiveScanner.h"
-#include "Map/MapParser.h"
-#include "Sim/Misc/GlobalConstants.h"
-#include "UnsyncedRNG.h"
-#include "Exceptions.h"
-#include "Util.h"
-#include "LogOutput.h"
-
-
-using namespace std;
 
 const CGameSetup* gameSetup = NULL;
 
-CGameSetup::CGameSetup():
-	startPosType(StartPos_Fixed),
-	hostDemo(false),
-	numDemoPlayers(0)
+CGameSetup::CGameSetup()
+	: fixedAllies(true)
+	, mapHash(0)
+	, modHash(0)
+	, useLuaGaia(true)
+	, startPosType(StartPos_Fixed)
+	, maxUnits(1500)
+	, ghostedBuildings(true)
+	, disableMapDamage(false)
+	, maxSpeed(0.0f)
+	, minSpeed(0.0f)
+	, onlyLocal(false)
+	, hostDemo(false)
+	, numDemoPlayers(0)
+	, gameStartDelay(0)
+	, noHelperAIs(false)
 {}
 
 CGameSetup::~CGameSetup()
@@ -52,7 +63,10 @@ void CGameSetup::LoadUnitRestrictions(const TdfParser& file)
 
 void CGameSetup::LoadStartPositionsFromMap()
 {
-	MapParser mapParser(mapName);
+	MapParser mapParser(MapFile());
+	if (!mapParser.IsValid()) {
+		throw content_error("MapInfo: " + mapParser.GetErrorLog());
+	}
 
 	for(size_t a = 0; a < teamStartingData.size(); ++a) {
 		float3 pos(1000.0f, 100.0f, 1000.0f);
@@ -97,6 +111,10 @@ void CGameSetup::LoadStartPositions(bool withoutMap)
 	}
 }
 
+std::string CGameSetup::MapFile() const
+{
+	return archiveScanner->MapNameToMapFile(mapName);
+}
 
 void CGameSetup::LoadPlayers(const TdfParser& file, std::set<std::string>& nameList)
 {
@@ -135,8 +153,11 @@ void CGameSetup::LoadPlayers(const TdfParser& file, std::set<std::string>& nameL
 	}
 
 	unsigned playerCount = 0;
-	if (file.GetValue(playerCount, "GAME\\NumPlayers") && playerStartingData.size() != playerCount)
-		logOutput.Print("Warning: %i players in GameSetup script (NumPlayers says %i)", playerStartingData.size(), playerCount);
+	if (file.GetValue(playerCount, "GAME\\NumPlayers") && playerStartingData.size() != playerCount) {
+		LOG_L(L_WARNING,
+				_STPF_" players in GameSetup script (NumPlayers says %i)",
+				playerStartingData.size(), playerCount);
+	}
 }
 
 void CGameSetup::LoadSkirmishAIs(const TdfParser& file, std::set<std::string>& nameList)
@@ -200,16 +221,6 @@ void CGameSetup::LoadSkirmishAIs(const TdfParser& file, std::set<std::string>& n
 				"incorrect number of skirmish AIs in GameSetup script");
 	}
 }
-const SkirmishAIData* CGameSetup::GetSkirmishAIDataForTeam(int teamId) const {
-
-	std::map<int, const SkirmishAIData*>::const_iterator sad;
-	sad = team_skirmishAI.find(teamId);
-	if (sad == team_skirmishAI.end()) {
-		return NULL;
-	} else {
-		return sad->second;
-	}
-}
 
 const std::vector<SkirmishAIData>& CGameSetup::GetSkirmishAIs() const {
 	return skirmishAIStartingData;
@@ -229,8 +240,6 @@ void CGameSetup::LoadTeams(const TdfParser& file)
 		}
 
 		TeamBase data;
-		data.startMetal = startMetal;
-		data.startEnergy = startEnergy;
 
 		// Get default color from palette (based on "color" tag)
 		for (size_t num = 0; num < 3; ++num)
@@ -243,11 +252,6 @@ void CGameSetup::LoadTeams(const TdfParser& file)
 		for (std::map<std::string, std::string>::const_iterator it = setup.begin(); it != setup.end(); ++it)
 			data.SetValue(it->first, it->second);
 
-		if (data.startMetal == -1.0)
-			data.startMetal = startMetal;
-		
-		if (data.startEnergy == -1.0)
-			data.startEnergy = startEnergy;
 		teamStartingData.push_back(data);
 
 		teamRemap[a] = i;
@@ -255,8 +259,11 @@ void CGameSetup::LoadTeams(const TdfParser& file)
 	}
 
 	unsigned teamCount = 0;
-	if (file.GetValue(teamCount, "Game\\NumTeams") && teamStartingData.size() != teamCount)
-		logOutput.Print("Warning: %i teams in GameSetup script (NumTeams: %i)", teamStartingData.size(), teamCount);
+	if (file.GetValue(teamCount, "Game\\NumTeams") && teamStartingData.size() != teamCount) {
+		LOG_L(L_WARNING,
+				_STPF_" teams in GameSetup script (NumTeams: %i)",
+				teamStartingData.size(), teamCount);
+	}
 }
 
 void CGameSetup::LoadAllyTeams(const TdfParser& file)
@@ -301,10 +308,11 @@ void CGameSetup::LoadAllyTeams(const TdfParser& file)
 	}
 
 	unsigned allyCount = 0;
-	if (!file.GetValue(allyCount, "GAME\\NumAllyTeams") || allyStartingData.size() == allyCount)
-		;
-	else
-		logOutput.Print("Warning: incorrect number of allyteams in GameSetup script");
+	if (file.GetValue(allyCount, "GAME\\NumAllyTeams")
+			&& (allyStartingData.size() != allyCount))
+	{
+		LOG_L(L_WARNING, "Incorrect number of ally teams in GameSetup script");
+	}
 }
 
 void CGameSetup::RemapPlayers()
@@ -370,11 +378,10 @@ bool CGameSetup::Init(const std::string& buf)
 	// Parse
 	TdfParser file(buf.c_str(),buf.size());
 
-	if(!file.SectionExist("GAME"))
+	if (!file.SectionExist("GAME"))
 		return false;
 
 	// Game parameters
-	scriptName  = file.SGetValueDef("Commanders", "GAME\\ModOptions\\ScriptName");
 
 	// Used by dedicated server only
 	file.GetTDef(mapHash, unsigned(0), "GAME\\MapHash");
@@ -382,25 +389,18 @@ bool CGameSetup::Init(const std::string& buf)
 
 	modName     = file.SGetValueDef("",  "GAME\\Gametype");
 	mapName     = file.SGetValueDef("",  "GAME\\MapName");
-	luaGaiaStr  = file.SGetValueDef("1", "GAME\\ModOptions\\LuaGaia");
-	if (luaGaiaStr == "0")
-		useLuaGaia = false;
-	else
-		useLuaGaia = true;
-	luaRulesStr = file.SGetValueDef("1", "GAME\\ModOptions\\LuaRules");
 	saveName    = file.SGetValueDef("",  "GAME\\Savefile");
 	demoName    = file.SGetValueDef("",  "GAME\\Demofile");
 	hostDemo    = !demoName.empty();
 
-	file.GetDef(gameMode,         "0", "GAME\\ModOptions\\GameMode");
+	file.GetTDef(gameStartDelay, (unsigned int) 4, "GAME\\GameStartDelay");
+
+	file.GetDef(onlyLocal,        "0", "GAME\\OnlyLocal");
+	file.GetDef(useLuaGaia,       "1", "GAME\\ModOptions\\LuaGaia");
 	file.GetDef(noHelperAIs,      "0", "GAME\\ModOptions\\NoHelperAIs");
 	file.GetDef(maxUnits,       "1500", "GAME\\ModOptions\\MaxUnits");
-	file.GetDef(limitDgun,        "0", "GAME\\ModOptions\\LimitDgun");
-	file.GetDef(diminishingMMs,   "0", "GAME\\ModOptions\\DiminishingMMs");
 	file.GetDef(disableMapDamage, "0", "GAME\\ModOptions\\DisableMapDamage");
 	file.GetDef(ghostedBuildings, "1", "GAME\\ModOptions\\GhostedBuildings");
-	file.GetDef(startMetal,    "1000", "GAME\\ModOptions\\StartMetal");
-	file.GetDef(startEnergy,   "1000", "GAME\\ModOptions\\StartEnergy");
 
 	file.GetDef(maxSpeed, "3.0", "GAME\\ModOptions\\MaxSpeed");
 	file.GetDef(minSpeed, "0.3", "GAME\\ModOptions\\MinSpeed");
@@ -437,7 +437,7 @@ bool CGameSetup::Init(const std::string& buf)
 	LoadUnitRestrictions(file);
 
 	// Postprocessing
-	modName = archiveScanner->ModArchiveToModName(modName);
+	modName = archiveScanner->NameFromArchive(modName);
 
 	return true;
 }

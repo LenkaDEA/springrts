@@ -1,11 +1,5 @@
-/*---------------------------------------------------------------------
- Terrain Renderer using texture splatting and geomipmapping
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
- Copyright (2006) Jelmer Cnossen
- This code is released under GPL license (See LICENSE.html for info)
----------------------------------------------------------------------*/
-
-#include "StdAfx.h"
 
 #include "TerrainBase.h"
 #include "TerrainVertexBuffer.h"
@@ -14,45 +8,45 @@ using namespace terrain;
 
 int VertexBuffer::totalBufferSize = 0;
 
-VertexBuffer::VertexBuffer() 
+VertexBuffer::VertexBuffer()
+	: data(NULL)
+	, id(0)
+	, size(0)
+	, type(GL_ARRAY_BUFFER_ARB)
 {
-	id = 0;
-	data = 0;
-	size = 0;
-	type = GL_ARRAY_BUFFER_ARB;
 }
 
-void VertexBuffer::Init (int bytesize)
+void VertexBuffer::Init(int bytesize)
 {
-	Free ();
+	Free();
 
 	if (GLEW_ARB_vertex_buffer_object) {
-		data=0;
-		glGenBuffersARB(1,&id);
+		data = NULL;
+		glGenBuffersARB(1, &id);
 	} else {
-		data=new char[bytesize];
+		data = new char[bytesize];
 	}
-	size=bytesize;
+	size = bytesize;
 	totalBufferSize+=size;
 }
 
-VertexBuffer::~VertexBuffer ()
+VertexBuffer::~VertexBuffer()
 {
-	Free ();
+	Free();
 }
 
-void VertexBuffer::Free ()
+void VertexBuffer::Free()
 {
 	if (id) {
-		glDeleteBuffersARB(1,&id);
-		id=0;
+		glDeleteBuffersARB(1, &id);
+		id = 0;
 	} else {
 		delete [] data;
 	}
 	totalBufferSize-=size;
 }
 
-void* VertexBuffer::LockData ()
+void* VertexBuffer::LockData()
 {
 	if (id) {
 		// Hurray for ATI, which has broken buffer memory mapping support :(
@@ -61,11 +55,12 @@ void* VertexBuffer::LockData ()
 		return glMapBufferARB(type, GL_WRITE_ONLY);*/
 		data = new char [size];
 		return data;
-	} else
+	} else {
 		return data;
+	}
 }
 
-void VertexBuffer::UnlockData ()
+void VertexBuffer::UnlockData()
 {
 	if (id) {
 		glBindBufferARB(type, id);
@@ -75,7 +70,7 @@ void VertexBuffer::UnlockData ()
 	}
 }
 
-void* VertexBuffer::Bind ()
+void* VertexBuffer::Bind()
 {
 	if (id) {
 		glBindBufferARB(type, id);
@@ -85,14 +80,15 @@ void* VertexBuffer::Bind ()
 }
 
 
-void VertexBuffer::Unbind ()
+void VertexBuffer::Unbind()
 {
-	if (id)
+	if (id) {
 		glBindBufferARB(type, 0);
+	}
 }
 
 
-IndexBuffer::IndexBuffer ()
+IndexBuffer::IndexBuffer()
 {
 	type = GL_ELEMENT_ARRAY_BUFFER_ARB;
 }

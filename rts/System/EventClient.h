@@ -1,25 +1,35 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef EVENT_CLIENT_H
 #define EVENT_CLIENT_H
-// EventClient.h: interface for the CEventClient class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 #include <vector>
 #include <map>
 
-#include "float3.h"
+#ifdef __APPLE__
+// defined in X11/X.h
+#undef KeyPress
+#undef KeyRelease
+#endif
 
 using std::string;
 using std::vector;
 using std::map;
 
+class float3;
 class CUnit;
 class CWeapon;
 class CFeature;
 class CProjectile;
 struct Command;
-class CLogSubsystem;
+class IArchive;
+struct SRectangle;
+
+#ifndef zipFile
+	// might be defined through zip.h already
+	typedef void* zipFile;
+#endif
 
 
 class CEventClient
@@ -34,11 +44,13 @@ class CEventClient
 	public:
 		inline const std::string& GetName()   const { return name;   }
 		inline int                GetOrder()  const { return order;  }
-		inline bool               GetSynced() const { return synced; }
+		inline bool               GetSynced() const { return synced_; }
 
-		// used by the eventHandler to register
-		// call-ins when an EventClient is being added
-		virtual bool WantsEvent(const std::string& eventName) { return false; }
+		/**
+		 * Used by the eventHandler to register
+		 * call-ins when an EventClient is being added.
+		 */
+		virtual bool WantsEvent(const std::string& eventName) = 0;
 
 		// used by the eventHandler to route certain event types
 		virtual int  GetReadAllyTeam() const { return NoAccessTeam; }
@@ -50,70 +62,103 @@ class CEventClient
 	private:
 		const std::string name;
 		const int         order;
-		const bool        synced;
+		const bool        synced_;
 
 	protected:
 		CEventClient(const std::string& name, int order, bool synced);
 		virtual ~CEventClient();
 
 	public:
-		// Synced events
-		virtual void GamePreload();
-		virtual void GameStart();
-		virtual void GameOver();
-		virtual void TeamDied(int teamID);
-		virtual void TeamChanged(int teamID);
-		virtual void PlayerChanged(int playerID);
-		virtual void PlayerRemoved(int playerID, int reason);
+		/**
+		 * @name Synced_events
+		 * @{
+		 */
+		virtual void Load(IArchive* archive) {}
 
-		virtual void UnitCreated(const CUnit* unit, const CUnit* builder);
-		virtual void UnitFinished(const CUnit* unit);
+		virtual void GamePreload() {}
+		virtual void GameStart() {}
+		virtual void GameOver(const std::vector<unsigned char>& winningAllyTeams) {}
+		virtual void GamePaused(int playerID, bool paused) {}
+		virtual void GameFrame(int gameFrame) {}
+		virtual void GameID(const unsigned char* gameID, unsigned int numBytes) {}
+
+		virtual void TeamDied(int teamID) {}
+		virtual void TeamChanged(int teamID) {}
+		virtual void PlayerChanged(int playerID) {}
+		virtual void PlayerAdded(int playerID) {}
+		virtual void PlayerRemoved(int playerID, int reason) {}
+
+		virtual void UnitCreated(const CUnit* unit, const CUnit* builder) {}
+		virtual void UnitFinished(const CUnit* unit) {}
 		virtual void UnitFromFactory(const CUnit* unit, const CUnit* factory,
-		                             bool userOrders);
-		virtual void UnitDestroyed(const CUnit* unit, const CUnit* attacker);
-		virtual void UnitTaken(const CUnit* unit, int newTeam);
-		virtual void UnitGiven(const CUnit* unit, int oldTeam);
+		                             bool userOrders) {}
+		virtual void UnitDestroyed(const CUnit* unit, const CUnit* attacker) {}
+		virtual void UnitTaken(const CUnit* unit, int oldTeam, int newTeam) {}
+		virtual void UnitGiven(const CUnit* unit, int oldTeam, int newTeam) {}
 
-		virtual void UnitIdle(const CUnit* unit);
-		virtual void UnitCommand(const CUnit* unit, const Command& command);
-		virtual void UnitCmdDone(const CUnit* unit, int cmdType, int cmdTag);
+		virtual void UnitIdle(const CUnit* unit) {}
+		virtual void UnitCommand(const CUnit* unit, const Command& command) {}
+		virtual void UnitCmdDone(const CUnit* unit, int cmdType, int cmdTag) {}
 		virtual void UnitDamaged(const CUnit* unit, const CUnit* attacker,
-		                         float damage, int weaponID, bool paralyzer);
-		virtual void UnitExperience(const CUnit* unit, float oldExperience);
+		                         float damage, int weaponID, bool paralyzer) {}
+		virtual void UnitExperience(const CUnit* unit, float oldExperience) {}
 
 		virtual void UnitSeismicPing(const CUnit* unit, int allyTeam,
-		                             const float3& pos, float strength);
-		virtual void UnitEnteredRadar(const CUnit* unit, int allyTeam);
-		virtual void UnitEnteredLos(const CUnit* unit, int allyTeam);
-		virtual void UnitLeftRadar(const CUnit* unit, int allyTeam);
-		virtual void UnitLeftLos(const CUnit* unit, int allyTeam);
+		                             const float3& pos, float strength) {}
+		virtual void UnitEnteredRadar(const CUnit* unit, int allyTeam) {}
+		virtual void UnitEnteredLos(const CUnit* unit, int allyTeam) {}
+		virtual void UnitLeftRadar(const CUnit* unit, int allyTeam) {}
+		virtual void UnitLeftLos(const CUnit* unit, int allyTeam) {}
 
-		virtual void UnitEnteredWater(const CUnit* unit);
-		virtual void UnitEnteredAir(const CUnit* unit);
-		virtual void UnitLeftWater(const CUnit* unit);
-		virtual void UnitLeftAir(const CUnit* unit);
+		virtual void UnitEnteredWater(const CUnit* unit) {}
+		virtual void UnitEnteredAir(const CUnit* unit) {}
+		virtual void UnitLeftWater(const CUnit* unit) {}
+		virtual void UnitLeftAir(const CUnit* unit) {}
 
-		virtual void UnitLoaded(const CUnit* unit, const CUnit* transport);
-		virtual void UnitUnloaded(const CUnit* unit, const CUnit* transport);
+		virtual void UnitLoaded(const CUnit* unit, const CUnit* transport) {}
+		virtual void UnitUnloaded(const CUnit* unit, const CUnit* transport) {}
 
-		virtual void UnitCloaked(const CUnit* unit);
-		virtual void UnitDecloaked(const CUnit* unit);
+		virtual void UnitCloaked(const CUnit* unit) {}
+		virtual void UnitDecloaked(const CUnit* unit) {}
 
-		virtual void UnitMoveFailed(const CUnit* unit);
+		virtual void RenderUnitCreated(const CUnit* unit, int cloaked) {}
+		virtual void RenderUnitDestroyed(const CUnit* unit) {}
+		virtual void RenderUnitCloakChanged(const CUnit* unit, int cloaked) {}
+		virtual void RenderUnitLOSChanged(const CUnit* unit, int allyTeam, int newStatus) {}
 
-		virtual void FeatureCreated(const CFeature* feature);
-		virtual void FeatureDestroyed(const CFeature* feature);
+		virtual void UnitUnitCollision(const CUnit* collider, const CUnit* collidee) {}
+		virtual void UnitFeatureCollision(const CUnit* collider, const CFeature* collidee) {}
+		virtual void UnitMoved(const CUnit* unit) {}
+		virtual void UnitMoveFailed(const CUnit* unit) {}
 
-		virtual void ProjectileCreated(const CProjectile* proj);
-		virtual void ProjectileDestroyed(const CProjectile* proj);
+		virtual void FeatureCreated(const CFeature* feature) {}
+		virtual void FeatureDestroyed(const CFeature* feature) {}
+		virtual void FeatureMoved(const CFeature* feature) {}
+
+		virtual void RenderFeatureCreated(const CFeature* feature) {}
+		virtual void RenderFeatureDestroyed(const CFeature* feature) {}
+		virtual void RenderFeatureMoved(const CFeature* feature) {}
+
+		virtual void ProjectileCreated(const CProjectile* proj) {}
+		virtual void ProjectileDestroyed(const CProjectile* proj) {}
+
+		virtual void RenderProjectileCreated(const CProjectile* proj) {}
+		virtual void RenderProjectileDestroyed(const CProjectile* proj) {}
 
 		virtual void StockpileChanged(const CUnit* unit,
-		                              const CWeapon* weapon, int oldCount);
+		                              const CWeapon* weapon, int oldCount) {}
 
-		virtual bool Explosion(int weaponID, const float3& pos, const CUnit* owner);
+		virtual bool Explosion(int weaponID, const float3& pos, const CUnit* owner) { return false; }
+		/// @}
 
-		// Unsynced events
+		/**
+		 * @name Unsynced_events
+		 * @{
+		 */
+		virtual void Save(zipFile archive);
+
 		virtual void Update();
+		virtual void UnsyncedHeightMapUpdate(const SRectangle& rect);
 
 		virtual bool KeyPress(unsigned short key, bool isRepeat);
 		virtual bool KeyRelease(unsigned short key);
@@ -129,7 +174,9 @@ class CEventClient
 
 		virtual bool CommandNotify(const Command& cmd);
 
-		virtual bool AddConsoleLine(const std::string& msg, const CLogSubsystem& subsystem);
+		virtual bool AddConsoleLine(const std::string& msg, const std::string& section, int level);
+
+		virtual void LastMessagePosition(const float3& pos);
 
 		virtual bool GroupChanged(int groupID);
 
@@ -145,6 +192,8 @@ class CEventClient
 		                        const float3* pos1,
 		                        const std::string* label);
 
+		virtual void SunChanged(const float3& sunDir);
+
 		virtual void ViewResize();
 
 		virtual void DrawGenesis();
@@ -156,7 +205,14 @@ class CEventClient
 		virtual void DrawScreenEffects();
 		virtual void DrawScreen();
 		virtual void DrawInMiniMap();
+
+		virtual void GameProgress(int gameFrame) {}
+
+		virtual void DrawLoadScreen() {}
+		virtual void LoadProgress(const std::string& msg, const bool replace_lastline) {}
+		/// @}
 };
 
 
 #endif /* EVENT_CLIENT_H */
+

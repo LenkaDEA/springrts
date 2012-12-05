@@ -1,26 +1,21 @@
-#include "StdAfx.h"
-// LuaSyncedCall.cpp: implementation of the LuaSyncedCall class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include <set>
-#include <list>
-#include <cctype>
-using namespace std;
-
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaSyncedCall.h"
 
 #include "LuaInclude.h"
 
 #include "LuaHandle.h"
-#include "Game/UI/LuaUI.h"
 #include "LuaGaia.h"
 #include "LuaRules.h"
 #include "LuaHashString.h"
+#include "LuaUI.h"
 #include "LuaUtils.h"
-#include "LogOutput.h"
+
+#include <set>
+#include <list>
+#include <cctype>
 
 
 /******************************************************************************/
@@ -85,20 +80,20 @@ static int CallHook(lua_State* L)
 
 static int PushCallHandler(lua_State* L, CLuaHandle** addr, const string& name)
 {
-	lua_pushstring(L, name.c_str());
+	lua_pushsstring(L, name);
 	CLuaHandle*** ptr = (CLuaHandle***) lua_newuserdata(L, sizeof(CLuaHandle**));
 	*ptr = addr;
 	lua_newtable(L); {
-		lua_pushstring(L, "__index");
+		lua_pushliteral(L, "__index");
 		lua_pushlightuserdata(L, addr);
 		lua_pushcclosure(L, IndexHook, 1);
 		lua_rawset(L, -3);
-		lua_pushstring(L, "__call");
+		lua_pushliteral(L, "__call");
 		lua_pushlightuserdata(L, addr);
 		lua_pushcclosure(L, CallHook, 1);
 		lua_rawset(L, -3);
-		lua_pushstring(L, "__metatable");
-		lua_pushstring(L, "can't touch this");
+		lua_pushliteral(L, "__metatable");
+		lua_pushliteral(L, "can't touch this");
 		lua_rawset(L, -3);
 	}
 	lua_setmetatable(L, -2); // set the userdata's metatable

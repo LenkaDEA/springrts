@@ -1,11 +1,14 @@
-#ifdef _MSC_VER
-#	include "StdAfx.h"
-#elif defined(_WIN32)
-#	include <windows.h>
-#endif
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "UDPListener.h"
 
+#if defined(_WIN32)
+#	include <windows.h>
+#endif
+
+#ifdef DEBUG
+	#include <boost/format.hpp>
+#endif
 #include <boost/weak_ptr.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/shared_ptr.hpp>
@@ -13,64 +16,125 @@
 #include <list>
 #include <queue>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "ProtocolDef.h"
-#include "LogOutput.h"
 #include "UDPConnection.h"
 #include "Socket.h"
+#include "System/Log/ILog.h"
+#include "System/Platform/errorhandler.h"
+#include "System/Util.h" // for IntToString (header only)
 
 namespace netcode
 {
 using namespace boost::asio;
 
-UDPListener::UDPListener(int port)
+UDPListener::UDPListener(int port, const std::string& ip)
+	: acceptNewConnections(false)
 {
-	SocketPtr temp(new ip::udp::socket(netservice));
+	SocketPtr socket;
 
-	boost::system::error_code err;
-	temp->open(ip::udp::v6(), err); // test v6
-	if (!err)
-	{
-		temp->bind(ip::udp::endpoint(ip::address_v6::any(), port));
-	}
-	else
-	{
-		// fallback to v4
-		temp->open(ip::udp::v4());
-		temp->bind(ip::udp::endpoint(ip::address_v4::any(), port));
-	}
-	boost::asio::socket_base::non_blocking_io command(true);
-	temp->io_control(command);
+	if (UDPListener::TryBindSocket(port, &socket, ip)) {
+		boost::asio::socket_base::non_blocking_io socketCommand(true);
+		socket->io_control(socketCommand);
 
-	mySocket = temp;
-	acceptNewConnections = true;
+		mySocket = socket;
+		SetAcceptingConnections(true);
+	}
+
+	if (IsAcceptingConnections()) {
+		LOG("[UDPListener] successfully bound socket on port %i", port);
+	} else {
+		handleerror(NULL, "[UDPListener] error: unable to bind UDP port, see log for details.", "Network error", MBF_OK | MBF_EXCL);
+	}
 }
 
-UDPListener::~UDPListener()
-{
+bool UDPListener::TryBindSocket(int port, SocketPtr* socket, const std::string& ip) {
+
+	std::string errorMsg = "";
+
+	try {
+		ip::address addr;
+		boost::system::error_code err;
+
+		socket->reset(new ip::udp::socket(netservice));
+		(*socket)->open(ip::udp::v6(), err); // test IP v6 support
+
+		const bool supportsIPv6 = !err;
+
+		addr = WrapIP(ip, &err);
+		if (ip.empty()) {
+			// use the "any" address
+			if (supportsIPv6) {
+				addr = ip::address_v6::any();
+			} else {
+				addr = ip::address_v4::any();
+			}
+		} else if (err) {
+			throw std::runtime_error("Failed to parse address " + ip + ": " + err.message());
+		}
+
+		if (!supportsIPv6 && addr.is_v6()) {
+			throw std::runtime_error("IP v6 not supported, can not use address " + addr.to_string());
+		}
+
+		if (netcode::IsLoopbackAddress(addr)) {
+			LOG_L(L_WARNING, "Opening socket on loopback address. Other users will not be able to connect!");
+		}
+
+		if (!addr.is_v6()) {
+			if (supportsIPv6) {
+				(*socket)->close();
+			}
+			(*socket)->open(ip::udp::v4(), err);
+			if (err) {
+				throw std::runtime_error("Failed to open IP V4 socket: " + err.message());
+			}
+		}
+
+		if ((port < 0) || (port > 65535)) {
+			throw std::range_error("Port is out of range [0, 65535]: " + IntToString(port));
+		}
+
+		LOG("Binding UDP socket to IP %s %s port %i",
+				(addr.is_v6() ? "(v6)" : "(v4)"), addr.to_string().c_str(),
+				port);
+		(*socket)->bind(ip::udp::endpoint(addr, port));
+	} catch (const std::runtime_error& ex) { // includes boost::system::system_error and std::range_error
+		socket->reset();
+		errorMsg = ex.what();
+		if (errorMsg.empty()) {
+			errorMsg = "Unknown problem";
+		}
+	}
+	const bool isBound = errorMsg.empty();
+
+	if (!isBound) {
+		LOG_L(L_ERROR, "Failed to bind UDP socket on IP %s, port %i: %s",
+				ip.c_str(), port, errorMsg.c_str());
+	}
+
+	return isBound;
 }
 
-void UDPListener::Update()
-{
+void UDPListener::Update() {
 	netservice.poll();
-	for (std::list< boost::weak_ptr< UDPConnection> >::iterator i = conn.begin(); i != conn.end(); )
-	{
-		if (i->expired())
-			i = conn.erase(i);
-		else
-			++i;
-	}
 
 	size_t bytes_avail = 0;
 
-	while ((bytes_avail = mySocket->available()) > 0)
-	{
+	while ((bytes_avail = mySocket->available()) > 0) {
 		std::vector<uint8_t> buffer(bytes_avail);
 		ip::udp::endpoint sender_endpoint;
 		boost::asio::ip::udp::socket::message_flags flags = 0;
 		boost::system::error_code err;
 		size_t bytesReceived = mySocket->receive_from(boost::asio::buffer(buffer), sender_endpoint, flags, err);
+
+		ConnMap::iterator ci = conn.find(sender_endpoint);
+		bool knownConnection = (ci != conn.end());
+
+		if (knownConnection && ci->second.expired())
+			continue;
+
 		if (CheckErrorCode(err))
 			break;
 
@@ -79,59 +143,58 @@ void UDPListener::Update()
 
 		Packet data(&buffer[0], bytesReceived);
 
-		bool processed = false;
-		for (std::list< boost::weak_ptr<UDPConnection> >::iterator i = conn.begin(); i != conn.end(); ++i)
-		{
-			boost::shared_ptr<UDPConnection> locked(*i);
-			if (locked->CheckAddress(sender_endpoint))
-			{
-				locked->ProcessRawPacket(data);
-				processed = true;
-				break;
-			}
+		if (knownConnection) {
+			ci->second.lock()->ProcessRawPacket(data);
 		}
-		
-		if (!processed) // still have the packet (means no connection with the sender's address found)
-		{
-			if (acceptNewConnections && data.lastContinuous == -1 && data.nakType == 0)
-			{
-				if (!data.chunks.empty() && (*data.chunks.begin())->chunkNumber == 0)
-				{
+		else { // still have the packet (means no connection with the sender's address found)
+			if (acceptNewConnections && data.lastContinuous == -1 && data.nakType == 0)	{
+				if (!data.chunks.empty() && (*data.chunks.begin())->chunkNumber == 0) {
 					// new client wants to connect
 					boost::shared_ptr<UDPConnection> incoming(new UDPConnection(mySocket, sender_endpoint));
 					waiting.push(incoming);
-					conn.push_back(incoming);
+					conn[sender_endpoint] = incoming;
 					incoming->ProcessRawPacket(data);
 				}
 			}
-			else
-			{
-				LogObject() << "Dropping packet from unknown IP: [" << sender_endpoint.address() << "]:" << sender_endpoint.port();
+			else {
+				LOG_L(L_WARNING, "Dropping packet from unknown IP: [%s]:%i",
+						sender_endpoint.address().to_string().c_str(),
+						sender_endpoint.port());
+			#ifdef DEBUG
+				std::string conns;
+				for (ConnMap::iterator it = conn.begin(); it != conn.end(); ++it) {
+					conns += str(boost::format(" [%s]:%i;") %it->first.address().to_string().c_str() %it->first.port());
+				}
+				LOG_L(L_DEBUG, "Open connections: %s", conns.c_str());
+			#endif
 			}
-		}	
+		}
 	}
-	
-	for (std::list< boost::weak_ptr< UDPConnection> >::iterator i = conn.begin(); i != conn.end(); ++i)
-	{
-		boost::shared_ptr<UDPConnection> temp = i->lock();
-		temp->Update();
+
+	for (ConnMap::iterator i = conn.begin(); i != conn.end(); ) {
+		if (i->second.expired()) {
+			LOG_L(L_DEBUG, "Connection closed: [%s]:%i", i->first.address().to_string().c_str(), i->first.port());
+			i = set_erase(conn, i);
+			continue;
+		}
+		i->second.lock()->Update();
+		++i;
 	}
 }
 
-boost::shared_ptr<UDPConnection> UDPListener::SpawnConnection(const std::string& address, const unsigned port)
+boost::shared_ptr<UDPConnection> UDPListener::SpawnConnection(const std::string& ip, const unsigned port)
 {
-	boost::shared_ptr<UDPConnection> temp(new UDPConnection(mySocket, ip::udp::endpoint(ip::address_v4::from_string(address), port)));
-	conn.push_back(temp);
-	return temp;
+	boost::shared_ptr<UDPConnection> newConn(new UDPConnection(mySocket, ip::udp::endpoint(WrapIP(ip), port)));
+	conn[newConn->GetEndpoint()] = newConn;
+	return newConn;
 }
 
-bool UDPListener::Listen(const bool state)
+void UDPListener::SetAcceptingConnections(const bool enable)
 {
-	acceptNewConnections = state;
-	return acceptNewConnections;
+	acceptNewConnections = enable;
 }
 
-bool UDPListener::Listen() const
+bool UDPListener::IsAcceptingConnections() const
 {
 	return acceptNewConnections;
 }
@@ -150,13 +213,25 @@ boost::shared_ptr<UDPConnection> UDPListener::AcceptConnection()
 {
 	boost::shared_ptr<UDPConnection> newConn = waiting.front();
 	waiting.pop();
-	conn.push_back(newConn);
+	conn[newConn->GetEndpoint()] = newConn;
 	return newConn;
 }
 
 void UDPListener::RejectConnection()
 {
 	waiting.pop();
+}
+
+void UDPListener::UpdateConnections() {
+	for (ConnMap::iterator i = conn.begin(); i != conn.end(); ) {
+		boost::shared_ptr<UDPConnection> uc = i->second.lock();
+		if (uc && i->first != uc->GetEndpoint()) {
+			conn[uc->GetEndpoint()] = uc; // inserting does not invalidate iterators
+			i = set_erase(conn, i);
+		}
+		else
+			++i;
+	}
 }
 
 }

@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef SOUNDBUFFER_H
 #define SOUNDBUFFER_H
 
@@ -36,6 +38,11 @@ public:
 	{
 		return id;
 	};
+
+	ALuint GetChannels() const
+	{
+		return channels;
+	};
 	
 	int BufferSize() const;
 	
@@ -54,6 +61,7 @@ private:
 
 	std::string filename;
 	ALuint id;
+	ALuint channels;
 	
 	typedef std::map<std::string, size_t> bufferMapT;
 	typedef std::vector< boost::shared_ptr<SoundBuffer> > bufferVecT;

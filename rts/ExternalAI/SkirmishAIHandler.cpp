@@ -1,37 +1,19 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-	@author	Robin Vobruba <hoijui.quaero@gmail.com>
-*/
-
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "SkirmishAIHandler.h"
 
-#include "Game/GameSetup.h"
-#include "System/NetProtocol.h"
-#include "System/GlobalUnsynced.h"
 #include "ExternalAI/SkirmishAIKey.h"
 #include "ExternalAI/IAILibraryManager.h"
 #include "ExternalAI/EngineOutHandler.h"
 #include "ExternalAI/LuaAIImplHandler.h"
 #include "ExternalAI/Interface/SSkirmishAILibrary.h"
-#include "Option.h"
+#include "Game/GameSetup.h"
+#include "Game/GlobalUnsynced.h"
+#include "System/NetProtocol.h"
+#include "System/Option.h"
 
-#include "creg/STL_Map.h"
-#include "creg/STL_Set.h"
+#include "System/creg/STL_Map.h"
+#include "System/creg/STL_Set.h"
 
 #include <assert.h>
 
@@ -48,19 +30,14 @@ CR_REG_METADATA(CSkirmishAIHandler, (
 ));
 
 
-CSkirmishAIHandler* CSkirmishAIHandler::mySingleton = NULL;
-
-CSkirmishAIHandler& CSkirmishAIHandler::GetInstance() {
-
-	if (mySingleton == NULL) {
-		mySingleton = new CSkirmishAIHandler();
-	}
-
-	return *mySingleton;
+CSkirmishAIHandler& CSkirmishAIHandler::GetInstance()
+{
+	static CSkirmishAIHandler mySingleton;
+	return mySingleton;
 }
 
 CSkirmishAIHandler::CSkirmishAIHandler():
-	gameInitialized(false)
+	gameInitialized(false), currentAIId(MAX_AIS)
 {
 }
 
@@ -89,7 +66,8 @@ void CSkirmishAIHandler::LoadPreGame() {
 		for (std::vector<InfoItem>::const_iterator info = impl->begin();
 				info != impl->end(); ++info) {
 			if (info->key == SKIRMISH_AI_PROPERTY_SHORT_NAME) {
-				luaAIShortNames.insert(info->value);
+				assert(info->valueType == INFO_VALUE_TYPE_STRING);
+				luaAIShortNames.insert(info->valueTypeString);
 			}
 		}
 	}
@@ -296,7 +274,6 @@ void CSkirmishAIHandler::CompleteWithDefaultOptionValues(const size_t skirmishAI
 
 	if (gameInitialized && IsLocalSkirmishAI(skirmishAIId)) {
 		IAILibraryManager* aiLibMan = IAILibraryManager::GetInstance();
-		//std::map<const SkirmishAIKey, CSkirmishAILibraryInfo*>
 		const IAILibraryManager::T_skirmishAIInfos& aiInfos = aiLibMan->GetSkirmishAIInfos();
 		const SkirmishAIKey* aiKey = GetLocalSkirmishAILibraryKey(skirmishAIId);
 		if (aiKey != NULL) {

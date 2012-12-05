@@ -1,27 +1,27 @@
-/* Author: Tobi Vollebregt */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 /* based on original los code in LosHandler.{cpp,h} and RadarHandler.{cpp,h} */
 
-#ifndef LOSMAP_H
-#define LOSMAP_H
+#ifndef LOS_MAP_H
+#define LOS_MAP_H
 
 #include <vector>
-#include "Vec2.h"
-
+#include "System/Vec2.h"
 
 /// map containing counts of how many units have Line Of Sight (LOS) to each square
 class CLosMap
 {
 public:
-	CLosMap() : size(0, 0) {}
+	CLosMap() : size(0, 0), sendReadmapEvents(false) {}
 
-	void SetSize(int2 size);
-	void SetSize(int w, int h) { SetSize(int2(w, h)); }
+	void SetSize(int2 size, bool sendReadmapEvents);
+	void SetSize(int w, int h, bool sendReadmapEvents) { SetSize(int2(w, h), sendReadmapEvents); }
 
 	/// circular area, for airLosMap, circular radar maps, jammer maps, ...
-	void AddMapArea(int2 pos, int radius, int amount);
+	void AddMapArea(int2 pos, int allyteam, int radius, int amount);
 
 	/// arbitrary area, for losMap, non-circular radar maps, ...
-	void AddMapSquares(const std::vector<int>& squares, int amount);
+	void AddMapSquares(const std::vector<int>& squares, int allyteam, int amount);
 
 	int operator[] (int square) const { return map[square]; }
 
@@ -31,13 +31,13 @@ public:
 		return map[y * size.x + x];
 	}
 
-	// temp fix for CBaseGroundDrawer and AI interface, which need raw data
+	// FIXME temp fix for CBaseGroundDrawer and AI interface, which need raw data
 	unsigned short& front() { return map.front(); }
 
 protected:
-
 	int2 size;
 	std::vector<unsigned short> map;
+	bool sendReadmapEvents;
 };
 
 
@@ -60,4 +60,4 @@ private:
 	const float* const heightmap;
 };
 
-#endif
+#endif // LOS_MAP_H

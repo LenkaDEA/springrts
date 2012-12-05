@@ -1,22 +1,11 @@
-/*
-	Copyright (c) 2009 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #if defined _WIN32
 
 #include "JvmLocater_common.h"
+
+#include "System/maindefines.h"
+#include "System/SafeCStrings.h"
 
 #include <windows.h>
 #include <wtypes.h>
@@ -89,16 +78,16 @@ bool GetJREPathFromBase(char* path, size_t pathSize, const char* basePath,
 	if (basePath != NULL) {
 	//if (GetApplicationHome(path, pathSize)) {
 		// Is basePath a JRE path?
-		STRCPYS(jrePath, MAXPATHLEN, basePath);
+		STRCPY_T(jrePath, MAXPATHLEN, basePath);
 		if (CheckIfJREPath(jrePath, arch)) {
-			STRCPYS(path, pathSize, basePath);
+			STRCPY_T(path, pathSize, basePath);
 			found = true;
 		}
 
 		// Is basePath/jre a JRE path?
-		STRCATS(jrePath, MAXPATHLEN, "\\jre");
+		STRCAT_T(jrePath, MAXPATHLEN, "\\jre");
 		if (CheckIfJREPath(jrePath, arch)) {
-			STRCPYS(path, pathSize, jrePath);
+			STRCPY_T(path, pathSize, jrePath);
 			found = true;
 		}
 	}

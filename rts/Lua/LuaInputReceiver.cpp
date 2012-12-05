@@ -1,14 +1,12 @@
-#include "StdAfx.h"
-// LuaInputReceiver.cpp: implementation of the LuaInputReceiver class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 
 #include <string>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaInputReceiver.h"
-#include "EventHandler.h"
+#include "System/EventHandler.h"
 
 
 LuaInputReceiver* luaInputReceiver = NULL;

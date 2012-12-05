@@ -1,10 +1,15 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef GROUNDMOVETYPE_H
 #define GROUNDMOVETYPE_H
 
 #include "MoveType.h"
 #include "Sim/Objects/SolidObject.h"
 
-struct MoveData;
+struct UnitDef;
+struct MoveDef;
+class CMoveMath;
+class IPathController;
 
 class CGroundMoveType : public AMoveType
 {
@@ -12,29 +17,104 @@ class CGroundMoveType : public AMoveType
 
 public:
 	CGroundMoveType(CUnit* owner);
-	~CGroundMoveType(void);
+	~CGroundMoveType();
 
 	void PostLoad();
 
-	void Update();
+	bool Update();
 	void SlowUpdate();
-
-	void SetDeltaSpeed(bool);
 
 	void StartMoving(float3 pos, float goalRadius);
 	void StartMoving(float3 pos, float goalRadius, float speed);
 	void StopMoving();
 
-	virtual void SetMaxSpeed(float speed);
-
-	void ImpulseAdded(void);
-
 	void KeepPointingTo(float3 pos, float distance, bool aggressive);
 	void KeepPointingTo(CUnit* unit, float distance, bool aggressive);
 
-	bool OnSlope(void);
+	void TestNewTerrainSquare();
+	void ImpulseAdded(const float3&);
+	void LeaveTransport();
 
-	float baseTurnRate;
+	void StartSkidding() { skidding = true; }
+	void StartFlying() { skidding = true; flying = true; } // flying requires skidding
+
+	bool OnSlope(float minSlideTolerance);
+	bool IsSkidding() const { return skidding; }
+	bool IsFlying() const { return flying; }
+	bool IsReversing() const { return reversing; }
+
+	static void CreateLineTable();
+	static void DeleteLineTable();
+
+private:
+	float3 ObstacleAvoidance(const float3& desiredDir);
+	float Distance2D(CSolidObject* object1, CSolidObject* object2, float marginal = 0.0f);
+
+	void GetNewPath();
+	void GetNextWayPoint();
+	bool CanGetNextWayPoint();
+
+	float BrakingDistance(float speed) const;
+	float3 Here();
+
+	void StartEngine();
+	void StopEngine();
+
+	void Arrived();
+	void Fail();
+
+	void HandleObjectCollisions();
+	void HandleStaticObjectCollisionYM(
+		CUnit* collider,
+		CSolidObject* collidee,
+		const MoveDef* colliderMD,
+		const CMoveMath* colliderMM,
+		bool repath);
+	void HandleStaticObjectCollision(
+		CUnit* collider,
+		CSolidObject* collidee,
+		const MoveDef* colliderMD,
+		const CMoveMath* colliderMM,
+		const float3& collisionImpulse,
+		bool repath);
+
+	void HandleUnitCollisions(
+		CUnit* collider,
+		const float colliderSpeed,
+		const float colliderRadius,
+		const float3& sepDirMask,
+		const UnitDef* colliderUD,
+		const MoveDef* colliderMD,
+		const CMoveMath* colliderMM);
+	void HandleFeatureCollisions(
+		CUnit* collider,
+		const float colliderSpeed,
+		const float colliderRadius,
+		const float3& sepDirMask,
+		const UnitDef* colliderUD,
+		const MoveDef* colliderMD,
+		const CMoveMath* colliderMM);
+
+	void SetMainHeading();
+	void ChangeSpeed(float, bool, bool = false);
+	void ChangeHeading(short newHeading);
+
+	void UpdateSkid();
+	void UpdateControlledDrop();
+	void CheckCollisionSkid();
+	void CalcSkidRot();
+
+	float GetGroundHeight(const float3&) const;
+	void AdjustPosToWaterLine();
+	bool UpdateDirectControl();
+	void UpdateOwnerPos(bool);
+	bool FollowPath();
+	bool WantReverse(const float3&) const;
+
+private:
+	IPathController* pathController;
+
+public:
 	float turnRate;
 	float accRate;
 	float decRate;
@@ -43,123 +123,55 @@ public:
 	float wantedSpeed;
 	float currentSpeed;
 	float deltaSpeed;
-	short int deltaHeading;
-
-	float3 oldPos;
-	float3 oldSlowUpdatePos;
-	float3 flatFrontDir;
 
 	unsigned int pathId;
 	float goalRadius;
 
-	SyncedFloat3 waypoint;
-	SyncedFloat3 nextWaypoint;
-	/// by this time it really should have gotten there genereate new path otherwise
-	int etaWaypoint;
-	/// by this time we get suspicious, check if goal is clogged if we are close
-	int etaWaypoint2;
+	SyncedFloat3 currWayPoint;
+	SyncedFloat3 nextWayPoint;
+
+private:
 	bool atGoal;
-	bool haveFinalWaypoint;
-	float terrainSpeed;
+	bool atEndOfPath;
 
-	float requestedSpeed;
-	short requestedTurnRate;
-
-	float currentDistanceToWaypoint;
-
-	float3 avoidanceVec;
-
-	unsigned int restartDelay;
-	float3 lastGetPathPos;
-
-	unsigned int pathFailures;
-	/// how many times we havent gotten to a waypoint in time
-	unsigned int etaFailures;
-	/// how many times we have requested a path from the same place
-	unsigned int nonMovingFailures;
-
-	bool floatOnWater;
-
-	int moveSquareX;
-	int moveSquareY;
-protected:
-	int nextDeltaSpeedUpdate;
-	int nextObstacleAvoidanceUpdate;
-
-	int lastTrackUpdate;
-
-	float3 ObstacleAvoidance(float3 desiredDir);
-	float Distance2D(CSolidObject *object1, CSolidObject *object2, float marginal = 0.0f);
-
-	void GetNewPath();
-	void GetNextWaypoint();
-
-	float BreakingDistance(float speed);
-	float3 Here();
-
-	float MinDistanceToWaypoint();
-	float MaxDistanceToWaypoint();
-
-	void StartEngine();
-	void StopEngine();
-
-	void Arrived();
-	void Fail();
-	void CheckCollision(void);
-
-	void ChangeHeading(short wantedHeading);
-
-	void UpdateSkid(void);
-	void UpdateControlledDrop(void);
-	void CheckCollisionSkid(void);
-	float GetFlyTime(float3 pos, float3 speed);
-	void CalcSkidRot(void);
-
-	void AdjustPosToWaterLine();
-	bool UpdateDirectControl();
-	void UpdateOwnerPos(bool);
-	bool WantReverse(const float3&) const;
-
-	unsigned int lastHeatRequestFrame;
-	unsigned int RequestPath(float3 startPos, float3 goalPos, float goalRadius = 8);
-	void UpdateHeatMap();
+	float currWayPointDist;
+	float prevWayPointDist;
 
 	bool skidding;
 	bool flying;
 	bool reversing;
-	float skidRotSpeed;
-	float dropSpeed;
-	float dropHeight;
+	bool idling;
+	bool canReverse;
+	bool useMainHeading;
 
-	float3 skidRotVector;
-	float skidRotSpeed2;
-	float skidRotPos2;
+	float3 skidRotVector;  /// vector orthogonal to skidDir
+	float skidRotSpeed;    /// rotational speed when skidding (radians / (GAME_SPEED frames))
+	float skidRotAccel;    /// rotational acceleration when skidding (radians / (GAME_SPEED frames^2))
+
 	CSolidObject::PhysicalState oldPhysState;
 
-	bool CheckColH(int x, int y1, int y2, float xmove, int squareTestX);
-	bool CheckColV(int y, int x1, int x2, float zmove, int squareTestY);
-
-	static std::vector<int2> (*lineTable)[11];
-
+	float3 waypointDir;
+	float3 flatFrontDir;
+	float3 lastAvoidanceDir;
 	float3 mainHeadingPos;
-	bool useMainHeading;
-	void SetMainHeading();
 
-public:
-	static void CreateLineTable(void);
-	static void DeleteLineTable(void);
-	void TestNewTerrainSquare(void);
-	bool CheckGoalFeasability(void);
-	virtual void LeaveTransport(void);
+	// number of grid-cells along each dimension; should be an odd number
+	static const int LINETABLE_SIZE = 11;
+	static std::vector<int2> lineTable[LINETABLE_SIZE][LINETABLE_SIZE];
 
-	void StartSkidding(void);
-	void StartFlying(void);
+	unsigned int nextObstacleAvoidanceUpdate;
+	unsigned int pathRequestDelay;
 
-	bool IsSkidding() const { return skidding; }
-	bool IsFlying() const { return flying; }
-	bool IsReversing() const { return reversing; }
+	/// {in, de}creased every Update if idling is true/false and pathId != 0
+	unsigned int numIdlingUpdates;
+	/// {in, de}creased every SlowUpdate if idling is true/false and pathId != 0
+	unsigned int numIdlingSlowUpdates;
+
+	int moveSquareX;
+	int moveSquareY;
+
+	short wantedHeading;
 };
 
-
-
 #endif // GROUNDMOVETYPE_H
+

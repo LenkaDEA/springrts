@@ -1,53 +1,55 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-// The structs in this files relate to *Info.lua files
-// They are used for AIs (-> AIInfo.lua) for example;
-// This file is used (at least) by unitsync and the engine
+// The structs in this file relate to *Info.lua files.
+// They are used for AIs (-> AIInfo.lua) for example.
+// This file is used (at least) by unitsync and the engine.
 
 #ifndef _INFO_H
 #define _INFO_H
 
 #include "System/FileSystem/VFSModes.h"
-#include "LogOutput.h"
 
 #include <string>
 #include <vector>
 #include <set>
 
-struct InfoItem {
-	std::string key;
-	std::string value;
-	std::string desc;
+enum InfoValueType {
+	INFO_VALUE_TYPE_STRING,
+	INFO_VALUE_TYPE_INTEGER,
+	INFO_VALUE_TYPE_FLOAT,
+	INFO_VALUE_TYPE_BOOL,
 };
 
-void parseInfo(
+struct InfoItem {
+	std::string key;
+	std::string desc;
+	InfoValueType valueType;
+	union Value {
+		int            typeInteger;
+		float          typeFloat;
+		bool           typeBool;
+	} value;
+	/** It is not possible to use a type with destructor in a union */
+	std::string valueTypeString;
+};
+
+std::string info_getValueAsString(const InfoItem* infoItem);
+
+void info_convertToStringValue(InfoItem* infoItem);
+
+const char* info_convertTypeToString(InfoValueType infoValueType);
+
+void info_parseInfo(
 		std::vector<InfoItem>& options,
 		const std::string& fileName,
 		const std::string& fileModes = SPRING_VFS_RAW,
 		const std::string& accessModes = SPRING_VFS_RAW,
-		std::set<std::string>* infoSet = NULL,
-		CLogSubsystem* logSubsystem = &(CLogOutput::GetDefaultLogSubsystem()));
+		std::set<std::string>* infoSet = NULL);
 
-std::vector<InfoItem> parseInfo(
+std::vector<InfoItem> info_parseInfo(
 		const std::string& fileName,
 		const std::string& fileModes = SPRING_VFS_RAW,
 		const std::string& accessModes = SPRING_VFS_RAW,
-		std::set<std::string>* infoSet = NULL,
-		CLogSubsystem* logSubsystem = &(CLogOutput::GetDefaultLogSubsystem()));
+		std::set<std::string>* infoSet = NULL);
 
 #endif // _INFO_H

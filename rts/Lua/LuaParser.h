@@ -1,24 +1,25 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_PARSER_H
 #define LUA_PARSER_H
-// LuaParser.h: interface for the LuaParser class.
-//
-//////////////////////////////////////////////////////////////////////
+
+#include "System/FileSystem/VFSModes.h"
 
 #include <string>
 #include <vector>
 #include <map>
 #include <set>
+
+class float3;
+struct float4;
+class LuaTable;
+class LuaParser;
+struct lua_State;
+
 using std::string;
 using std::vector;
 using std::map;
 using std::set;
-
-#include "FileSystem/VFSModes.h"
-
-class float3;
-class LuaTable;
-class LuaParser;
-struct lua_State;
 
 
 /******************************************************************************/
@@ -56,14 +57,22 @@ class LuaTable {
 		bool KeyExists(int key) const;
 		bool KeyExists(const string& key) const;
 
-		int GetType(int key) const;
-		int GetType(const string& key) const;
+		enum DataType {
+			NIL     = -1,
+			NUMBER  = 1,
+			STRING  = 2,
+			BOOLEAN = 3,
+			TABLE   = 4
+		};
+		DataType GetType(int key) const;
+		DataType GetType(const string& key) const;
 
 		// numeric keys
 		int    GetInt(int key, int def) const;
 		bool   GetBool(int key, bool def) const;
 		float  GetFloat(int key, float def) const;
 		float3 GetFloat3(int key, const float3& def) const;
+		float4 GetFloat4(int key, const float4& def) const;
 		string GetString(int key, const string& def) const;
 
 		// string keys  (always lowercase)
@@ -71,22 +80,8 @@ class LuaTable {
 		bool   GetBool(const string& key, bool def) const;
 		float  GetFloat(const string& key, float def) const;
 		float3 GetFloat3(const string& key, const float3& def) const;
+		float4 GetFloat4(const string& key, const float4& def) const;
 		string GetString(const string& key, const string& def) const;
-
-		/* not having these makes for better code, imo
-		LuaTable operator[](int key)           const { return SubTable(key); }
-		LuaTable operator[](const string& key) const { return SubTable(key); }
-		int    operator()(int key, int def)           const { return GetInt(key, def);    }
-		bool   operator()(int key, bool def)          const { return GetBool(key, def);   }
-		float  operator()(int key, float def)         const { return GetFloat(key, def);  }
-		float3 operator()(int key, const float3& def) const { return GetFloat3(key, def); }
-		string operator()(int key, const string& def) const { return GetString(key, def); }
-		int    operator()(const string& key, int def)           const { return GetInt(key, def);    }
-		bool   operator()(const string& key, bool def)          const { return GetBool(key, def);   }
-		float  operator()(const string& key, float def)         const { return GetFloat(key, def);  }
-		float3 operator()(const string& key, const float3& def) const { return GetFloat3(key, def); }
-		string operator()(const string& key, const string& def) const { return GetString(key, def); }
-		*/
 
 	private:
 		LuaTable(LuaParser* parser); // for LuaParser::GetRoot()
@@ -184,7 +179,6 @@ class LuaParser {
 		static int DontMessWithMyCase(lua_State* L);
 
 		// Spring call-outs
-		static int Echo(lua_State* L);
 		static int TimeCheck(lua_State* L);
 
 		// VFS call-outs

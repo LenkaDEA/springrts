@@ -1,5 +1,5 @@
 // GML - OpenGL Multithreading Library
-// for Spring http://spring.clan-sy.com
+// for Spring http://springrts.com
 // Author: Mattias "zerver" Radeskog
 // (C) Ware Zerver Tech. http://zerver.net
 // Ware Zerver Tech. licenses this library
@@ -14,22 +14,49 @@
 #error USE_GML_SIM requires USE_GML
 #endif
 
-#define GML_MUTEX_PROFILER 0 // enables profiler
+#include "gmlcnf.h"
+
+#define GML_MUTEX_PROFILER 0 // enables mutex profiler
 
 #ifdef USE_GML
+
+extern bool gmlShareLists; // use glShareLists to allow certain opengl calls in sim and rendering helper threads, unfortunately this may reduce the FPS a bit
+extern int gmlMaxServerThreadNum;
+extern int gmlMaxShareThreadNum;
+extern int gmlNoGLThreadNum;
+extern volatile bool gmlMultiThreadSim;
+extern volatile bool gmlStartSim;
+extern volatile bool gmlKeepRunning;
+
 #define GML_MUTEX_PROFILE 0 // detailed profiling of specific mutex
 extern const char *gmlProfMutex;
+#define GML_PROC_PROFILER 0 // enables gmlprocessor profiler
 
 #include <set>
 #include <map>
 
+#include <GL/glew.h>
 #include "gmlcls.h"
+#include "gmlque.h"
 
 extern gmlQueue gmlQueues[GML_MAX_NUM_THREADS];
 
 #include "gmlfun.h"
 
-extern boost::thread *gmlThreads[GML_MAX_NUM_THREADS];
+extern lua_State *gmlLuaUIState;
+extern bool gmlCheckCallChain;
+extern int gmlCallChainWarning;
+
+#if GML_PROC_PROFILER
+	extern int gmlProcNumLoop;
+	extern int gmlProcInterval;
+	#define GML_PROFILER(name) \
+	name && (globalRendering->drawFrame & gmlProcInterval);\
+	SCOPED_TIMER(!name ? "NoProc" : ((name && (globalRendering->drawFrame & gmlProcInterval)) ? " " GML_QUOTE(name) "MTProc" : " " GML_QUOTE(name) "Proc"));\
+	for(int i = 0; i < (name ? gmlProcNumLoop : 1); ++i)
+#else
+	#define GML_PROFILER(name) name;
+#endif
 
 extern gmlSingleItemServer<GLhandleARB, GLhandleARB (*)(void)> gmlShaderServer_VERTEX;
 extern gmlSingleItemServer<GLhandleARB, GLhandleARB (*)(void)> gmlShaderServer_FRAGMENT;
@@ -72,7 +99,7 @@ extern void gmlInit();
 
 #define GML_IF_NONCLIENT_THREAD(name,...)\
 	int threadnum = gmlThreadNumber;\
-	GML_IF_SERVER_THREAD(threadnum) {\
+	GML_IF_SHARE_THREAD(threadnum) {\
 		name(__VA_ARGS__);\
 		return;\
 	}\
@@ -80,20 +107,20 @@ extern void gmlInit();
 
 #define GML_IF_NONCLIENT_THREAD_RET(ret,name,...)\
 	int threadnum = gmlThreadNumber;\
-	GML_IF_SERVER_THREAD(threadnum) {\
+	GML_IF_SHARE_THREAD(threadnum) {\
 		return name(__VA_ARGS__);\
 	}\
 	GML_ITEMSERVER_CHECK_RET(threadnum,ret);
 
-EXTERN inline GLhandleARB gmlCreateProgram() {
+EXTERN inline GLhandleARB GML_GLAPIENTRY gmlCreateProgram() {
 	GML_IF_NONCLIENT_THREAD_RET(GLhandleARB,glCreateProgram);
 	return gmlProgramServer.GetItems();
 }
-EXTERN inline GLhandleARB gmlCreateProgramObjectARB() {
+EXTERN inline GLhandleARB GML_GLAPIENTRY gmlCreateProgramObjectARB() {
 	GML_IF_NONCLIENT_THREAD_RET(GLhandleARB,glCreateProgramObjectARB);
 	return gmlProgramObjectARBServer.GetItems();
 }
-EXTERN inline GLhandleARB gmlCreateShader(GLenum type) {
+EXTERN inline GLhandleARB GML_GLAPIENTRY gmlCreateShader(GLenum type) {
 	GML_IF_NONCLIENT_THREAD_RET(GLhandleARB,glCreateShader,type);
 	if(type==GL_VERTEX_SHADER)
 		return gmlShaderServer_VERTEX.GetItems();
@@ -103,7 +130,7 @@ EXTERN inline GLhandleARB gmlCreateShader(GLenum type) {
 		return gmlShaderServer_GEOMETRY_EXT.GetItems();
 	return 0;
 }
-EXTERN inline GLhandleARB gmlCreateShaderObjectARB(GLenum type) {
+EXTERN inline GLhandleARB GML_GLAPIENTRY gmlCreateShaderObjectARB(GLenum type) {
 	GML_IF_NONCLIENT_THREAD_RET(GLhandleARB,glCreateShaderObjectARB,type);
 	if(type==GL_VERTEX_SHADER_ARB)
 		return gmlShaderObjectARBServer_VERTEX.GetItems();
@@ -113,45 +140,45 @@ EXTERN inline GLhandleARB gmlCreateShaderObjectARB(GLenum type) {
 		return gmlShaderObjectARBServer_GEOMETRY_EXT.GetItems();
 	return 0;
 }
-EXTERN inline GLUquadric *gmluNewQuadric() {
+EXTERN inline GLUquadric *GML_GLAPIENTRY gmluNewQuadric() {
 	GML_IF_NONCLIENT_THREAD_RET(GLUquadric *,gluNewQuadric);
 	return gmlQuadricServer.GetItems();
 }
 
-EXTERN inline void gmlGenTextures(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenTextures(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenTextures,n,items);
 	gmlTextureServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenBuffersARB(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenBuffersARB(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenBuffersARB,n,items);
 	gmlBufferARBServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenFencesNV(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenFencesNV(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenFencesNV,n,items);
 	gmlFencesNVServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenProgramsARB(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenProgramsARB(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenProgramsARB,n,items);
 	gmlProgramsARBServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenRenderbuffersEXT(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenRenderbuffersEXT(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenRenderbuffersEXT,n,items);
 	gmlRenderbuffersEXTServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenFramebuffersEXT(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenFramebuffersEXT(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenFramebuffersEXT,n,items);
 	gmlFramebuffersEXTServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenQueries(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenQueries(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenQueries,n,items);
 	gmlQueryServer.GetItems(n, items);
 }
-EXTERN inline void gmlGenBuffers(GLsizei n, GLuint *items) {
+EXTERN inline void GML_GLAPIENTRY gmlGenBuffers(GLsizei n, GLuint *items) {
 	GML_IF_NONCLIENT_THREAD(glGenBuffers,n,items);
 	gmlBufferServer.GetItems(n, items);
 }
 
-EXTERN inline GLuint gmlGenLists(GLsizei items) {
+EXTERN inline GLuint GML_GLAPIENTRY gmlGenLists(GLsizei items) {
 	GML_IF_NONCLIENT_THREAD_RET(GLuint,glGenLists,items);
 	return gmlListServer.GetItems(items);
 }
@@ -162,79 +189,9 @@ EXTERN inline GLuint gmlGenLists(GLsizei items) {
 #define GML_VECTOR gmlVector
 #define GML_CLASSVECTOR gmlClassVector
 
+#include "gmlmut.h"
+
 #if GML_ENABLE_SIM
-#include <boost/thread/mutex.hpp>
-extern boost::mutex caimutex;
-extern boost::mutex decalmutex;
-extern boost::mutex treemutex;
-extern boost::mutex modelmutex;
-extern boost::mutex texmutex;
-extern boost::mutex mapmutex;
-extern boost::mutex inmapmutex;
-extern boost::mutex tempmutex;
-extern boost::mutex posmutex;
-extern boost::mutex runitmutex;
-extern boost::mutex simmutex;
-extern boost::mutex netmutex;
-extern boost::mutex histmutex;
-extern boost::mutex logmutex;
-extern boost::mutex timemutex;
-extern boost::mutex watermutex;
-extern boost::mutex dquemutex;
-extern boost::mutex scarmutex;
-extern boost::mutex trackmutex;
-extern boost::mutex projmutex;
-extern boost::mutex rprojmutex;
-extern boost::mutex rflashmutex;
-extern boost::mutex rpiecemutex;
-extern boost::mutex rfeatmutex;
-
-#include <boost/thread/recursive_mutex.hpp>
-extern boost::recursive_mutex unitmutex;
-extern boost::recursive_mutex quadmutex;
-extern boost::recursive_mutex selmutex;
-extern boost::recursive_mutex &luamutex;
-extern boost::recursive_mutex featmutex;
-extern boost::recursive_mutex grassmutex;
-extern boost::recursive_mutex &guimutex;
-extern boost::recursive_mutex filemutex;
-extern boost::recursive_mutex &qnummutex;
-extern boost::recursive_mutex &groupmutex;
-extern boost::recursive_mutex &grpselmutex;
-
-#if GML_MUTEX_PROFILER
-#	include "System/TimeProfiler.h"
-#	if GML_MUTEX_PROFILE
-#		ifdef _DEBUG
-#			define GML_MTXCMP(a,b) !strcmp(a,b) // comparison of static strings using addresses may not work in debug mode
-#		else
-#			define GML_MTXCMP(a,b) (a==b)
-#		endif
-#		define GML_LINEMUTEX_LOCK(name, type, line)\
-			char st##name[sizeof(ScopedTimer)];\
-			int stc##name=GML_MTXCMP(GML_QUOTE(name),gmlProfMutex);\
-			if(stc##name)\
-				new (st##name) ScopedTimer(GML_QUOTE(name ## line ## Mutex));\
-			boost::type::scoped_lock name##lock(name##mutex);\
-			if(stc##name)\
-				((ScopedTimer *)st##name)->~ScopedTimer()
-#		define GML_PROFMUTEX_LOCK(name, type, line) GML_LINEMUTEX_LOCK(name, type, line)
-#		define GML_STDMUTEX_LOCK(name) GML_PROFMUTEX_LOCK(name, mutex, __LINE__)
-#		define GML_RECMUTEX_LOCK(name) GML_PROFMUTEX_LOCK(name, recursive_mutex, __LINE__)
-#	else
-#		define GML_PROFMUTEX_LOCK(name, type)\
-			char st##name[sizeof(ScopedTimer)];\
-			new (st##name) ScopedTimer(GML_QUOTE(name##Mutex));\
-			boost::type::scoped_lock name##lock(name##mutex);\
-			((ScopedTimer *)st##name)->~ScopedTimer()
-#		define GML_STDMUTEX_LOCK(name) GML_PROFMUTEX_LOCK(name, mutex)
-#		define GML_RECMUTEX_LOCK(name) GML_PROFMUTEX_LOCK(name, recursive_mutex)
-#	endif
-#else
-#	define GML_STDMUTEX_LOCK(name) boost::mutex::scoped_lock name##lock(name##mutex)
-#	define GML_RECMUTEX_LOCK(name) boost::recursive_mutex::scoped_lock name##lock(name##mutex)
-#endif
-#define GML_STDMUTEX_LOCK_NOPROF(name) boost::mutex::scoped_lock name##lock(name##mutex)
 
 extern int gmlNextTickUpdate;
 extern unsigned gmlCurrentTicks;
@@ -254,47 +211,35 @@ inline unsigned gmlGetTicks() {
 
 #if GML_CALL_DEBUG
 #define GML_EXPGEN_CHECK() \
-	extern volatile int gmlMultiThreadSim, gmlStartSim;\
-	if(gmlThreadNumber!=gmlThreadCount && gmlMultiThreadSim && gmlStartSim) {\
-		logOutput.Print("GML error: Draw thread created ExpGenSpawnable (%s)", GML_CURRENT_LUA());\
-		if(gmlCurrentLuaState) luaL_error(gmlCurrentLuaState,"Invalid call");\
+	if(gmlThreadNumber != GML_SIM_THREAD_NUM && gmlMultiThreadSim && gmlStartSim) {\
+		lua_State *currentLuaState = gmlCurrentLuaStates[gmlThreadNumber];\
+		LOG_SL("GML", L_ERROR, "Draw thread created ExpGenSpawnable (%s)", GML_CURRENT_LUA(currentLuaState));\
+		if(currentLuaState) luaL_error(currentLuaState,"Invalid call");\
 	}
 #define GML_CALL_DEBUGGER() gmlCallDebugger gmlCDBG(L);
+#define GML_LOCK_TIME() (gmlCallDebugger::getLockTime())
 #else
 #define GML_EXPGEN_CHECK()
 #define GML_CALL_DEBUGGER()
+#define GML_LOCK_TIME() 0
 #endif
 
+#if GML_ENABLE_SIM
 #define GML_GET_TICKS(var) var=gmlGetTicks()
 #define GML_UPDATE_TICKS() gmlUpdateTicks()
-
-#define GML_PARG_H//, boost::recursive_mutex::scoped_lock *projlock = &boost::recursive_mutex::scoped_lock(projmutex)
-#define GML_PARG_C//, boost::recursive_mutex::scoped_lock *projlock
-#define GML_PARG_P//, projlock
-
-#define GML_FARG_H// , boost::recursive_mutex::scoped_lock *flashlock = &boost::recursive_mutex::scoped_lock(flashmutex)
-#define GML_FARG_C// , boost::recursive_mutex::scoped_lock *flashlock
-#define GML_FARG_P// , flashlock
+#else
+#define GML_GET_TICKS(var)
+#define GML_UPDATE_TICKS()
+#endif
 
 #else
-
-#define GML_STDMUTEX_LOCK(name)
-#define GML_RECMUTEX_LOCK(name)
-#define GML_STDMUTEX_LOCK_NOPROF(name)
 
 #define GML_GET_TICKS(var)
 #define GML_UPDATE_TICKS()
 
-#define GML_PARG_H
-#define GML_PARG_C
-#define GML_PARG_P
-
-#define GML_FARG_H
-#define GML_FARG_C
-#define GML_FARG_P
-
 #define GML_EXPGEN_CHECK()
 #define GML_CALL_DEBUGGER()
+#define GML_LOCK_TIME() 0
 
 #endif
 
@@ -305,27 +250,22 @@ inline unsigned gmlGetTicks() {
 
 #define GML_STDMUTEX_LOCK(name)
 #define GML_RECMUTEX_LOCK(name)
+#define GML_THRMUTEX_LOCK(name,thr)
+#define GML_OBJMUTEX_LOCK(name,thr,...)
 #define GML_STDMUTEX_LOCK_NOPROF(name)
+#define GML_MSTMUTEX_LOCK(name)
+#define GML_MSTMUTEX_DOLOCK(name)
+#define GML_MSTMUTEX_DOUNLOCK(name)
 
 #define GML_GET_TICKS(var)
 #define GML_UPDATE_TICKS()
 
-#define GML_PARG_H
-#define GML_PARG_C
-#define GML_PARG_P
-
-#define GML_FARG_H
-#define GML_FARG_C
-#define GML_FARG_P
-
 #define GML_EXPGEN_CHECK()
 #define GML_CALL_DEBUGGER()
+#define GML_LOCK_TIME() 0
 
 #endif // USE_GML
 
-#define glGenerateMipmapEXT_NONGML GLEW_GET_FUN(__glewGenerateMipmapEXT)
-#define glUseProgram_NONGML GLEW_GET_FUN(__glewUseProgram)
-#define glProgramParameteriEXT_NONGML GLEW_GET_FUN(__glewProgramParameteriEXT)
-#define glBlendEquation_NONGML GLEW_GET_FUN(__glewBlendEquation)
+#include "gml_base.h"
 
 #endif

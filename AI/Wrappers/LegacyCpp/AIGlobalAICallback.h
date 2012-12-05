@@ -1,26 +1,15 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
+#ifndef _AI_GLOBAL_AI_CALLBACK_H
+#define _AI_GLOBAL_AI_CALLBACK_H
 
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#ifndef _AIGLOBALAICALLBACK_H
-#define _AIGLOBALAICALLBACK_H
-
-#include "ExternalAI/IGlobalAICallback.h"
+#include "IGlobalAICallback.h"
 
 struct SSkirmishAICallback;
+
+
+namespace springLegacyAI {
+
 class CAIAICallback;
 class CAIAICheats;
 
@@ -30,17 +19,21 @@ class CAIAICheats;
 class CAIGlobalAICallback : public IGlobalAICallback {
 public:
 	CAIGlobalAICallback();
-	CAIGlobalAICallback(const SSkirmishAICallback* sAICallback, int teamId);
+	CAIGlobalAICallback(const SSkirmishAICallback* sAICallback, int skirmishAIId);
 	~CAIGlobalAICallback();
 
 	virtual IAICheats* GetCheatInterface();
 	virtual IAICallback* GetAICallback();
 
+	const SSkirmishAICallback* GetInnerCallback() const;
+
 private:
 	const SSkirmishAICallback* sAICallback;
-	int teamId;
+	int skirmishAIId;
 	CAIAICallback* wrappedAICallback;
 	CAIAICheats* wrappedAICheats;
 };
 
-#endif // _AIGLOBALAICALLBACK_H
+} // namespace springLegacyAI
+
+#endif // _AI_GLOBAL_AI_CALLBACK_H

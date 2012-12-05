@@ -1,73 +1,50 @@
-/**
- * @file float3.cpp
- * @brief float3 source
- *
- * Implementation of float3 class
- */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "float3.h"
-#include "Vec2.h"
-
-
-// TODO: this should go in Vec2.cpp if that is ever created
-CR_BIND(int2, );
-CR_REG_METADATA(int2, (CR_MEMBER(x), CR_MEMBER(y)));
-CR_BIND(float2, );
-CR_REG_METADATA(float2, (CR_MEMBER(x), CR_MEMBER(y)));
+#include "System/float3.h"
+#include "System/creg/creg_cond.h"
+#include "System/myMath.h"
 
 CR_BIND(float3, );
 CR_REG_METADATA(float3, (CR_MEMBER(x), CR_MEMBER(y), CR_MEMBER(z)));
 
-float float3::maxxpos = 2048.0f; /**< Maximum x position is 2048 */
-float float3::maxzpos = 2048.0f; /**< Maximum z position is 2048 */
+//! gets initialized later when the map is loaded
+float float3::maxxpos = -1.0f;
+float float3::maxzpos = -1.0f;
 
 #ifdef _MSC_VER
-const float float3::CMP_EPS = 1e-4f;
-const float float3::NORMALIZE_EPS = 1e-12f;
+	const float float3::CMP_EPS = 1e-4f;
+	const float float3::NORMALIZE_EPS = 1e-12f;
 #endif
 
 bool float3::IsInBounds() const
 {
+	assert(maxxpos > 0.0f); // check if initialized
+
 	return ((x >= 0.0f && x <= maxxpos) && (z >= 0.0f && z <= maxzpos));
 }
 
-/**
- * @return whether or not it's in bounds
- *
- * Tests whether this vector is in the
- * bounds of the maximum x and z positions.
- */
-bool float3::CheckInBounds()
+
+void float3::ClampInBounds()
 {
-	bool in = true;
+	assert(maxxpos > 0.0f); // check if initialized
 
-	if (x < 1.0f) {
-		x = 1.0f;
-		in = false;
-	}
-	if (z < 1.0f) {
-		z = 1.0f;
-		in = false;
-	}
-	if (x > maxxpos) {
-		x = maxxpos;
-		in = false;
-	}
-	if (z > maxzpos) {
-		z = maxzpos;
-		in = false;
-	}
-
-	return in;
+	x = Clamp(x, 0.0f, maxxpos);
+	z = Clamp(z, 0.0f, maxzpos);
 }
 
-SAIFloat3 float3::toSAIFloat3() const {
 
-	SAIFloat3 sAIFloat3;
+bool float3::IsInMap() const
+{
+	assert(maxxpos > 0.0f); // check if initialized
 
-	sAIFloat3.x = x;
-	sAIFloat3.y = y;
-	sAIFloat3.z = z;
+	return ((x >= 0.0f && x <= maxxpos + 1) && (z >= 0.0f && z <= maxzpos + 1));
+}
 
-	return  sAIFloat3;
+
+void float3::ClampInMap()
+{
+	assert(maxxpos > 0.0f); // check if initialized
+
+	x = Clamp(x, 0.0f, maxxpos + 1);
+	z = Clamp(z, 0.0f, maxzpos + 1);
 }

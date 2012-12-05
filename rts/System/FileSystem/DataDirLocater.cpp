@@ -1,12 +1,5 @@
-/**
- * @file DataDirLocater.cpp
- * @author Tobi Vollebregt
- *
- * Copyright (C) 2006-2008 Tobi Vollebregt
- * Licensed under the terms of the GNU GPL, v2 or later
- */
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "StdAfx.h"
 #include "DataDirLocater.h"
 
 #include <cstdlib>
@@ -19,299 +12,346 @@
 	#ifndef SHGFP_TYPE_CURRENT
 		#define SHGFP_TYPE_CURRENT 0
 	#endif
+#else
+	#include <wordexp.h>
 #endif
+
+#include "System/Platform/Win/win32.h"
 #include <sstream>
+#include <cassert>
 #include <string.h>
-#include "FileSystem/VFSHandler.h"
-#include "LogOutput.h"
-#include "ConfigHandler.h"
-#include "FileSystemHandler.h"
+
+#include "System/Log/ILog.h"
+#include "System/LogOutput.h"
+#include "System/Config/ConfigHandler.h"
 #include "FileSystem.h"
-#include "mmgr.h"
-#include "Exceptions.h"
-#include "maindefines.h" // for sPS, cPS, cPD
-#include "Platform/Misc.h"
+#include "CacheDir.h"
+#include "System/mmgr.h"
+#include "System/Exceptions.h"
+#include "System/maindefines.h" // for sPS, cPS, cPD
+#include "System/Platform/Misc.h"
 
-/**
- * @brief construct a data directory object
- *
- * Appends a slash to the end of the path if there isn't one already.
- */
-DataDir::DataDir(const std::string& p) : path(p), writable(false)
+CONFIG(std::string, SpringData).defaultValue("")
+		.description("List of addidional data-directories, separated by ';' on windows, ':' on other OSs")
+		.readOnly(true);
+
+
+DataDirLocater dataDirLocater;
+
+
+DataDir::DataDir(const std::string& path)
+	: path(path)
+	, writable(false)
 {
-	// sPS/cPS (depending on OS): "\\" & '\\' or "/" & '/'
+	FileSystem::EnsurePathSepAtEnd(this->path);
+}
 
-	// make sure the path ends with a (back-)slash
-	if (path.empty()) {
-		path = "."sPS;
-	} else if (path[path.size() - 1] != cPS) {
-		path += cPS;
+DataDirLocater::DataDirLocater()
+	: isolationMode(false)
+	, writeDir(NULL)
+{
+	UpdateIsolationModeByEnvVar();
+}
+
+
+void DataDirLocater::UpdateIsolationModeByEnvVar()
+{
+	isolationMode = false;
+	isolationModeDir = "";
+
+	const char* const envIsolation = getenv("SPRING_ISOLATED");
+	if (envIsolation != NULL) {
+		isolationMode = true;
+		if (FileSystem::DirExists(SubstEnvVars(envIsolation))) {
+			isolationModeDir = envIsolation;
+		}
 	}
 }
 
-/**
- * @brief construct a data directory locater
- *
- * Does not locate data directories, use LocateDataDirs() for that.
- */
-DataDirLocater::DataDirLocater() : writedir(NULL)
-{
+const std::vector<DataDir>& DataDirLocater::GetDataDirs() const {
+
+	assert(!dataDirs.empty());
+	return dataDirs;
 }
 
-/**
- * @brief substitute environment variables with their values
- */
 std::string DataDirLocater::SubstEnvVars(const std::string& in) const
 {
-	bool escape = false;
-	std::ostringstream out;
-	for (std::string::const_iterator ch = in.begin(); ch != in.end(); ++ch) {
-		if (escape) {
-			escape = false;
-			out << *ch;
-		} else {
-			switch (*ch) {
-#ifndef _WIN32
-				case '\\': {
-					escape = true;
-					break;
-				}
-#endif
-				case '$': {
-					std::ostringstream envvar;
-					for (++ch; ch != in.end() && (isalnum(*ch) || *ch == '_'); ++ch)
-						envvar << *ch;
-					--ch;
-					char* subst = getenv(envvar.str().c_str());
-					if (subst && *subst)
-						out << subst;
-					break;
-				}
-				default: {
-					out << *ch;
-					break;
-				}
-			}
-		}
+	std::string out;
+#ifdef _WIN32
+	const size_t maxSize = 32 * 1024;
+	char out_c[maxSize];
+	ExpandEnvironmentStrings(in.c_str(), out_c, maxSize); // expands %HOME% etc.
+	out = out_c;
+#else
+	wordexp_t pwordexp;
+	wordexp(in.c_str(), &pwordexp, WRDE_NOCMD); // expands $FOO, ${FOO}, ~/, etc.
+	if (pwordexp.we_wordc > 0) {
+		out = pwordexp.we_wordv[0];
 	}
-	return out.str();
+	wordfree(&pwordexp);
+#endif
+	return out;
 }
 
-/**
- * @brief Adds the directories in the colon separated string to the datadir handler.
- */
-void DataDirLocater::AddDirs(const std::string& in)
+void DataDirLocater::AddDirs(const std::string& dirs)
 {
-	size_t prev_colon = 0, colon;
-	while ((colon = in.find(cPD, prev_colon)) != std::string::npos) { // cPD (depending on OS): ';' or ':'
-		const std::string newPath = in.substr(prev_colon, colon - prev_colon);
-		if (!newPath.empty())
-		{
-			datadirs.push_back(newPath);
-#ifdef DEBUG
-			logOutput.Print("Adding %s to directories" , newPath.c_str());
-#endif
-		}
+	size_t prev_colon = 0;
+	size_t colon;
+	while ((colon = dirs.find(cPD, prev_colon)) != std::string::npos) { // cPD (depending on OS): ';' or ':'
+		AddDir(dirs.substr(prev_colon, colon - prev_colon));
 		prev_colon = colon + 1;
 	}
-	const std::string newPath = in.substr(prev_colon);
-	if (!newPath.empty())
-	{
-		datadirs.push_back(newPath);
-#ifdef DEBUG
-		logOutput.Print("Adding %s to directories" , newPath.c_str());
-#endif
+	AddDir(dirs.substr(prev_colon));
+}
+
+void DataDirLocater::AddDir(const std::string& dir)
+{
+	if (!dir.empty()) {
+		// to make use of ensure-slash-at-end,
+		// we create a DataDir here already
+		const DataDir newDataDir(dir);
+		bool alreadyAdded = false;
+
+		std::vector<DataDir>::const_iterator ddi;
+		for (ddi = dataDirs.begin(); ddi != dataDirs.end(); ++ddi) {
+			if (newDataDir.path == ddi->path) {
+				alreadyAdded = true;
+				break;
+			}
+		}
+
+		if (!alreadyAdded) {
+			dataDirs.push_back(newDataDir);
+			LOG_L(L_DEBUG, "Adding %s to directories", newDataDir.path.c_str());
+		} else {
+			LOG_L(L_DEBUG, "Skipping already added directory %s", newDataDir.path.c_str());
+		}
 	}
 }
 
-/**
- * @brief Figure out permissions we have for a single data directory d.
- * @returns whether we have permissions to read the data directory.
- */
-bool DataDirLocater::DeterminePermissions(DataDir* d)
+bool DataDirLocater::DeterminePermissions(DataDir* dataDir)
 {
 #ifndef _WIN32
-	if (d->path.c_str()[0] != '/' || d->path.find("..") != std::string::npos)
+	if ((dataDir->path.c_str()[0] != '/') || (dataDir->path.find("..") != std::string::npos))
 #else
-	if (d->path.find("..") != std::string::npos)
+	if (dataDir->path.find("..") != std::string::npos)
 #endif
 	{
-		throw content_error(std::string("Error: datadir specified with relative path: \"")+d->path+"\"");
+		throw content_error(std::string("a datadir may not be specified with a relative path: \"") + dataDir->path + "\"");
 	}
 	// Figure out whether we have read/write permissions
-	// First check read access, if we got that check write access too
+	// First check read access, if we got that, check write access too
 	// (no support for write-only directories)
-	// Note: we check for executable bit otherwise we can't browse the directory
-	// Note: we fail to test whether the path actually is a directory
-	// Note: modifying permissions while or after this function runs has undefined behaviour
-	if (FileSystemHandler::GetInstance().DirExists(d->path))
+	// We check for the executable bit, because otherwise we can not browse the
+	// directory.
+	// FIXME: We fail to test whether the path actually is a directory
+	// Modifying the permissions while or after this function runs has undefined
+	// behaviour.
+	if (FileSystem::DirExists(dataDir->path))
 	{
-		if (!writedir && FileSystemHandler::GetInstance().DirIsWritable(d->path))
+		if (!writeDir && FileSystem::DirIsWritable(dataDir->path))
 		{
-			d->writable = true;
-			writedir = &*d;
+			dataDir->writable = true;
+			writeDir = dataDir;
 		}
 		return true;
 	}
-	else if (!writedir) // if there is already a rw data directory, do not create new folder for read-only locations
+	else if (!writeDir) // if there is already a rw data directory, do not create new folder for read-only locations
 	{
-		if (filesystem.CreateDirectory(d->path))
+		if (FileSystem::CreateDirectory(dataDir->path))
 		{
-			// it didn't exist before, now it does and we just created it with rw access,
-			// so we just assume we still have read-write acces...
-			d->writable = true;
-			writedir = d;
+			// it did not exist before, now it does and we just created it with
+			// rw access, so we just assume we still have read-write access ...
+			dataDir->writable = true;
+			writeDir = dataDir;
 			return true;
 		}
 	}
 	return false;
 }
 
-/**
- * @brief Figure out permissions we have for the data directories.
- */
 void DataDirLocater::DeterminePermissions()
 {
 	std::vector<DataDir> newDatadirs;
 	std::string previous; // used to filter out consecutive duplicates
-	// (I didn't bother filtering out non-consecutive duplicates because then
+	// (I did not bother filtering out non-consecutive duplicates because then
 	//  there is the question which of the multiple instances to purge.)
 
-	writedir = NULL;
+	writeDir = NULL;
 
-	for (std::vector<DataDir>::iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
-		if (d->path != previous && DeterminePermissions(&*d)) {
+	for (std::vector<DataDir>::iterator d = dataDirs.begin(); d != dataDirs.end(); ++d) {
+		if ((d->path != previous) && DeterminePermissions(&*d)) {
 			newDatadirs.push_back(*d);
 			previous = d->path;
 		}
 	}
 
-	datadirs = newDatadirs;
+	dataDirs = newDatadirs;
 }
 
-/**
- * @brief locate spring data directory
- *
- * On *nix platforms, attempts to locate
- * and change to the spring data directory
- *
- * In Unixes, the data directory to chdir to is determined by the following, in this
- * order (first items override lower items):
- *
- * - 'SPRING_DATADIR' environment variable. (colon separated list, like PATH)
- * - 'SpringData=/path/to/data' declaration in '~/.springrc'. (colon separated list)
- * - "$HOME/.spring"
- * - In the same order any line in '/etc/spring/datadir', if that file exists.
- * - 'datadir=/path/to/data' option passed to 'scons configure'.
- * - 'prefix=/install/path' option passed to scons configure. The datadir is
- *   assumed to be at '$prefix/games/spring' in this case.
- * - the default datadirs in the default prefix, ie. '/usr/local/games/spring'
- *   (This is set by the build system, ie. SPRING_DATADIR
- *   preprocessor definition.)
- *
- * In Windows, its:
- * - SPRING_DATADIR env-variable
- * - user configurable (SpringData in registry)
- * - location of the binary dir (like it has been until 0.76b1)
- * - the Users 'Documents'-directory (in subdirectory Spring), unless spring is configured to use another
- * - all users app-data (in subdirectory Spring)
- * - compiler flags SPRING_DATADIR
- *
- * All of the above methods support environment variable substitution, eg.
- * '$HOME/myspringdatadir' will be converted by spring to something like
- * '/home/username/myspringdatadir'.
- *
- * If it fails to chdir to the above specified directory spring will asume the
- * current working directory is the data directory.
- */
+void DataDirLocater::AddCwdOrParentDir(const std::string& curWorkDir, bool forceAdd)
+{
+	// This is useful in case of multiple engine/unitsync versions installed
+	// together in a sub-dir of the data-dir
+	// The data-dir structure then might look similar to this:
+	// maps/
+	// games/
+	// engines/engine-0.83.0.0.exe
+	// engines/engine-0.83.1.0.exe
+	// unitsyncs/unitsync-0.83.0.0.exe
+	// unitsyncs/unitsync-0.83.1.0.exe
+	const std::string curWorkDirParent = FileSystem::GetParent(curWorkDir);
+
+	// we can not add both ./ and ../ as data-dir
+	if ((curWorkDirParent != "") && LooksLikeMultiVersionDataDir(curWorkDirParent)) {
+		AddDirs(curWorkDirParent); // "../"
+	} else if (IsPortableMode() || forceAdd) {
+		// always using this would be unclean, because spring and unitsync
+		// would end up with different sets of data-dirs
+		AddDirs(curWorkDir); // "./"
+	}
+}
+
 void DataDirLocater::LocateDataDirs()
 {
-	// Construct the list of datadirs from various sources.
-	datadirs.clear();
+	// Prepare the data-dirs defined in different places
+#if       defined(UNITSYNC)
+	const std::string dd_curWorkDir = Platform::GetModulePath();
+#else  // defined(UNITSYNC)
+	const std::string dd_curWorkDir = Platform::GetProcessExecutablePath();
+#endif // defined(UNITSYNC)
 
-	// environment variable
-	char* env = getenv("SPRING_DATADIR");
-	if (env && *env)
-		AddDirs(SubstEnvVars(env));
+	// Detect some useful dirs
+#if    defined(WIN32)
+	// fetch my documents path
+	TCHAR pathMyDocsC[MAX_PATH];
+	SHGetFolderPath(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, pathMyDocsC);
+	const std::string pathMyDocs = pathMyDocsC;
 
-	// user defined (in spring config handler (Linux: ~/.springrc, Windows: registry))
-	std::string userDef = configHandler->GetString("SpringData", "");
-	if (!userDef.empty()) {
-		AddDirs(SubstEnvVars(userDef));
-	}
+	// e.g. F:\Dokumente und Einstellungen\Karl-Robert\Eigene Dateien\Spring
+	const std::string dd_myDocs = pathMyDocs + "\\Spring";
 
-#ifdef UNITSYNC
-	AddDirs(Platform::GetLibraryPath());
-#else
-	AddDirs(Platform::GetBinaryPath());
-#endif
-
-#ifdef WIN32
-	// my documents
-	TCHAR strPath[MAX_PATH];
-	SHGetFolderPath( NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, strPath);
-	std::string cfg = strPath;
 	// My Documents\My Games seems to be the MS standard even if no official guidelines exist
 	// most if not all new Games For Windows(TM) games use this dir
-	cfg += "\\My Games\\Spring";
-	AddDirs(cfg);
+	const std::string dd_myDocsMyGames = pathMyDocs + "\\My Games\\Spring";
 
-	cfg = strPath;
-	cfg += "\\Spring"; // e.g. F:\Dokumente und Einstellungen\Karl-Robert\Eigene Dateien\Spring
-	AddDirs(cfg);
-	cfg.clear();
+	// fetch common app-data path
+	TCHAR pathAppDataC[MAX_PATH];
+	SHGetFolderPath(NULL, CSIDL_COMMON_APPDATA, NULL, SHGFP_TYPE_CURRENT, pathAppDataC);
+	const std::string pathAppData = pathAppDataC;
 
-	// appdata
-	SHGetFolderPath( NULL, CSIDL_COMMON_APPDATA, NULL, SHGFP_TYPE_CURRENT, strPath);
-	cfg = strPath;
-	cfg += "\\Spring"; // e.g. F:\Dokumente und Einstellungen\All Users\Anwendungsdaten\Spring
-	AddDirs(cfg);
-#elif defined(MACOSX_BUNDLE)
-	// Maps and mods are supposed to be located in spring's executable location on Mac, but unitsync
-	// cannot find them since it does not know spring binary path. I have no idea but to force users 
-	// to locate lobby executables in the same as spring's dir and add its location to search dirs.
-#ifdef UNITSYNC
-	AddDirs(Platform::GetBinaryPath());
-#endif
-	// libs and data are supposed to be located in subdirectories of spring executable, so they
-	// sould be added instead of SPRING_DATADIR definition.
-	AddDirs(Platform::GetBinaryPath() + "/" + SubstEnvVars(DATADIR));
-	AddDirs(Platform::GetBinaryPath() + "/" + SubstEnvVars(LIBDIR));
-#else
-	// home
-	AddDirs(SubstEnvVars("$HOME/.spring"));
-
+	// e.g. F:\Dokumente und Einstellungen\All Users\Anwendungsdaten\Spring
+	const std::string dd_appData = pathAppData + "\\Spring";
+#else // *nix (-OSX)
 	// settings in /etc
-	FILE* f = ::fopen("/etc/spring/datadir", "r");
-	if (f) {
-		char buf[1024];
-		while (fgets(buf, sizeof(buf), f)) {
-			char* newl = strchr(buf, '\n');
-			if (newl)
-				*newl = 0;
-			char white[3] = {'\t', ' ', 0};
-			if (strlen(buf) > 0 && strspn(buf, white) != strlen(buf)) // don't count lines of whitespaces / tabulators
-				AddDirs(SubstEnvVars(buf));
+	std::string dd_etc = "";
+	{
+		FILE* fileH = ::fopen("/etc/spring/datadir", "r");
+		if (fileH) {
+			const char whiteSpaces[3] = {'\t', ' ', '\0'};
+			char lineBuf[1024];
+			while (fgets(lineBuf, sizeof(lineBuf), fileH)) {
+				char* newLineCharPos = strchr(lineBuf, '\n');
+				if (newLineCharPos) {
+					// remove the new line char
+					*newLineCharPos = '\0';
+				}
+				// ignore lines consisting of only whitespaces
+				if ((strlen(lineBuf) > 0) && strspn(lineBuf, whiteSpaces) != strlen(lineBuf)) {
+					// append, separated by sPD (depending on OS): ';' or ':'
+					dd_etc = dd_etc + (dd_etc.empty() ? "" : sPD) + SubstEnvVars(lineBuf);
+				}
+			}
+			fclose(fileH);
 		}
-		fclose(f);
 	}
+#endif // defined(WIN32), defined(MACOSX_BUNDLE), else
+
+	// Construct the list of dataDirs from various sources.
+	// Note: The first dir added will be the writable data dir!
+	dataDirs.clear();
+
+	if (isolationMode) {
+		if (isolationModeDir.empty()) {
+			AddCwdOrParentDir(dd_curWorkDir, true); // "./" or "../"
+		} else {
+			if (FileSystem::DirExists(isolationModeDir)) {
+				AddDir(isolationModeDir);
+			} else {
+				throw user_error(std::string("The specified isolation-mode directory does not exist: ") + isolationModeDir);
+			}
+		}
+	}
+
+	// Same on all platforms
+	{
+		const char* env = getenv("SPRING_DATADIR");
+		if (env && *env) {
+			AddDirs(SubstEnvVars(env)); // ENV{SPRING_DATADIR}
+		}
+	}
+	AddDirs(SubstEnvVars(configHandler->GetString("SpringData"))); // user defined in spring config (Linux: ~/.springrc, Windows: .\springsettings.cfg)
+
+	if (!isolationMode) {
+		if (!isolationModeDir.empty()) {
+			LOG_L(L_WARNING, "Isolation directory was specified, but isolation mode is not active.");
+		}
+
+#ifdef WIN32
+		// All MS Windows variants
+
+		AddCwdOrParentDir(dd_curWorkDir); // "./" or "../"
+		AddDirs(dd_myDocsMyGames);  // "C:/.../My Documents/My Games/Spring/"
+		AddDirs(dd_myDocs);         // "C:/.../My Documents/Spring/"
+		AddDirs(dd_appData);        // "C:/.../All Users/Applications/Spring/"
+
+#elif defined(MACOSX_BUNDLE)
+		// Mac OS X Application Bundle (*.app) - single file install
+
+		// directory structure (Apple standard):
+		// Spring.app/Contents/MacOS/springlobby
+		// Spring.app/Contents/Resources/bin/spring
+		// Spring.app/Contents/Resources/lib/unitsync.dylib
+		// Spring.app/Contents/Resources/share/games/spring/base/
+
+		// This corresponds to Spring.app/Contents/Resources/
+		const std::string bundleResourceDir = FileSystem::GetParent(dd_curWorkDir);
+
+		// This has to correspond with the value in the build-script
+		const std::string dd_curWorkDirData = bundleResourceDir + "/share/games/spring";
+
+		// we need this as default writable dir, because the Bundle.pp dir
+		// might not be writable by the user starting the game
+		AddDirs(Platform::GetUserDir() + "/.spring"); // "~/.spring/"
+		AddDirs(dd_curWorkDirData);             // "Spring.app/Contents/Resources/share/games/spring"
+		AddDirs(dd_etc);                        // from /etc/spring/datadir FIXME add in IsolatedMode too?
+
+#else
+		// Linux, FreeBSD, Solaris, Apple non-bundle
+
+		AddCwdOrParentDir(dd_curWorkDir); // "./" or "../"
+		AddDirs(Platform::GetUserDir() + "/.spring"); // "~/.spring/"
+		AddDirs(dd_etc);            // from /etc/spring/datadir FIXME add in IsolatedMode too?
 #endif
 
-	// compiler flags
+
 #ifdef SPRING_DATADIR
-	AddDirs(SubstEnvVars(SPRING_DATADIR));
-#endif
+		//Note: using the defineflag SPRING_DATADIR & "SPRING_DATADIR" as string works fine, the preprocessor won't touch the 2nd
+		AddDirs(SubstEnvVars(SPRING_DATADIR)); // from -DSPRING_DATADIR
+#endif 
+	}
 
-	// Figure out permissions of all datadirs
+
+	// Figure out permissions of all dataDirs
 	DeterminePermissions();
 
-	if (!writedir) {
+	if (!writeDir) {
 		// bail out
 		const std::string errstr = "Not a single writable data directory found!\n\n"
 				"Configure a writable data directory using either:\n"
 				"- the SPRING_DATADIR environment variable,\n"
 #ifdef WIN32
-				"- a SpringData=C:/path/to/data declaration in spring's registry entry or\n"
+				"- a SpringData=C:/path/to/data declaration in spring's config file ./springsettings.cfg\n"
 				"- by giving you write access to the installation directory";
 #else
 				"- a SpringData=/path/to/data declaration in ~/.springrc or\n"
@@ -322,18 +362,97 @@ void DataDirLocater::LocateDataDirs()
 
 	// for now, chdir to the data directory as a safety measure:
 	// Not only safety anymore, it's just easier if other code can safely assume that
-	// writedir == current working directory
-	FileSystemHandler::GetInstance().Chdir(GetWriteDir()->path.c_str());
+	// writeDir == current working directory
+	FileSystem::ChDir(GetWriteDir()->path.c_str());
 
 	// Initialize the log. Only after this moment log will be written to file.
-	logOutput.Initialize();
-	// Logging MAY NOT start before the chdir, otherwise the logfile ends up
-	// in the wrong directory.
+	// Note: Logging MAY NOT start before the chdir, otherwise the logfile ends up
+	//       in the wrong directory.
 	// Update: now it actually may start before, log has preInitLog.
-	for (std::vector<DataDir>::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
-		if (d->writable)
-			logOutput.Print("Using read-write data directory: %s", d->path.c_str());
-		else
-			logOutput.Print("Using read-only  data directory: %s", d->path.c_str());
+	logOutput.Initialize();
+
+	for (std::vector<DataDir>::const_iterator d = dataDirs.begin(); d != dataDirs.end(); ++d) {
+		if (d->writable) {
+			LOG("Using read-write data directory: %s", d->path.c_str());
+
+			// tag the cache dir
+			const std::string cacheDir = d->path + "cache";
+			if (FileSystem::CreateDirectory(cacheDir)) {
+				CacheDir::SetCacheDir(cacheDir, true);
+			}
+		} else {
+			LOG("Using read-only data directory: %s",  d->path.c_str());
+		}
 	}
+}
+
+bool DataDirLocater::IsPortableMode() {
+
+	bool portableMode = false;
+
+#if       defined(UNITSYNC)
+	const std::string dirUnitsync = Platform::GetModulePath();
+
+#if       defined(WIN32)
+	std::string fileExe = dirUnitsync + "\\spring.exe";
+#else
+	std::string fileExe = dirUnitsync + "/spring";
+#endif // defined(WIN32)
+	if (FileSystem::FileExists(fileExe)) {
+		portableMode = true;
+	}
+
+#else  // !defined(UNITSYNC)
+	const std::string dirExe = Platform::GetProcessExecutablePath();
+
+#if       defined(WIN32)
+	std::string fileUnitsync = dirExe + "\\unitsync.dll";
+#elif     defined(__APPLE__)
+	std::string fileUnitsync = dirExe + "/libunitsync.dylib";
+#else
+	std::string fileUnitsync = dirExe + "/libunitsync.so";
+#endif // defined(WIN32)
+	if (FileSystem::FileExists(fileUnitsync)) {
+		portableMode = true;
+	}
+#endif // defined(UNITSYNC)
+
+	return portableMode;
+}
+
+bool DataDirLocater::LooksLikeMultiVersionDataDir(const std::string& dirPath) {
+
+	bool looksLikeDataDir = false;
+
+	if (FileSystem::DirExists(dirPath + "/maps")
+			&& FileSystem::DirExists(dirPath + "/games")
+			&& FileSystem::DirExists(dirPath + "/engines")
+			/*&& FileSystem::DirExists(dirPath + "/unitsyncs") TODO uncomment this if the new name for unitsync has been set */)
+	{
+		looksLikeDataDir = true;
+	}
+
+	return looksLikeDataDir;
+}
+
+
+std::string DataDirLocater::GetWriteDirPath() const
+{
+	const DataDir* writedir = GetWriteDir();
+	assert(writedir && writedir->writable); // duh
+	return writedir->path;
+}
+
+std::vector<std::string> DataDirLocater::GetDataDirPaths() const
+{
+	assert(!dataDirs.empty());
+	std::vector<std::string> dataDirPaths;
+
+	const std::vector<DataDir>& datadirs = GetDataDirs();
+	std::vector<DataDir>::const_iterator ddi;
+	for (ddi = datadirs.begin(); ddi != datadirs.end(); ++ddi) {
+		dataDirPaths.push_back(ddi->path);
+	}
+
+	return dataDirPaths;
 }

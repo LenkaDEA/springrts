@@ -1,5 +1,5 @@
 #include "SWeaponManager.h"
-#include "Sim/Weapons/WeaponDefHandler.h"
+#include "LegacyCpp/WeaponDef.h"
 
 cSWeaponManager::cSWeaponManager(IAICallback* callback, cRAI* global)
 {
@@ -37,7 +37,7 @@ void cSWeaponManager::UnitIdle(int unit, sRAIUnitDef* udr)
 	{
 		set<int> Targets;
 		set<int> ImmobileTargets;
-		for( map<int,EnemyInfo>::iterator iE=G->Enemies.begin(); iE!=G->Enemies.end(); iE++ )
+		for( map<int,EnemyInfo>::iterator iE=G->Enemies.begin(); iE!=G->Enemies.end(); ++iE )
 		{
 			if( cb->GetUnitPos(unit).distance(G->CM->GetEnemyPosition(iE->first,&iE->second)) <= udr->SWeapon->range )
 			{
@@ -55,13 +55,13 @@ void cSWeaponManager::UnitIdle(int unit, sRAIUnitDef* udr)
 			{
 				iE = ImmobileTargets.begin();
 				for( int i=0; i < rand()%int(ImmobileTargets.size()); i++ )
-					iE++;
+					++iE;
 			}
 			else
 			{
 				iE = Targets.begin();
 				for( int i=0; i < rand()%int(Targets.size()); i++ )
-					iE++;
+					++iE;
 			}
 
 			EnemyInfo *E = &G->Enemies.find(*iE)->second;
@@ -105,7 +105,7 @@ void cSWeaponManager::UnitIdle(int unit, sRAIUnitDef* udr)
 
 void cSWeaponManager::Update()
 {
-	for( map<int,sRAIUnitDef*>::iterator iU = mWeapon.begin(); iU!=mWeapon.end(); iU++ )
+	for( map<int,sRAIUnitDef*>::iterator iU = mWeapon.begin(); iU!=mWeapon.end(); ++iU )
 		if( !G->IsHumanControled(iU->first,&G->Units.find(iU->first)->second) )
 			UnitIdle(iU->first,iU->second);
 }

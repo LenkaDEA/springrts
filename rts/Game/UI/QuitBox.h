@@ -1,3 +1,8 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _QUIT_BOX_H
+#define _QUIT_BOX_H
+
 #include "InputReceiver.h"
 
 //TOD add support for resigning without selfdestruction
@@ -28,10 +33,20 @@ private:
 	ContainerBox teamBox;
 	ContainerBox quitBox;
 	ContainerBox cancelBox;
+	ContainerBox scrollbarBox;
+	ContainerBox scrollBox;
 
 	int shareTeam;
 	bool noAlliesLeft;
 
 	bool moveBox;
+
+	int startTeam;
+	int numTeamsDisp;
+	bool scrolling;
+	float scrollGrab;
+	bool hasScroll;
 };
+
+#endif // _QUIT_BOX_H
 

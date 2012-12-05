@@ -1,30 +1,33 @@
-/*---------------------------------------------------------------------
- Terrain Renderer using texture splatting and geomipmapping
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
- Copyright (2006) Jelmer Cnossen
- This code is released under GPL license (See LICENSE.html for info)
----------------------------------------------------------------------*/
-#ifndef FRUSTUM_H
-#define FRUSTUM_H
+#ifndef _FRUSTUM_H_
+#define _FRUSTUM_H_
 
+#include "Vector3.h"
 #include "Plane.h"
 
-/*
-The frustum clips the polygons against a certain convex space
-*/
+/**
+ * Terrain Renderer using texture splatting and geomipmapping.
+ * The frustum clips the polygons against a certain convex space.
+ */
 class Frustum
 {
 public:
-	void CalcCameraPlanes (Vector3 *base, Vector3 *right, Vector3* up, Vector3* front, float tanHalfFov, float aspect); // should at least have 
+	void CalcCameraPlanes(Vector3* base, Vector3* right, Vector3* up, Vector3* front, float tanHalfFov, float aspect);
 	void InversePlanes ();
 
 	enum VisType { Inside, Outside, Partial };
-	VisType IsBoxVisible (const Vector3& min, const Vector3& max); // 3D test
-	VisType IsPointVisible (const Vector3& pt);
+	VisType IsBoxVisible(const Vector3& min, const Vector3& max); ///< 3D test
+	VisType IsPointVisible(const Vector3& pt);
+
+	void Draw();
 
 	std::vector<Plane> planes;
-	Vector3 base, pos[4], front, right, up;
-	void Draw ();
+	Vector3 base;
+	Vector3 pos[4];
+	Vector3 front;
+	Vector3 right;
+	Vector3 up;
 };
 
-#endif
+#endif // _FRUSTUM_H_

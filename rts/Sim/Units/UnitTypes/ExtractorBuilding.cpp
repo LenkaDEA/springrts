@@ -1,24 +1,20 @@
-//////////////////////////////////////
-//       CExtractorBuilding         //
-// Used for all metal-extractors.   //
-// Handles the metal-make-process.  //
-//////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// Used for all metal-extractors.
+// Handles the metal-make-process.
 
-#include "StdAfx.h"
 #include <typeinfo>
 #include "ExtractorBuilding.h"
-#include "Sim/Units/COB/UnitScript.h"
+#include "Sim/Units/Scripts/UnitScript.h"
 #include "Sim/Units/UnitHandler.h"
 #include "Map/ReadMap.h"
-#include "LogOutput.h"
 #include "Sim/Units/UnitDef.h"
 #include "Map/MetalMap.h"
 #include "Sim/Misc/QuadField.h"
-#include "Sync/SyncTracer.h"
-#include "creg/STL_List.h"
-#include "myMath.h"
-#include "mmgr.h"
+#include "System/Sync/SyncTracer.h"
+#include "System/creg/STL_List.h"
+#include "System/myMath.h"
+#include "System/mmgr.h"
 
 CR_BIND_DERIVED(CExtractorBuilding, CBuilding, );
 
@@ -88,8 +84,8 @@ bool CExtractorBuilding::IsNeighbour(CExtractorBuilding* other)
 
 	if (sum == 2) {
 		// square vs. square
-		const float dx = streflop::fabs(this->pos.x - other->pos.x);
-		const float dz = streflop::fabs(this->pos.z - other->pos.z);
+		const float dx = math::fabs(this->pos.x - other->pos.x);
+		const float dz = math::fabs(this->pos.z - other->pos.z);
 		const float r = this->extractionRange + other->extractionRange;
 		return (dx < r && dz < r);
 	}
@@ -135,10 +131,10 @@ void CExtractorBuilding::SetExtractionRangeAndDepth(float range, float depth)
 	extractionDepth = depth;
 
 	// find any neighbouring extractors
-	std::vector<CUnit*> cu = qf->GetUnits(pos, extractionRange + maxExtractionRange);
+	const std::vector<CUnit*> &cu = qf->GetUnits(pos, extractionRange + maxExtractionRange);
 	maxExtractionRange = std::max(extractionRange, maxExtractionRange);
 
-	for (std::vector<CUnit*>::iterator ui = cu.begin(); ui != cu.end(); ++ui) {
+	for (std::vector<CUnit*>::const_iterator ui = cu.begin(); ui != cu.end(); ++ui) {
 		if (typeid(**ui) == typeid(CExtractorBuilding) && *ui != this) {
 			CExtractorBuilding* eb = (CExtractorBuilding*) *ui;
 
@@ -222,14 +218,8 @@ void CExtractorBuilding::ReCalculateMetalExtraction()
 
 
 /* Finds the amount of metal to extract and sets the rotationspeed when the extractor is built. */
-void CExtractorBuilding::FinishedBuilding()
+void CExtractorBuilding::FinishedBuilding(bool postInit)
 {
 	SetExtractionRangeAndDepth(unitDef->extractRange, unitDef->extractsMetal);
-
-#ifdef TRACE_SYNC
-	tracefile << "Metal extractor finished: ";
-	tracefile << metalExtract << " ";
-#endif
-
-	CBuilding::FinishedBuilding();
+	CUnit::FinishedBuilding(postInit);
 }

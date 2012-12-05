@@ -1,12 +1,12 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "RadarHandler.h"
-#include "TimeProfiler.h"
 #include "LosHandler.h"
-#include "Rendering/UnitModels/3DOParser.h"
 #include "Map/ReadMap.h"
 #include "Sim/Misc/TeamHandler.h"
+#include "System/TimeProfiler.h"
 
 
 CR_BIND(CRadarHandler, (false));
@@ -59,13 +59,13 @@ CRadarHandler::CRadarHandler(bool circularRadar)
   xsize(std::max(1, gs->mapx >> radarMipLevel)),
   zsize(std::max(1, gs->mapy >> radarMipLevel)),
   targFacEffect(2),
-  radarAlgo(int2(xsize, zsize), -1000, 20, readmap->mipHeightmap[radarMipLevel])
+  radarAlgo(int2(xsize, zsize), -1000, 20, readmap->GetMIPHeightMapSynced(radarMipLevel))
 {
-	commonJammerMap.SetSize(xsize, zsize);
-	commonSonarJammerMap.SetSize(xsize, zsize);
+	commonJammerMap.SetSize(xsize, zsize, false);
+	commonSonarJammerMap.SetSize(xsize, zsize, false);
 
 	CLosMap tmp;
-	tmp.SetSize(xsize, zsize);
+	tmp.SetSize(xsize, zsize, false);
 	radarMaps.resize(teamHandler->ActiveAllyTeams(), tmp);
 	sonarMaps.resize(teamHandler->ActiveAllyTeams(), tmp);
 	seismicMaps.resize(teamHandler->ActiveAllyTeams(), tmp);
@@ -83,9 +83,24 @@ CRadarHandler::~CRadarHandler()
 }
 
 
-//todo: add the optimizations that is in loshandler
+// TODO: add the LosHandler optimizations (instance-sharing)
 void CRadarHandler::MoveUnit(CUnit* unit)
 {
+	SCOPED_TIMER("RadarHandler::MoveUnit");
+
+	if (gs->globalLOS[unit->allyteam])
+		return;
+	if (!unit->hasRadarCapacity)
+		return;
+	// NOTE:
+	//   when stunned, we are not called during Unit::SlowUpdate's
+	//   but units can in principle still be given on/off commands
+	//   this creates an exploit via Unit::Activate if the unit is
+	//   a transported radar/jammer and leaves a detached coverage
+	//   zone behind
+	if (!unit->activated || unit->stunned)
+		return;
+
 	int2 newPos;
 	newPos.x = (int) (unit->pos.x * invRadarDiv);
 	newPos.y = (int) (unit->pos.z * invRadarDiv);
@@ -94,29 +109,29 @@ void CRadarHandler::MoveUnit(CUnit* unit)
 		(newPos.x != unit->oldRadarPos.x) ||
 	    (newPos.y != unit->oldRadarPos.y)) {
 		RemoveUnit(unit);
-		SCOPED_TIMER("Radar");
+
 		if (unit->jammerRadius) {
-			jammerMaps[unit->allyteam].AddMapArea(newPos, unit->jammerRadius, 1);
-			commonJammerMap.AddMapArea(newPos, unit->jammerRadius, 1);
+			jammerMaps[unit->allyteam].AddMapArea(newPos, -123, unit->jammerRadius, 1);
+			commonJammerMap.AddMapArea(newPos, -123, unit->jammerRadius, 1);
 		}
 		if (unit->sonarJamRadius) {
 #ifdef SONAR_JAMMER_MAPS
-			sonarJammerMaps[unit->allyteam].AddMapArea(newPos, unit->sonarJamRadius, 1);
+			sonarJammerMaps[unit->allyteam].AddMapArea(newPos, -123, unit->sonarJamRadius, 1);
 #endif
-			commonSonarJammerMap.AddMapArea(newPos, unit->sonarJamRadius, 1);
+			commonSonarJammerMap.AddMapArea(newPos, -123, unit->sonarJamRadius, 1);
 		}
 		if (unit->radarRadius) {
-			airRadarMaps[unit->allyteam].AddMapArea(newPos, unit->radarRadius, 1);
+			airRadarMaps[unit->allyteam].AddMapArea(newPos, -123, unit->radarRadius, 1);
 			if (!circularRadar) {
-				radarAlgo.LosAdd(newPos, unit->radarRadius, unit->model->height, unit->radarSquares);
-				radarMaps[unit->allyteam].AddMapSquares(unit->radarSquares, 1);
+				radarAlgo.LosAdd(newPos, unit->radarRadius, unit->radarHeight, unit->radarSquares);
+				radarMaps[unit->allyteam].AddMapSquares(unit->radarSquares, -123, 1);
 			}
 		}
 		if (unit->sonarRadius) {
-			sonarMaps[unit->allyteam].AddMapArea(newPos, unit->sonarRadius, 1);
+			sonarMaps[unit->allyteam].AddMapArea(newPos, -123, unit->sonarRadius, 1);
 		}
 		if (unit->seismicRadius) {
-			seismicMaps[unit->allyteam].AddMapArea(newPos, unit->seismicRadius, 1);
+			seismicMaps[unit->allyteam].AddMapArea(newPos, -123, unit->seismicRadius, 1);
 		}
 		unit->oldRadarPos = newPos;
 		unit->hasRadarPos = true;
@@ -126,31 +141,35 @@ void CRadarHandler::MoveUnit(CUnit* unit)
 
 void CRadarHandler::RemoveUnit(CUnit* unit)
 {
-	SCOPED_TIMER("Radar");
+	SCOPED_TIMER("RadarHandler::RemoveUnit");
+
+	if (!unit->hasRadarCapacity) {
+		return;
+	}
 
 	if (unit->hasRadarPos) {
 		if (unit->jammerRadius) {
-			jammerMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, unit->jammerRadius, -1);
-			commonJammerMap.AddMapArea(unit->oldRadarPos, unit->jammerRadius, -1);
+			jammerMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, -123, unit->jammerRadius, -1);
+			commonJammerMap.AddMapArea(unit->oldRadarPos, -123, unit->jammerRadius, -1);
 		}
 		if (unit->sonarJamRadius) {
 #ifdef SONAR_JAMMER_MAPS
-			sonarJammerMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, unit->sonarJamRadius, -1);
+			sonarJammerMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, -123, unit->sonarJamRadius, -1);
 #endif
-			commonSonarJammerMap.AddMapArea(unit->oldRadarPos, unit->sonarJamRadius, -1);
+			commonSonarJammerMap.AddMapArea(unit->oldRadarPos, -123, unit->sonarJamRadius, -1);
 		}
 		if (unit->radarRadius) {
-			airRadarMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, unit->radarRadius, -1);
+			airRadarMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, -123, unit->radarRadius, -1);
 			if (!circularRadar) {
-				radarMaps[unit->allyteam].AddMapSquares(unit->radarSquares, -1);
+				radarMaps[unit->allyteam].AddMapSquares(unit->radarSquares, -123, -1);
 				unit->radarSquares.clear();
 			}
 		}
 		if (unit->sonarRadius) {
-			sonarMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, unit->sonarRadius, -1);
+			sonarMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, -123, unit->sonarRadius, -1);
 		}
 		if (unit->seismicRadius) {
-			seismicMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, unit->seismicRadius, -1);
+			seismicMaps[unit->allyteam].AddMapArea(unit->oldRadarPos, -123, unit->seismicRadius, -1);
 		}
 		unit->hasRadarPos = false;
 	}

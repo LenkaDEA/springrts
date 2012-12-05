@@ -15,25 +15,9 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "Util.h"
-
-#include "ExternalAI/Interface/aidefines.h" // for SKIRMISH_AI_PROPERTY_DATA_DIR, AI_INTERFACES_DATA_DIR
-#if defined USING_STREFLOP
-#include "lib/streflop/streflopC.h" // for streflop_init_Simple()
-#else
-#include <assert.h>
-#endif
-#if defined BUILDING_SKIRMISH_AI
-// for SKIRMISH_AI_PROPERTY_DATA_DIR
-#include "ExternalAI/Interface/SSkirmishAILibrary.h"
-#elif defined BUILDING_AI_INTERFACE
-// for AI_INTERFACE_PROPERTY_DATA_DIR
-#include "ExternalAI/Interface/SAIInterfaceLibrary.h"
-#endif
-
+#include <stdio.h>       // fgets()
 #include <string.h>      // strcpy(), str...()
 #include <stdlib.h>      // malloc(), calloc(), free()
-#include <stdio.h>       // fgets()
 #include <stdarg.h>      // var-args
 #include <sys/stat.h>    // used for check if a file exists
 #ifdef _WIN32
@@ -44,6 +28,16 @@
 #include <sys/types.h>   // mkdir()
 #include <dirent.h>      // needed for dir listing
 #endif // WIN32
+
+#include "Util.h"
+
+#include "System/maindefines.h"
+#include "System/SafeCStrings.h"
+#if defined USING_STREFLOP
+#include "lib/streflop/streflopC.h" // for streflop_init_Simple()
+#else
+#include <assert.h>
+#endif
 
 
 char* util_allocStr(unsigned int length) {
@@ -58,7 +52,7 @@ char* util_allocStrCpy(const char* toCopy) {
 
 	const size_t copy_sizeMax = strlen(toCopy) + 1;
 	char* copy = (char*) calloc(copy_sizeMax, sizeof(char));
-	STRCPYS(copy, copy_sizeMax, toCopy);
+	STRCPY_T(copy, copy_sizeMax, toCopy);
 	return copy;
 }
 
@@ -503,7 +497,7 @@ static int util_fileSelector(const struct dirent* fileDesc) {
 
 static unsigned int util_listFilesU(const char* dir, struct dirent*** files) {
 
-	int foundDirs = scandir(dir, files, util_fileSelector, alphasort);
+	int foundDirs = scandir(dir, files, &util_fileSelector, alphasort);
 
 	if (foundDirs < 0) { // error, act as if no file found
 		foundDirs = 0;
@@ -746,7 +740,7 @@ bool util_findDir(const char* dirs[], unsigned int numDirs,
 
 	// not found -> create it
 	if (!found && create && numDirs >= 1) {
-		// use dirs[0], as it is assumed this is the writeable dir
+		// use dirs[0], as it is assumed this is the writable dir
 		char* tmpPath = util_allocStrCatFSPath(2, dirs[0], relativeDirPath);
 		STRCPY(absoluteDirPath, tmpPath);
 		free(tmpPath);

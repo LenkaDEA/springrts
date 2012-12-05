@@ -1,9 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_DISPLAY_LISTS_H
 #define LUA_DISPLAY_LISTS_H
-// LuaDisplayLists.h: interface for the CLuaDisplayLists class.
-//
-//////////////////////////////////////////////////////////////////////
-
 
 #include <vector>
 using std::vector;
@@ -37,10 +35,11 @@ class CLuaDisplayLists {
 		
 		GLuint GetDList(unsigned int index) const
 		{
-			if ((index <= 0) || (index >= active.size())) {
+			if (index < active.size()) {
+				return active[index];
+			} else {
 				return 0;
 			}
-			return active[index];
 		}
 
 		unsigned int NewDList(GLuint dlist)
@@ -60,10 +59,7 @@ class CLuaDisplayLists {
 				
 		void FreeDList(unsigned int index)
 		{
-			if ((index <= 0) || (index >= active.size())) {
-				return;
-			}
-			if (active[index] != 0) {
+			if ((index < active.size()) && (active[index] != 0)) {
 				active[index] = 0;
 				unused.push_back(index);
 			}

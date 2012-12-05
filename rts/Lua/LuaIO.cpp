@@ -1,7 +1,5 @@
-#include "StdAfx.h"
-// LuaIO.cpp: implementation of the LuaIO class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 
 #include <stdio.h>
 #include <errno.h>
@@ -13,7 +11,7 @@
 #include <string>
 using std::string;
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "LuaIO.h"
 
@@ -21,8 +19,9 @@ using std::string;
 #include "LuaHandle.h"
 #endif // !defined UNITSYNC && !defined DEDICATED && !defined BUILDING_AI
 #include "LuaInclude.h"
-#include "FileSystem/FileSystem.h"
-#include "Util.h"
+#include "System/FileSystem/DataDirsAccess.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/Util.h"
 
 
 /******************************************************************************/
@@ -35,9 +34,12 @@ static bool IsSafePath(const string& path)
 	    ((path.size() >= 2) && (path[1] == ':'))) {
 		return false;
 	}
-	if (path.find("..") != string::npos) {
+	if ((path.find("..") != string::npos) ||
+		(path.find("springsettings.cfg") != string::npos) || //don't allow to change config file
+		(path.find(".springrc") != string::npos)) {
 		return false;
 	}
+
 	return true;
 }
 
@@ -67,28 +69,28 @@ bool LuaIO::SafeExecPath(const string& path)
 
 bool LuaIO::SafeReadPath(const string& path)
 {
-	return filesystem.InReadDir(path);
+	return dataDirsAccess.InReadDir(path);
 }
 
 
-bool LuaIO::SafeWritePath(const string& path)
+bool LuaIO::SafeWritePath(lua_State* L, const string& path)
 {
 	string prefix = ""; // FIXME
 #if !defined UNITSYNC && !defined DEDICATED && !defined BUILDING_AI
-	const CLuaHandle* lh = CLuaHandle::GetActiveHandle();
+	const CLuaHandle* lh = CLuaHandle::GetHandle(L);
 	if (lh != NULL) {
 		prefix = lh->GetName() + "/" + "Write";
 	}
 #endif // !defined UNITSYNC && !defined DEDICATED && !defined BUILDING_AI
 	const size_t numExtensions = 5;
 	const char* exeFiles[numExtensions] = {"exe", "dll", "so", "bat", "com"};
-	const string ext = filesystem.GetExtension(path);
+	const string ext = FileSystem::GetExtension(path);
 	for (size_t i = 0; i < numExtensions; ++i)
 	{
 		if (ext == exeFiles[i])
 			return false;
 	}
-	return filesystem.InWriteDir(path, prefix);
+	return dataDirsAccess.InWriteDir(path, prefix);
 }
 
 
@@ -140,7 +142,8 @@ int LuaIO::system(lua_State* L, const char* command)
 
 int LuaIO::remove(lua_State* L, const char* pathname)
 {
-	if (!SafeWritePath(pathname)) {
+	if (!SafeWritePath(L, pathname)
+		|| !IsSafePath(pathname)) {
 		errno = EPERM; //EACCESS?
 		return -1;
 	}
@@ -150,7 +153,8 @@ int LuaIO::remove(lua_State* L, const char* pathname)
 
 int LuaIO::rename(lua_State* L, const char* oldpath, const char* newpath)
 {
-	if (!SafeWritePath(oldpath) || !SafeWritePath(newpath)) {
+	if (!SafeWritePath(L, oldpath) || !SafeWritePath(L, newpath)
+		|| !IsSafePath(oldpath) || !IsSafePath(newpath)) {
 		errno = EPERM; //EACCESS?
 		return -1;
 	}

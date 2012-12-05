@@ -1,10 +1,12 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef MOVETYPE_H
 #define MOVETYPE_H
 
-#include "creg/creg_cond.h"
-#include "Object.h"
+#include "System/creg/creg_cond.h"
 #include "Sim/Misc/AirBaseHandler.h"
-#include "float3.h"
+#include "System/Object.h"
+#include "System/float3.h"
 
 class CUnit;
 
@@ -14,41 +16,56 @@ class AMoveType : public CObject
 
 public:
 	AMoveType(CUnit* owner);
-	virtual ~AMoveType(void);
+	virtual ~AMoveType() {}
 
 	virtual void StartMoving(float3 pos, float goalRadius) = 0;
 	virtual void StartMoving(float3 pos, float goalRadius, float speed) = 0;
 	virtual void KeepPointingTo(float3 pos, float distance, bool aggressive) = 0;
 	virtual void KeepPointingTo(CUnit* unit, float distance, bool aggressive);
 	virtual void StopMoving() = 0;
-	virtual void ImpulseAdded(void);
-	virtual void ReservePad(CAirBaseHandler::LandingPad* lp);
+	virtual void ImpulseAdded(const float3&) {}
+	virtual void LeaveTransport() {}
 
-//	virtual float GetSpeedMod(int square){return 1;};
-//	virtual float GetSpeedMod(float avrHeight, float maxHeight, float maxDepth, float avrSlope, float maxSlope) {return 1;};
+	virtual void SetGoal(const float3& pos) { goalPos = pos; }
 
-	virtual void SetGoal(float3 pos);
-	virtual void SetMaxSpeed(float speed);
-	virtual void SetWantedMaxSpeed(float speed);
-	virtual void LeaveTransport(void);
+	// NOTE:
+	//     SetMaxSpeed is ONLY called by LuaSyncedMoveCtrl now
+	//     other code (CommandAI) modifies a unit's speed only
+	//     through SetMaxWantedSpeed, via SET_WANTED_MAX_SPEED
+	//     commands
+	// NOTE:
+	//     clamped because too much code in the derived
+	//     MoveType classes expects maxSpeed to be != 0
+	virtual void SetMaxSpeed(float speed) { maxSpeed = std::max(0.001f, speed); }
+	virtual void SetWantedMaxSpeed(float speed) { maxWantedSpeed = speed; }
 
-	virtual void Update() = 0;
+	virtual bool Update() = 0;
 	virtual void SlowUpdate();
 
-	int forceTurn;
-	int forceTurnTo;
+	virtual bool IsSkidding() const { return false; }
+	virtual bool IsFlying() const { return false; }
+	virtual bool IsReversing() const { return false; }
 
+	virtual void ReservePad(CAirBaseHandler::LandingPad* lp) { /* AAirMoveType only */ }
+	virtual void UnreservePad(CAirBaseHandler::LandingPad* lp) { /* AAirMoveType only */ }
+	virtual CAirBaseHandler::LandingPad* GetReservedPad() { return NULL; }
+
+	bool WantsRepair() const;
+	bool WantsRefuel() const;
+
+	void SetRepairBelowHealth(float rbHealth) { repairBelowHealth = rbHealth; }
+
+	float GetMaxSpeed() const { return maxSpeed; }
+	float GetMaxSpeedDef() const { return maxSpeedDef; }
+	float GetMaxWantedSpeed() const { return maxWantedSpeed; }
+	float GetRepairBelowHealth() const { return repairBelowHealth; }
+
+public:
 	CUnit* owner;
 
 	float3 goalPos;
-
-	float maxSpeed;
-	float maxWantedSpeed;
-
-	CAirBaseHandler::LandingPad* reservedPad;
-	/// 0 moving toward,1 landing at,2 arrived
-	int padStatus;
-	float repairBelowHealth;
+	float3 oldPos;             // owner position at last Update()
+	float3 oldSlowUpdatePos;   // owner position at last SlowUpdate()
 
 	/// TODO: probably should move the code in CUnit that reads this into the movement classes
 	bool useHeading;
@@ -59,8 +76,13 @@ public:
 		Failed = 2
 	};
 	ProgressState progressState;
+
 protected:
-	void DependentDied(CObject* o);
+	float maxSpeed;            // current maximum speed owner is allowed to reach (changes with eg. guard orders)
+	float maxSpeedDef;         // default maximum speed owner can reach (as defined by its UnitDef, never changes)
+	float maxWantedSpeed;      // maximum speed (temporarily) set by a CMD_SET_WANTED_MAX_SPEED modifier command
+
+	float repairBelowHealth;
 };
 
 #endif // MOVETYPE_H

@@ -1,7 +1,5 @@
-#include "StdAfx.h"
-// LuaParser.cpp: implementation of the LuaParser class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 
 #include "LuaParser.h"
 
@@ -9,31 +7,24 @@
 #include <limits.h>
 #include <boost/regex.hpp>
 
-#include "mmgr.h"
+#include "lib/streflop/streflop_cond.h"
+#include "System/mmgr.h"
 
-#include "float3.h"
+#include "System/float3.h"
+#include "System/float4.h"
 #include "LuaInclude.h"
 
 #include "LuaIO.h"
 #include "LuaUtils.h"
 
-#include "LogOutput.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/VFSHandler.h"
-#include "FileSystem/FileSystem.h"
-#include "Platform/errorhandler.h"
-#include "Util.h"
-#include "System/myTime.h"
-
-
-#if (LUA_VERSION_NUM < 500)
-#  define LUA_OPEN_LIB(L, lib) lib(L)
-#else
-#  define LUA_OPEN_LIB(L, lib) \
-     lua_pushcfunction((L), lib); \
-     lua_pcall((L), 0, 0, 0);
-#endif
-
+#include "System/Log/ILog.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/VFSHandler.h"
+#include "System/FileSystem/FileSystem.h"
+#include "System/BranchPrediction.h"
+#include "System/Misc/SpringTime.h"
+#include "System/ScopedFPUSettings.h"
+#include "System/Util.h"
 
 LuaParser* LuaParser::currentParser = NULL;
 
@@ -58,7 +49,7 @@ LuaParser::LuaParser(const string& _fileName,
   lowerKeys(true),
   lowerCppKeys(true)
 {
-	L = lua_open();
+	L = LUA_OPEN();
 
 	if (L != NULL) {
 		SetupEnv();
@@ -79,7 +70,7 @@ LuaParser::LuaParser(const string& _textChunk,
   lowerKeys(true),
   lowerCppKeys(true)
 {
-	L = lua_open();
+	L = LUA_OPEN();
 
 	if (L != NULL) {
 		SetupEnv();
@@ -90,7 +81,7 @@ LuaParser::LuaParser(const string& _textChunk,
 LuaParser::~LuaParser()
 {
 	if (L != NULL) {
-		lua_close(L);
+		LUA_CLOSE(L); L = NULL;
 	}
 	set<LuaTable*>::iterator it;
 	for (it = tables.begin(); it != tables.end(); ++it) {
@@ -124,14 +115,15 @@ void LuaParser::SetupEnv()
 
 	// FIXME: replace "random" as in LuaHandleSynced (can write your own for now)
 	lua_getglobal(L, "math");
-	lua_pushstring(L, "random");     lua_pushnil(L); lua_rawset(L, -3);
-	lua_pushstring(L, "randomseed"); lua_pushnil(L); lua_rawset(L, -3);
+	lua_pushliteral(L, "random");     lua_pushnil(L); lua_rawset(L, -3);
+	lua_pushliteral(L, "randomseed"); lua_pushnil(L); lua_rawset(L, -3);
 	lua_pop(L, 1); // pop "math"
 
 	AddFunc("DontMessWithMyCase", DontMessWithMyCase);
 
 	GetTable("Spring");
-	AddFunc("Echo", Echo);
+	AddFunc("Echo", LuaUtils::Echo);
+	AddFunc("Log", LuaUtils::Log);
 	AddFunc("TimeCheck", TimeCheck);
 	EndTable();
 
@@ -142,6 +134,10 @@ void LuaParser::SetupEnv()
 	AddFunc("LoadFile",   LoadFile);
 	AddFunc("FileExists", FileExists);
 	EndTable();
+
+	GetTable("LOG");
+	LuaUtils::PushLogEntries(L);
+	EndTable();
 }
 
 
@@ -149,7 +145,7 @@ void LuaParser::SetupEnv()
 
 bool LuaParser::Execute()
 {
-	if (L == NULL) {
+	if (!IsValid()) {
 		errorLog = "could not initialize LUA library";
 		return false;
 	}
@@ -170,14 +166,14 @@ bool LuaParser::Execute()
 		CFileHandler fh(fileName, fileModes);
 		if (!fh.LoadStringData(code)) {
 			errorLog = "could not open file: " + fileName;
-			lua_close(L);
+			LUA_CLOSE(L);
 			L = NULL;
 			return false;
 		}
 	}
 	else {
-		errorLog = "no source file or text";
-		lua_close(L);
+		errorLog = "invalid format or empty file";
+		LUA_CLOSE(L);
 		L = NULL;
 		return false;
 	}
@@ -186,32 +182,37 @@ bool LuaParser::Execute()
 	error = luaL_loadbuffer(L, code.c_str(), code.size(), codeLabel.c_str());
 	if (error != 0) {
 		errorLog = lua_tostring(L, -1);
-		logOutput.Print("error = %i, %s, %s\n",
+		LOG_L(L_ERROR, "%i, %s, %s",
 		                error, codeLabel.c_str(), errorLog.c_str());
-		lua_close(L);
+		LUA_CLOSE(L);
 		L = NULL;
 		return false;
 	}
 
 	currentParser = this;
 
-	error = lua_pcall(L, 0, 1, 0);
+	{
+		// do not signal floating point exceptions in user Lua code
+		ScopedDisableFpuExceptions fe;
+
+		error = lua_pcall(L, 0, 1, 0);
+	}
 
 	currentParser = NULL;
 
 	if (error != 0) {
 		errorLog = lua_tostring(L, -1);
-		logOutput.Print("error = %i, %s, %s\n",
+		LOG_L(L_ERROR, "%i, %s, %s",
 		                error, fileName.c_str(), errorLog.c_str());
-		lua_close(L);
+		LUA_CLOSE(L);
 		L = NULL;
 		return false;
 	}
 
 	if (!lua_istable(L, 1)) {
-		errorLog = "missing return table from " + fileName + "\n";
-		logOutput.Print("missing return table from %s\n", fileName.c_str());
-		lua_close(L);
+		errorLog = "missing return table from " + fileName;
+		LOG_L(L_ERROR, "missing return table from %s", fileName.c_str());
+		LUA_CLOSE(L);
 		L = NULL;
 		return false;
 	}
@@ -252,7 +253,7 @@ LuaTable LuaParser::GetRoot()
 
 void LuaParser::PushParam()
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	if (initDepth > 0) {
 		lua_rawset(L, -3);
 	} else {
@@ -263,15 +264,15 @@ void LuaParser::PushParam()
 
 void LuaParser::GetTable(const string& name, bool overwrite)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 
-	lua_pushstring(L, name.c_str());
+	lua_pushsstring(L, name);
 
 	if (overwrite) {
 		lua_newtable(L);
 	}
 	else {
-		lua_pushstring(L, name.c_str());
+		lua_pushsstring(L, name);
 		lua_gettable(L, (initDepth == 0) ? LUA_GLOBALSINDEX : -3);
 		if (!lua_istable(L, -1)) {
 			lua_pop(L, 1);
@@ -285,7 +286,7 @@ void LuaParser::GetTable(const string& name, bool overwrite)
 
 void LuaParser::GetTable(int index, bool overwrite)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 
 	lua_pushnumber(L, index);
 
@@ -307,7 +308,7 @@ void LuaParser::GetTable(int index, bool overwrite)
 
 void LuaParser::EndTable()
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	assert(initDepth > 0);
 	initDepth--;
 	PushParam();
@@ -318,9 +319,9 @@ void LuaParser::EndTable()
 
 void LuaParser::AddFunc(const string& key, int (*func)(lua_State*))
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	if (func == NULL) { return; }
-	lua_pushstring(L, key.c_str());
+	lua_pushsstring(L, key);
 	lua_pushcfunction(L, func);
 	PushParam();
 }
@@ -328,8 +329,8 @@ void LuaParser::AddFunc(const string& key, int (*func)(lua_State*))
 
 void LuaParser::AddInt(const string& key, int value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
-	lua_pushstring(L, key.c_str());
+	if (!IsValid() || (initDepth < 0)) { return; }
+	lua_pushsstring(L, key);
 	lua_pushnumber(L, value);
 	PushParam();
 }
@@ -337,8 +338,8 @@ void LuaParser::AddInt(const string& key, int value)
 
 void LuaParser::AddBool(const string& key, bool value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
-	lua_pushstring(L, key.c_str());
+	if (!IsValid() || (initDepth < 0)) { return; }
+	lua_pushsstring(L, key);
 	lua_pushboolean(L, value);
 	PushParam();
 }
@@ -346,8 +347,8 @@ void LuaParser::AddBool(const string& key, bool value)
 
 void LuaParser::AddFloat(const string& key, float value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
-	lua_pushstring(L, key.c_str());
+	if (!IsValid() || (initDepth < 0)) { return; }
+	lua_pushsstring(L, key);
 	lua_pushnumber(L, value);
 	PushParam();
 }
@@ -355,9 +356,9 @@ void LuaParser::AddFloat(const string& key, float value)
 
 void LuaParser::AddString(const string& key, const string& value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
-	lua_pushstring(L, key.c_str());
-	lua_pushstring(L, value.c_str());
+	if (!IsValid() || (initDepth < 0)) { return; }
+	lua_pushsstring(L, key);
+	lua_pushsstring(L, value);
 	PushParam();
 }
 
@@ -366,7 +367,7 @@ void LuaParser::AddString(const string& key, const string& value)
 
 void LuaParser::AddFunc(int key, int (*func)(lua_State*))
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	if (func == NULL) { return; }
 	lua_pushnumber(L, key);
 	lua_pushcfunction(L, func);
@@ -376,7 +377,7 @@ void LuaParser::AddFunc(int key, int (*func)(lua_State*))
 
 void LuaParser::AddInt(int key, int value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	lua_pushnumber(L, key);
 	lua_pushnumber(L, value);
 	PushParam();
@@ -385,7 +386,7 @@ void LuaParser::AddInt(int key, int value)
 
 void LuaParser::AddBool(int key, bool value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	lua_pushnumber(L, key);
 	lua_pushboolean(L, value);
 	PushParam();
@@ -394,7 +395,7 @@ void LuaParser::AddBool(int key, bool value)
 
 void LuaParser::AddFloat(int key, float value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	lua_pushnumber(L, key);
 	lua_pushnumber(L, value);
 	PushParam();
@@ -403,9 +404,9 @@ void LuaParser::AddFloat(int key, float value)
 
 void LuaParser::AddString(int key, const string& value)
 {
-	if ((L == NULL) || (initDepth < 0)) { return; }
+	if (!IsValid() || (initDepth < 0)) { return; }
 	lua_pushnumber(L, key);
-	lua_pushstring(L, value.c_str());
+	lua_pushsstring(L, value);
 	PushParam();
 }
 
@@ -415,12 +416,6 @@ void LuaParser::AddString(int key, const string& value)
 //
 //  call-outs
 //
-
-int LuaParser::Echo(lua_State* L)
-{
-	return LuaUtils::Echo(L);
-}
-
 
 int LuaParser::TimeCheck(lua_State* L)
 {
@@ -438,7 +433,7 @@ int LuaParser::TimeCheck(lua_State* L)
 	}
 	const spring_time endTime = spring_gettime();
 	const float elapsed = 1.0e-3f * (float)(spring_tomsecs(endTime - startTime));
-	logOutput.Print("%s %f", name.c_str(), elapsed);
+	LOG("%s %f", name.c_str(), elapsed);
 	return lua_gettop(L);
 }
 
@@ -599,8 +594,9 @@ int LuaParser::FileExists(lua_State* L)
 	if (!LuaIO::IsSimplePath(filename)) {
 		return 0;
 	}
-	CFileHandler fh(filename, currentParser->accessModes);
-	lua_pushboolean(L, fh.FileExists());
+	//CFileHandler fh(filename, currentParser->accessModes);
+	//lua_pushboolean(L, fh.FileExists());
+	lua_pushboolean(L, CFileHandler::FileExists(filename, currentParser->accessModes));
 	return 1;
 }
 
@@ -781,18 +777,18 @@ LuaTable LuaTable::SubTableExpr(const string& expr) const
 	LuaTable nextTable;
 
 	if (expr[0] == '[') { // numeric key
-    endPos = expr.find(']');
-    if (endPos == string::npos) {
-      return LuaTable(); // missing brace
-    }
-    const char* startPtr = expr.c_str() + 1; // skip the '['
-    char* endPtr;
-    const int index = strtol(startPtr, &endPtr, 10);
-    if (endPtr == startPtr) {
-      return LuaTable(); // invalid index
-    }
-    endPos++; // eat the ']'
-    nextTable = SubTable(index);
+		endPos = expr.find(']');
+		if (endPos == string::npos) {
+			return LuaTable(); // missing brace
+		}
+		const char* startPtr = expr.c_str() + 1; // skip the '['
+		char* endPtr;
+		const int index = strtol(startPtr, &endPtr, 10);
+		if (endPtr == startPtr) {
+			return LuaTable(); // invalid index
+		}
+		endPos++; // eat the ']'
+		nextTable = SubTable(index);
 	}
 	else { // string key
 		endPos = expr.find_first_of(".[");
@@ -834,8 +830,8 @@ bool LuaTable::PushTable() const
 
 	if ((refnum != LUA_NOREF) && (parser->currentRef == refnum)) {
 		if (!lua_istable(L, -1)) {
-			logOutput.Print("Internal Error: LuaTable::PushTable() = %s\n",
-			                path.c_str());
+			LOG_L(L_ERROR, "Internal Error: LuaTable::PushTable() = %s",
+					path.c_str());
 			parser->currentRef = LUA_NOREF;
 			lua_settop(L, 0);
 			return false;
@@ -922,25 +918,39 @@ bool LuaTable::KeyExists(const string& key) const
 //  Value types
 //
 
-int LuaTable::GetType(int key) const
+LuaTable::DataType LuaTable::GetType(int key) const
 {
 	if (!PushValue(key)) {
-		return -1;
+		return NIL;
 	}
 	const int type = lua_type(L, -1);
 	lua_pop(L, 1);
-	return type;
+	
+	switch (type) {
+		case LUA_TBOOLEAN: return BOOLEAN;
+		case LUA_TNUMBER:  return NUMBER;
+		case LUA_TSTRING:  return STRING;
+		case LUA_TTABLE:   return TABLE;
+		default:           return NIL;
+	}
 }
 
 
-int LuaTable::GetType(const string& key) const
+LuaTable::DataType LuaTable::GetType(const string& key) const
 {
 	if (!PushValue(key)) {
-		return -1;
+		return NIL;
 	}
 	const int type = lua_type(L, -1);
 	lua_pop(L, 1);
-	return type;
+	
+	switch (type) {
+		case LUA_TBOOLEAN: return BOOLEAN;
+		case LUA_TNUMBER:  return NUMBER;
+		case LUA_TSTRING:  return STRING;
+		case LUA_TTABLE:   return TABLE;
+		default:           return NIL;
+	}
 }
 
 
@@ -1052,9 +1062,15 @@ bool LuaTable::GetMap(map<int, string>& data) const
 	const int table = lua_gettop(L);
 	for (lua_pushnil(L); lua_next(L, table) != 0; lua_pop(L, 1)) {
 		if (lua_israwnumber(L, -2) && lua_isstring(L, -1)) {
-			const int    key   = lua_toint(L, -2);
-			const string value = lua_tostring(L, -1);
-			data[key] = value;
+			if (lua_isstring(L, -1)) {
+				const int    key   = lua_toint(L, -2);
+				const string value = lua_tostring(L, -1);
+				data[key] = value;
+			} else if (lua_isboolean(L, -1)) {
+				const int    key   = lua_toint(L, -2);
+				const string value = lua_toboolean(L, -1) ? "1" : "0";
+				data[key] = value;
+			}
 		}
 	}
 	return true;
@@ -1085,10 +1101,16 @@ bool LuaTable::GetMap(map<string, string>& data) const
 	}
 	const int table = lua_gettop(L);
 	for (lua_pushnil(L); lua_next(L, table) != 0; lua_pop(L, 1)) {
-		if (lua_israwstring(L, -2) && lua_isstring(L, -1)) {
-			const string key   = lua_tostring(L, -2);
-			const string value = lua_tostring(L, -1);
-			data[key] = value;
+		if (lua_israwstring(L, -2)) {
+			if (lua_isstring(L, -1)) {
+				const string key   = lua_tostring(L, -2);
+				const string value = lua_tostring(L, -1);
+				data[key] = value;
+			} else if (lua_isboolean(L, -1)) {
+				const string key   = lua_tostring(L, -2);
+				const string value = lua_toboolean(L, -1) ? "1" : "0";
+				data[key] = value;
+			}
 		}
 	}
 	return true;
@@ -1106,14 +1128,15 @@ static bool ParseTableFloat(lua_State* L,
 {
 	lua_pushnumber(L, index);
 	lua_gettable(L, tableIndex);
-	if (!lua_isnumber(L, -1)) {
+	value = lua_tofloat(L, -1);
+	if (unlikely(value == 0) && !lua_isnumber(L, -1) && !lua_isstring(L, -1)) {
 		lua_pop(L, 1);
 		return false;
 	}
-	value = lua_tofloat(L, -1);
 	lua_pop(L, 1);
 	return true;
 }
+
 
 
 static bool ParseFloat3(lua_State* L, int index, float3& value)
@@ -1135,6 +1158,28 @@ static bool ParseFloat3(lua_State* L, int index, float3& value)
 	}
 	return false;
 }
+
+static bool ParseFloat4(lua_State* L, int index, float4& value)
+{
+	if (lua_istable(L, index)) {
+		const int table = (index > 0) ? index : lua_gettop(L) + index + 1;
+		if (ParseTableFloat(L, table, 1, value.x) &&
+		    ParseTableFloat(L, table, 2, value.y) &&
+		    ParseTableFloat(L, table, 3, value.z) &&
+		    ParseTableFloat(L, table, 4, value.w)) {
+			return true;
+		}
+	}
+	else if (lua_isstring(L, index)) {
+		const int count = sscanf(lua_tostring(L, index), "%f %f %f %f",
+		                         &value.x, &value.y, &value.z, &value.w);
+		if (count == 4) {
+			return true;
+		}
+	}
+	return false;
+}
+
 
 
 static bool ParseBoolean(lua_State* L, int index, bool& value)
@@ -1173,11 +1218,11 @@ int LuaTable::GetInt(const string& key, int def) const
 	if (!PushValue(key)) {
 		return def;
 	}
-	if (!lua_isnumber(L, -1)) {
+	const int value = lua_toint(L, -1);
+	if (unlikely(value == 0) && !lua_isnumber(L, -1) && !lua_isstring(L, -1)) {
 		lua_pop(L, 1);
 		return def;
 	}
-	const int value = lua_toint(L, -1);
 	lua_pop(L, 1);
 	return value;
 }
@@ -1203,14 +1248,15 @@ float LuaTable::GetFloat(const string& key, float def) const
 	if (!PushValue(key)) {
 		return def;
 	}
-	if (!lua_isnumber(L, -1)) {
+	const float value = lua_tofloat(L, -1);
+	if (unlikely(value == 0.f) && !lua_isnumber(L, -1) && !lua_isstring(L, -1)) {
 		lua_pop(L, 1);
 		return def;
 	}
-	const float value = lua_tofloat(L, -1);
 	lua_pop(L, 1);
 	return value;
 }
+
 
 
 float3 LuaTable::GetFloat3(const string& key, const float3& def) const
@@ -1226,6 +1272,21 @@ float3 LuaTable::GetFloat3(const string& key, const float3& def) const
 	lua_pop(L, 1);
 	return value;
 }
+
+float4 LuaTable::GetFloat4(const string& key, const float4& def) const
+{
+	if (!PushValue(key)) {
+		return def;
+	}
+	float4 value;
+	if (!ParseFloat4(L, -1, value)) {
+		lua_pop(L, 1);
+		return def;
+	}
+	lua_pop(L, 1);
+	return value;
+}
+
 
 
 string LuaTable::GetString(const string& key, const string& def) const
@@ -1254,11 +1315,11 @@ int LuaTable::GetInt(int key, int def) const
 	if (!PushValue(key)) {
 		return def;
 	}
-	if (!lua_isnumber(L, -1)) {
+	const int value = lua_toint(L, -1);
+	if (unlikely(value == 0) && !lua_isnumber(L, -1) && !lua_isstring(L, -1)) {
 		lua_pop(L, 1);
 		return def;
 	}
-	const int value = lua_toint(L, -1);
 	lua_pop(L, 1);
 	return value;
 }
@@ -1284,14 +1345,15 @@ float LuaTable::GetFloat(int key, float def) const
 	if (!PushValue(key)) {
 		return def;
 	}
-	if (!lua_isnumber(L, -1)) {
+	const float value = lua_tofloat(L, -1);
+	if (unlikely(value == 0) && !lua_isnumber(L, -1) && !lua_isstring(L, -1)) {
 		lua_pop(L, 1);
 		return def;
 	}
-	const float value = lua_tofloat(L, -1);
 	lua_pop(L, 1);
 	return value;
 }
+
 
 
 float3 LuaTable::GetFloat3(int key, const float3& def) const
@@ -1307,6 +1369,21 @@ float3 LuaTable::GetFloat3(int key, const float3& def) const
 	lua_pop(L, 1);
 	return value;
 }
+
+float4 LuaTable::GetFloat4(int key, const float4& def) const
+{
+	if (!PushValue(key)) {
+		return def;
+	}
+	float4 value;
+	if (!ParseFloat4(L, -1, value)) {
+		lua_pop(L, 1);
+		return def;
+	}
+	lua_pop(L, 1);
+	return value;
+}
+
 
 
 string LuaTable::GetString(int key, const string& def) const

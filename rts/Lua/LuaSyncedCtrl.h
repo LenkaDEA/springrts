@@ -1,16 +1,14 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_SYNCED_CTRL_H
 #define LUA_SYNCED_CTRL_H
-// LuaSyncedCtrl.h: interface for the LuaSyncedCtrl class.
-//
-//////////////////////////////////////////////////////////////////////
 
 struct lua_State;
 
-
-class LuaSyncedCtrl {
+class LuaSyncedCtrl
+{
 	public:
 		static bool PushEntries(lua_State* L);
-
 		static void CheckAllowGameChanges(lua_State* L);
 
 	private:
@@ -25,13 +23,21 @@ class LuaSyncedCtrl {
 
 	private:
 		// all LuaHandleSynced
+		static int KillTeam(lua_State* L);
+		static int GameOver(lua_State* L);
+
 		static int AddTeamResource(lua_State* L);
 		static int UseTeamResource(lua_State* L);
 		static int SetTeamResource(lua_State* L);
 		static int SetTeamShareLevel(lua_State* L);
+		static int ShareTeamResource(lua_State* L);
 
 		static int CallCOBScript(lua_State* L);
 		static int GetCOBScriptID(lua_State* L);
+
+		static int SetUnitRulesParam(lua_State* L);
+		static int SetTeamRulesParam(lua_State* L);
+		static int SetGameRulesParam(lua_State* L);
 
 		static int GiveOrderToUnit(lua_State* L);
 		static int GiveOrderToUnitMap(lua_State* L);
@@ -65,14 +71,16 @@ class LuaSyncedCtrl {
 		static int SetUnitMetalExtraction(lua_State* L);
 		static int SetUnitBuildSpeed(lua_State* L);
 		static int SetUnitBlocking(lua_State* L);
+		static int SetUnitCrashing(lua_State* L);
 		static int SetUnitShieldState(lua_State* L);
 		static int SetUnitFlanking(lua_State* L);
 		static int SetUnitTravel(lua_State* L);
 		static int SetUnitFuel(lua_State* L);
 		static int SetUnitMoveGoal(lua_State* L);
-		static int SetUnitLineage(lua_State* L);
 		static int SetUnitNeutral(lua_State* L);
 		static int SetUnitTarget(lua_State* L);
+		static int SetUnitMidAndAimPos(lua_State* L);
+		static int SetUnitRadiusAndHeight(lua_State* L);
 		static int SetUnitCollisionVolumeData(lua_State* L);
 		static int SetUnitPieceCollisionVolumeData(lua_State* L);
 		static int SetUnitSensorRadius(lua_State* L);
@@ -81,6 +89,7 @@ class LuaSyncedCtrl {
 		static int SetUnitPosition(lua_State* L);
 		static int SetUnitRotation(lua_State* L);
 		static int SetUnitVelocity(lua_State* L);
+		static int SetUnitDirection(lua_State* L);
 
 		static int AddUnitDamage(lua_State* L);
 		static int AddUnitImpulse(lua_State* L);
@@ -100,8 +109,11 @@ class LuaSyncedCtrl {
 		static int SetFeaturePosition(lua_State* L);
 		static int SetFeatureDirection(lua_State* L);
 		static int SetFeatureNoSelect(lua_State* L);
+		static int SetFeatureMidAndAimPos(lua_State* L);
+		static int SetFeatureRadiusAndHeight(lua_State* L);
 		static int SetFeatureCollisionVolumeData(lua_State* L);
 
+		static int SetProjectileMoveControl(lua_State* L);
 		static int SetProjectilePosition(lua_State* L);
 		static int SetProjectileVelocity(lua_State* L);
 		static int SetProjectileCollision(lua_State* L);

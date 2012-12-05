@@ -1,44 +1,37 @@
-// TimeProfiler.cpp: implementation of the CTimeProfiler class.
-//
-//////////////////////////////////////////////////////////////////////
-#include "TimeProfiler.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/TimeProfiler.h"
 
 #include <SDL_timer.h>
 #include <cstring>
 
-#include "mmgr.h"
-#include "lib/gml/gml.h"
-#include "LogOutput.h"
-#include "UnsyncedRNG.h"
+#include "System/mmgr.h"
+#include "lib/gml/gmlmut.h"
+#include "System/Log/ILog.h"
+#include "System/UnsyncedRNG.h"
 
+static std::map<const std::string, int> refs;
 
 BasicTimer::BasicTimer(const char* const myname) : name(myname), starttime(SDL_GetTicks())
 {
+	++refs[name];
 }
 
-ScopedTimer::ScopedTimer(const char* const myname) : BasicTimer(myname)
-{
-}
+
 
 ScopedTimer::~ScopedTimer()
 {
-	const unsigned stoptime = SDL_GetTicks();
-	profiler.AddTime(name, stoptime - starttime);
-}
-
-ScopedOnceTimer::ScopedOnceTimer(const char* const myname) : BasicTimer(myname)
-{
-}
-
-ScopedOnceTimer::ScopedOnceTimer(const std::string& myname): BasicTimer(myname.c_str())
-{
+	int& ref = refs[name];
+	if (--ref == 0)
+		profiler.AddTime(name, SDL_GetTicks() - starttime, autoShowGraph);
 }
 
 ScopedOnceTimer::~ScopedOnceTimer()
 {
-	const unsigned stoptime = SDL_GetTicks();
-	LogObject() << name << ": " << stoptime - starttime << " ms";
+	LOG("%s: %i ms", name.c_str(), (SDL_GetTicks() - starttime));
 }
+
+
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -76,19 +69,25 @@ void CTimeProfiler::Update()
 			pi->second.percent = ((float)pi->second.current) / ((float)timeDiff);
 			pi->second.current=0;
 
+			if(pi->second.percent > pi->second.peak) {
+				pi->second.peak = pi->second.percent;
+				pi->second.newpeak = true;
+			}
+			else
+				pi->second.newpeak = false;
 		}
 		lastBigUpdate = curTime;
 	}
 }
 
-float CTimeProfiler::GetPercent(const char *name)
+float CTimeProfiler::GetPercent(const char* name)
 {
 	GML_STDMUTEX_LOCK_NOPROF(time); // GetTimePercent
 
 	return profile[name].percent;
 }
 
-void CTimeProfiler::AddTime(const std::string& name, unsigned time)
+void CTimeProfiler::AddTime(const std::string& name, unsigned time, bool showGraph)
 {
 	GML_STDMUTEX_LOCK_NOPROF(time); // AddTime
 
@@ -109,24 +108,19 @@ void CTimeProfiler::AddTime(const std::string& name, unsigned time)
 		profile[name].color.x = rand.RandFloat();
 		profile[name].color.y = rand.RandFloat();
 		profile[name].color.z = rand.RandFloat();
-		profile[name].showGraph=true;
+		profile[name].showGraph = showGraph;
 	}
 }
 
 void CTimeProfiler::PrintProfilingInfo() const
 {
-	logOutput.Print("%35s|%18s|%s",
+	LOG("%35s|%18s|%s",
 			"Part",
 			"Total Time",
 			"Time of the last 0.5s");
 	std::map<std::string, CTimeProfiler::TimeRecord>::const_iterator pi;
 	for (pi = profile.begin(); pi != profile.end(); ++pi) {
-#if GML_MUTEX_PROFILER
-		if ((pi->first.size() < 5) || pi->first.substr(pi->first.size()-5,5).compare("Mutex")!=0) {
-			continue;
-		}
-#endif // GML_MUTEX_PROFILER
-		logOutput.Print("%35s %16.2fs %5.2f%%",
+		LOG("%35s %16.2fs %5.2f%%",
 				pi->first.c_str(),
 				((float)pi->second.total) / 1000.f,
 				pi->second.percent * 100);

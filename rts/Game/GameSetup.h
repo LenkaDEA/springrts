@@ -1,5 +1,7 @@
-#ifndef __GAME_SETUP_H__
-#define __GAME_SETUP_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _GAME_SETUP_H
+#define _GAME_SETUP_H
 
 #include <string>
 #include <map>
@@ -13,19 +15,12 @@
 
 class TdfParser;
 
-namespace GameMode
-{
-	const int ComContinue = 0;
-	const int ComEnd = 1;
-	const int Lineage = 2;
-	const int OpenEnd = 3;
-};
-
 class CGameSetup
 {
 public:
 	CGameSetup();
 	~CGameSetup();
+
 	bool Init(const std::string& script);
 	/**
 	 * @brief Load startpositions from map/script
@@ -37,6 +32,13 @@ public:
 	 * is not known before CPreGame recieves the gamedata from the server.
 	 */
 	void LoadStartPositions(bool withoutMap = false);
+
+	int GetRestrictedUnitLimit(const std::string& name, int defLimit) const {
+		const std::map<std::string, int>::const_iterator it = restrictedUnits.find(name);
+		if (it == restrictedUnits.end())
+			return defLimit;
+		return (it->second);
+	}
 
 	enum StartPosType
 	{
@@ -50,12 +52,10 @@ public:
 	bool fixedAllies;
 	unsigned int mapHash;
 	unsigned int modHash;
+	std::string MapFile() const;
 	std::string mapName;
 	std::string modName;
-	std::string scriptName;
 	bool useLuaGaia;
-	std::string luaGaiaStr;
-	std::string luaRulesStr;
 
 	std::string gameSetupText;
 
@@ -64,14 +64,11 @@ public:
 	std::vector<PlayerBase> playerStartingData;
 
 	const std::vector<SkirmishAIData>& GetSkirmishAIs() const;
-private:
-	const SkirmishAIData* GetSkirmishAIDataForTeam(int teamId) const;
+
 public:
 
 	std::vector<TeamBase> teamStartingData;
 	std::vector<AllyTeam> allyStartingData;
-
-	std::map<std::string, int> restrictedUnits;
 
 	std::map<std::string, std::string> mapOptions;
 	std::map<std::string, std::string> modOptions;
@@ -79,12 +76,13 @@ public:
 	int maxUnits;
 
 	bool ghostedBuildings;
-	bool limitDgun;
-	bool diminishingMMs;
 	bool disableMapDamage;
 
 	float maxSpeed;
 	float minSpeed;
+
+	/** if true, this is a non-network game (one local client, eg. when watching a demo) */
+	bool onlyLocal;
 
 	bool hostDemo;
 	std::string demoName;
@@ -92,11 +90,14 @@ public:
 
 	std::string saveName;
 
-	int startMetal;
-	int startEnergy;
+	/**
+	 * The number of seconds till the game starts,
+	 * counting from the moment when all players are connected and ready.
+	 * Default: 4 (seconds)
+	 */
+	unsigned int gameStartDelay;
 
-	int gameMode;
-	int noHelperAIs;
+	bool noHelperAIs;
 
 private:
 	/**
@@ -145,8 +146,10 @@ private:
 
 	std::vector<SkirmishAIData> skirmishAIStartingData;
 	std::map<int, const SkirmishAIData*> team_skirmishAI;
+
+	std::map<std::string, int> restrictedUnits;
 };
 
 extern const CGameSetup* gameSetup;
 
-#endif // __GAME_SETUP_H__
+#endif // _GAME_SETUP_H

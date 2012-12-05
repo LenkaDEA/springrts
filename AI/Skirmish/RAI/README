@@ -5,14 +5,14 @@ Author: Reth / Michael Vadovszki
 _____________________________________________________
 
 Forum Link:
-  http://spring.clan-sy.com/phpbb/viewtopic.php?t=7924
+  http://springrts.com/phpbb/viewtopic.php?t=7924
 
 Compiling:
  - as of v0.76b1, the mingwlibs dependency is needed to compile an AI.
-    - http://spring.clan-sy.com/wiki/Engine_Development#SCONS.2FMinGW
-    - http://spring.clan-sy.com/dl/spring-mingwlibs-v10.exe
+    - http://springrts.com/wiki/Engine_Development#SCONS.2FMinGW
+    - http://springrts.com/dl/spring-mingwlibs-v10.exe
  - while compiling,
-    - the RAI source folder was located in {spring source}/AI/Global/
+    - the RAI source folder was located in {spring source}/AI/Skirmish/
     - the mingwlibs folder was in the same directory as the
       {spring source} directory
 
@@ -35,8 +35,3 @@ Compiling:
         - (Windows Vista): Compiler Options > Directories > Libraries:
           Add "{DevC directory}\lib\gcc\mingw32\{version#}"
 
-Copyright: GPL
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License or
-    any later version.

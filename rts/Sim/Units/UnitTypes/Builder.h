@@ -1,20 +1,22 @@
-// Builder.h: interface for the CBuilder class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef __BUILDER_H__
-#define __BUILDER_H__
+#ifndef _BUILDER_H
+#define _BUILDER_H
 
 #include <string>
-#include "Sim/Units/Unit.h"
-#include "Sim/Units/UnitDef.h"
 
+#include "Sim/Units/Unit.h"
+#include "System/float3.h"
+
+struct UnitDef;
+struct BuildInfo;
 class CFeature;
+class CSolidObject;
 
 class CBuilder : public CUnit
 {
 private:
-	void UnitInit (const UnitDef* def, int team, const float3& position);
+	void PreInit(const UnitDef* def, int team, int facing, const float3& position, bool build);
 
 public:
 	inline float f3Dist(const float3& a, const float3& b) const {
@@ -38,24 +40,27 @@ public:
 	void PostLoad();
 
 	void Update();
-	void SlowUpdate(void);
+	void SlowUpdate();
 	void DependentDied(CObject* o);
 
-	bool StartBuild(BuildInfo& buildInfo, CFeature*& feature);
+	bool StartBuild(BuildInfo& buildInfo, CFeature*& feature, bool& waitstance);
 	float CalculateBuildTerraformCost(BuildInfo& buildInfo);
-	void StopBuild(bool callScript=true);
+	void StopBuild(bool callScript = true);
 	void SetRepairTarget(CUnit* target);
 	void SetReclaimTarget(CSolidObject* object);
 	void StartRestore(float3 centerPos, float radius);
 	void SetBuildStanceToward(float3 pos);
 
 	void HelpTerraform(CBuilder* unit);
-	void CreateNanoParticle(float3 goal, float radius, bool inverse);
+	void CreateNanoParticle(const float3& goal, float radius, bool inverse, bool highPriority = false);
 	void SetResurrectTarget(CFeature* feature);
 	void SetCaptureTarget(CUnit* unit);
 
+	bool CanAssistUnit(const CUnit* u, const UnitDef* def = NULL) const;
+	bool CanRepairUnit(const CUnit* u) const;
+
 public:
-	bool range3D; // spheres instead of infinite cylinders for range tests
+	bool range3D; ///< spheres instead of infinite cylinders for range tests
 
 	float buildDistance;
 	float buildSpeed;
@@ -70,6 +75,7 @@ public:
 	CUnit* curBuild;
 	CUnit* curCapture;
 	CSolidObject* curReclaim;
+	bool reclaimingUnit;
 	CBuilder* helpTerraform;
 
 	bool terraforming;
@@ -84,4 +90,4 @@ public:
 	float terraformRadius;
 };
 
-#endif // __BUILDER_H__
+#endif // _BUILDER_H

@@ -1,5 +1,5 @@
 // GML - OpenGL Multithreading Library
-// for Spring http://spring.clan-sy.com
+// for Spring http://springrts.com
 // Author: Mattias "zerver" Radeskog
 // (C) Ware Zerver Tech. http://zerver.net
 // Ware Zerver Tech. licenses this library
@@ -7,13 +7,15 @@
 // freely for any purpose, as long as 
 // this notice remains unchanged
 
-#ifndef GMLFUN_H
-#define GMLFUN_H
+#ifndef _GML_FUN_H
+#define _GML_FUN_H
 
 #include <set>
 #include <map>
-#include "LogOutput.h"
+#include "System/Log/ILog.h"
+#include <SDL_timer.h>
 #include <string.h>
+#include <string>
 
 #define GML_ENABLE_DEBUG 0
 
@@ -316,44 +318,69 @@ EXTERN inline int gmlSizeOf(int datatype) {
 
 #if GML_CALL_DEBUG
 #include "lib/lua/include/lauxlib.h"
-extern lua_State *gmlCurrentLuaState;
+extern void gmlPrintCallChainWarning(const char *func);
+extern unsigned gmlLockTime;
+extern lua_State *gmlCurrentLuaStates[GML_MAX_NUM_THREADS];
 class gmlCallDebugger {
 public:
-	bool set;
-	gmlCallDebugger(lua_State *L) { 
-		if(!gmlCurrentLuaState) {
-			gmlCurrentLuaState = L;
-			set=true;
-		} 
-		else 
-			set = false;
+	lua_State ** currentLuaState;
+	gmlCallDebugger(lua_State *L) {
+		currentLuaState = &gmlCurrentLuaStates[gmlThreadNumber]; 		
+		if(!*currentLuaState)
+			*currentLuaState = L;
+		else
+			currentLuaState = NULL;
 	}
 	~gmlCallDebugger() {
-		if(set)
-			gmlCurrentLuaState = NULL;
+		if(currentLuaState) {
+			*currentLuaState = NULL;
+		}
+	}
+	static unsigned getLockTime() {
+		unsigned ret = 0;
+		if(gmlMultiThreadSim && gmlStartSim)
+			ret = gmlLockTime;
+		gmlLockTime = 0;
+		return ret;
 	}
 };
-#define GML_CURRENT_LUA() (gmlCurrentLuaState ? "LUA" : "Unknown")
+#define GML_CURRENT_LUA(currentLuaState) (currentLuaState ? "LUA" : "Unknown")
 #define GML_THREAD_ERROR(msg, ret)\
-	logOutput.Print("GML error: Sim thread called %s (%s)", msg, GML_CURRENT_LUA());\
-	if(gmlCurrentLuaState)\
-		luaL_error(gmlCurrentLuaState, "Invalid call");\
+	lua_State *currentLuaState = gmlCurrentLuaStates[gmlThreadNumber];\
+	LOG_SL("GML", L_ERROR, "Sim thread called %s (%s)", msg, GML_CURRENT_LUA(currentLuaState));\
+	if(currentLuaState)\
+		luaL_error(currentLuaState, "Invalid call");\
 	ret
+#if GML_CALL_DEBUG
+#define GML_CHECK_CALL_CHAIN(luastate, ...)\
+	if (gmlCheckCallChain) {\
+		lua_State *currentLuaState = gmlCurrentLuaStates[gmlThreadNumber];\
+		if (currentLuaState != NULL && currentLuaState != gmlLuaUIState && luastate == gmlLuaUIState) {\
+			if (gmlCallChainWarning < GML_MAX_CALL_CHAIN_WARNINGS) {\
+				++gmlCallChainWarning;\
+				gmlPrintCallChainWarning(GML_FUNCTION);\
+			}\
+			return __VA_ARGS__;\
+		}\
+	}
+#else
+#define GML_CHECK_CALL_CHAIN(luastate, ...)
+#endif
 #define GML_ITEMLOG_PRINT() GML_THREAD_ERROR(GML_FUNCTION,)
 #define GML_DUMMYRET() return;
 #define GML_DUMMYRETVAL(rettype)\
 	rettype rdummy = (rettype)0;\
 	return rdummy;
 #define GML_IF_SIM_THREAD_RET(thread,name)\
-	if(thread == gmlThreadCount) {\
+	if(thread == gmlNoGLThreadNum) {\
 		GML_THREAD_ERROR(GML_QUOTE(gml##name), GML_DUMMYRET())\
 	}
 #define GML_IF_SIM_THREAD_RETVAL(thread,name,rettype)\
-	if(thread == gmlThreadCount) {\
+	if(thread == gmlNoGLThreadNum) {\
 		GML_THREAD_ERROR(GML_QUOTE(gml##name), GML_DUMMYRETVAL(rettype))\
 	}
 #else
-#define GML_ITEMLOG_PRINT() logOutput.Print("GML error: Sim thread called %s",GML_FUNCTION);
+#define GML_ITEMLOG_PRINT() LOG_SL("GML", L_ERROR, "Sim thread called %s", GML_FUNCTION);
 #define GML_DUMMYRET()
 #define GML_DUMMYRETVAL(rettype)
 #define GML_IF_SIM_THREAD_RET(thread,name)
@@ -405,17 +432,17 @@ EXTERN inline void gmlSync(gmlQueue *qd) {
 #define GML_FUN(ftype,name,...) };\
 	EXTERN const int gml##name##Enum=(__LINE__-__FIRSTLINE__);\
 	GML_MAKENAME(name)\
-	EXTERN inline ftype gml##name(__VA_ARGS__)
+	EXTERN inline ftype GML_GLAPIENTRY gml##name(__VA_ARGS__)
 
 
 #if GML_ENABLE_ITEMSERVER_CHECK
 #define GML_ITEMSERVER_CHECK(thread)\
-	if(thread == gmlThreadCount) {\
+	if(thread == gmlNoGLThreadNum) {\
 		GML_ITEMLOG_PRINT()\
 		GML_DUMMYRET()\
 	}
 #define GML_ITEMSERVER_CHECK_RET(thread,rettype)\
-	if(thread == gmlThreadCount) {\
+	if(thread == gmlNoGLThreadNum) {\
 		GML_ITEMLOG_PRINT()\
 		GML_DUMMYRETVAL(rettype)\
 	}
@@ -528,6 +555,18 @@ GML_FUN(void, name, tA A, tB B, tC C, tD D) {\
 	GML_MAKEASS_D()\
 	GML_UPD_POS()\
 	GML_SYNC_COND(__VA_ARGS__,)\
+}
+
+#define GML_MAKEFUN4R(name,tA,tB,tC,tD,tR)\
+	GML_MAKEDATA_D(name,tA,tB,tC,tD)\
+	GML_MAKEVAR_RET(tR)\
+GML_FUN(tR, name, tA A, tB B, tC C, tD D) {\
+	GML_COND_RET(name,tR,A,B,C,D)\
+	GML_PREP_FIXED(name)\
+	GML_MAKEASS_D()\
+	GML_UPD_POS()\
+	GML_SYNC();\
+	GML_RETVAL(tR)\
 }
 
 #define GML_MAKEFUN5(name,tA,tB,tC,tD,tE,...)\
@@ -930,8 +969,8 @@ GML_FUN(void, name, tA A, tB B, tC C, tD D, tE E, tF *F) {\
 	GML_UPD_POS()\
 }
 
-#define GML_MEMCOPY()\
-	for(int i=0; i<C; ++i) {\
+#define GML_MEMCOPY(count)\
+	for(int i=0; i<count; ++i) {\
 		BYTE *v2=v;\
 		for(int j=0; j<itemsize; ++j) {\
 			*e=*v2;\
@@ -941,8 +980,8 @@ GML_FUN(void, name, tA A, tB B, tC C, tD D, tE E, tF *F) {\
 		v+=itemstride;\
 	}
 
-#define GML_IDXLOOP(ltype)\
-	for(int i=0; i<B; ++i) {\
+#define GML_IDXLOOP(count,ltype)\
+	for(int i=0; i<count; ++i) {\
 		BYTE *v2=v+(*(ltype *)dt)*itemstride;\
 		dt+=sizeof(ltype);\
 		for(int j=0; j<itemsize; ++j) {\
@@ -952,17 +991,17 @@ GML_FUN(void, name, tA A, tB B, tC C, tD D, tE E, tF *F) {\
 		}\
 	}
 
-#define GML_IDXCOPY()\
-	BYTE *dt=(BYTE *)D;\
-	switch(C) {\
+#define GML_IDXCOPY(count,type,data)\
+	BYTE *dt=(BYTE *)data;\
+	switch(type) {\
 		case GL_UNSIGNED_INT:\
-			GML_IDXLOOP(GLuint)\
+			GML_IDXLOOP(count,GLuint)\
 			break;\
 		case GL_UNSIGNED_SHORT:\
-			GML_IDXLOOP(GLushort)\
+			GML_IDXLOOP(count,GLushort)\
 			break;\
 		case GL_UNSIGNED_BYTE:\
-			GML_IDXLOOP(GLubyte)\
+			GML_IDXLOOP(count,GLubyte)\
 			break;\
 	}
 
@@ -1054,13 +1093,13 @@ GML_FUN(void, name, tA A, tB B, tC C) {\
 	GLenum clientstate=qd->ClientState & ~(qd->ClientState>>16);\
 	p->ClientState=qd->ClientState;\
 	BYTE *e=(BYTE *)(p+1);\
-	GML_MAKESUBFUNDA(name,GL_VERTEX_ARRAY,VP,qd->VPsize*gmlSizeOf(qd->VPtype),p->VPsize=qd->VPsize,p->VPtype=qd->VPtype,B,C,GML_MEMCOPY())\
-	GML_MAKESUBFUNDA(name,GL_COLOR_ARRAY,CP,qd->CPsize*gmlSizeOf(qd->CPtype),p->CPsize=qd->CPsize,p->CPtype=qd->CPtype,B,C,GML_MEMCOPY())\
-	GML_MAKESUBFUNDA(name,GL_TEXTURE_COORD_ARRAY,TCP,qd->TCPsize*gmlSizeOf(qd->TCPtype),p->TCPsize=qd->TCPsize,p->TCPtype=qd->TCPtype,B,C,GML_MEMCOPY())\
-	GML_MAKESUBFUNDA(name,GL_INDEX_ARRAY,IP,gmlSizeOf(qd->IPtype),,p->IPtype=qd->IPtype,B,C,GML_MEMCOPY())\
-	GML_MAKESUBFUNDA(name,GL_NORMAL_ARRAY,NP,3*gmlSizeOf(qd->NPtype),,p->NPtype=qd->NPtype,B,C,GML_MEMCOPY())\
-	GML_MAKESUBFUNDA(name,GL_EDGE_FLAG_ARRAY,EFP,sizeof(GLboolean),,,B,C,GML_MEMCOPY())\
-	GML_MAKESUBFUNVA(name,B,C,GML_MEMCOPY())\
+	GML_MAKESUBFUNDA(name,GL_VERTEX_ARRAY,VP,qd->VPsize*gmlSizeOf(qd->VPtype),p->VPsize=qd->VPsize,p->VPtype=qd->VPtype,B,C,GML_MEMCOPY(C))\
+	GML_MAKESUBFUNDA(name,GL_COLOR_ARRAY,CP,qd->CPsize*gmlSizeOf(qd->CPtype),p->CPsize=qd->CPsize,p->CPtype=qd->CPtype,B,C,GML_MEMCOPY(C))\
+	GML_MAKESUBFUNDA(name,GL_TEXTURE_COORD_ARRAY,TCP,qd->TCPsize*gmlSizeOf(qd->TCPtype),p->TCPsize=qd->TCPsize,p->TCPtype=qd->TCPtype,B,C,GML_MEMCOPY(C))\
+	GML_MAKESUBFUNDA(name,GL_INDEX_ARRAY,IP,gmlSizeOf(qd->IPtype),,p->IPtype=qd->IPtype,B,C,GML_MEMCOPY(C))\
+	GML_MAKESUBFUNDA(name,GL_NORMAL_ARRAY,NP,3*gmlSizeOf(qd->NPtype),,p->NPtype=qd->NPtype,B,C,GML_MEMCOPY(C))\
+	GML_MAKESUBFUNDA(name,GL_EDGE_FLAG_ARRAY,EFP,sizeof(GLboolean),,,B,C,GML_MEMCOPY(C))\
+	GML_MAKESUBFUNVA(name,B,C,GML_MEMCOPY(C))\
 	GML_UPD_SIZE()\
 	GML_UPD_POS()\
 }
@@ -1079,17 +1118,41 @@ GML_FUN(void, name, tA A, tB B, tC C, tD *D) {\
 	p->ClientState=qd->ClientState;\
 	if(qd->ElementArrayBuffer)\
 		p->ClientState |= GML_ELEMENT_ARRAY_BUFFER;\
-	GML_MAKESUBFUNDA(name,GL_VERTEX_ARRAY,VP,qd->VPsize*gmlSizeOf(qd->VPtype),p->VPsize=qd->VPsize,p->VPtype=qd->VPtype,0,B,GML_IDXCOPY())\
-	GML_MAKESUBFUNDA(name,GL_COLOR_ARRAY,CP,qd->CPsize*gmlSizeOf(qd->CPtype),p->CPsize=qd->CPsize,p->CPtype=qd->CPtype,0,B,GML_IDXCOPY())\
-	GML_MAKESUBFUNDA(name,GL_TEXTURE_COORD_ARRAY,TCP,qd->TCPsize*gmlSizeOf(qd->TCPtype),p->TCPsize=qd->TCPsize,p->TCPtype=qd->TCPtype,0,B,GML_IDXCOPY())\
-	GML_MAKESUBFUNDA(name,GL_INDEX_ARRAY,IP,gmlSizeOf(qd->IPtype),,p->IPtype=qd->IPtype,0,B,GML_IDXCOPY())\
-	GML_MAKESUBFUNDA(name,GL_NORMAL_ARRAY,NP,3*gmlSizeOf(qd->NPtype),,p->NPtype=qd->NPtype,0,B,GML_IDXCOPY())\
-	GML_MAKESUBFUNDA(name,GL_EDGE_FLAG_ARRAY,EFP,sizeof(GLboolean),,,0,B,GML_IDXCOPY())\
-	GML_MAKESUBFUNVA(name,0,B,GML_IDXCOPY())\
+	GML_MAKESUBFUNDA(name,GL_VERTEX_ARRAY,VP,qd->VPsize*gmlSizeOf(qd->VPtype),p->VPsize=qd->VPsize,p->VPtype=qd->VPtype,0,B,GML_IDXCOPY(B,C,D))\
+	GML_MAKESUBFUNDA(name,GL_COLOR_ARRAY,CP,qd->CPsize*gmlSizeOf(qd->CPtype),p->CPsize=qd->CPsize,p->CPtype=qd->CPtype,0,B,GML_IDXCOPY(B,C,D))\
+	GML_MAKESUBFUNDA(name,GL_TEXTURE_COORD_ARRAY,TCP,qd->TCPsize*gmlSizeOf(qd->TCPtype),p->TCPsize=qd->TCPsize,p->TCPtype=qd->TCPtype,0,B,GML_IDXCOPY(B,C,D))\
+	GML_MAKESUBFUNDA(name,GL_INDEX_ARRAY,IP,gmlSizeOf(qd->IPtype),,p->IPtype=qd->IPtype,0,B,GML_IDXCOPY(B,C,D))\
+	GML_MAKESUBFUNDA(name,GL_NORMAL_ARRAY,NP,3*gmlSizeOf(qd->NPtype),,p->NPtype=qd->NPtype,0,B,GML_IDXCOPY(B,C,D))\
+	GML_MAKESUBFUNDA(name,GL_EDGE_FLAG_ARRAY,EFP,sizeof(GLboolean),,,0,B,GML_IDXCOPY(B,C,D))\
+	GML_MAKESUBFUNVA(name,0,B,GML_IDXCOPY(B,C,D))\
 	GML_UPD_SIZE()\
 	GML_UPD_POS()\
 }
 
+
+#define GML_MAKEFUN6VDRE(name,tA,tB,tC,tD,tE,tF)\
+	GML_MAKEDATA_F(name,tA,tB,tC,tD,tE,tF *)\
+	GML_MAKEPOINTERDATA()\
+	GML_MAKEVAR_SIZE()\
+GML_FUN(void, name, tA A, tB B, tC C, tD D, tE E, tF *F) {\
+	GML_COND(name,A,B,C,D,E,F)\
+	GML_PREP_FIXED(name)\
+	GML_MAKEASS_F()\
+	BYTE *e=(BYTE *)(p+1);\
+	GLenum clientstate=qd->ClientState & ~(qd->ClientState>>16);\
+	p->ClientState=qd->ClientState;\
+	if(qd->ElementArrayBuffer)\
+		p->ClientState |= GML_ELEMENT_ARRAY_BUFFER;\
+	GML_MAKESUBFUNDA(name,GL_VERTEX_ARRAY,VP,qd->VPsize*gmlSizeOf(qd->VPtype),p->VPsize=qd->VPsize,p->VPtype=qd->VPtype,0,D,GML_IDXCOPY(D,E,F))\
+	GML_MAKESUBFUNDA(name,GL_COLOR_ARRAY,CP,qd->CPsize*gmlSizeOf(qd->CPtype),p->CPsize=qd->CPsize,p->CPtype=qd->CPtype,0,D,GML_IDXCOPY(D,E,F))\
+	GML_MAKESUBFUNDA(name,GL_TEXTURE_COORD_ARRAY,TCP,qd->TCPsize*gmlSizeOf(qd->TCPtype),p->TCPsize=qd->TCPsize,p->TCPtype=qd->TCPtype,0,D,GML_IDXCOPY(D,E,F))\
+	GML_MAKESUBFUNDA(name,GL_INDEX_ARRAY,IP,gmlSizeOf(qd->IPtype),,p->IPtype=qd->IPtype,0,D,GML_IDXCOPY(D,E,F))\
+	GML_MAKESUBFUNDA(name,GL_NORMAL_ARRAY,NP,3*gmlSizeOf(qd->NPtype),,p->NPtype=qd->NPtype,0,D,GML_IDXCOPY(D,E,F))\
+	GML_MAKESUBFUNDA(name,GL_EDGE_FLAG_ARRAY,EFP,sizeof(GLboolean),,,0,D,GML_IDXCOPY(D,E,F))\
+	GML_MAKESUBFUNVA(name,0,D,GML_IDXCOPY(D,E,F))\
+	GML_UPD_SIZE()\
+	GML_UPD_POS()\
+}
 
 
 const int __FIRSTLINE__=__LINE__;
@@ -1227,6 +1290,7 @@ GML_MAKEFUN2(MultiTexCoord1f,GLenum,GLfloat,)
 GML_MAKEFUN3(MultiTexCoord2f,GLenum,GLfloat,GLfloat,)
 GML_MAKEFUN4(MultiTexCoord3f,GLenum,GLfloat,GLfloat,GLfloat)
 GML_MAKEFUN5(MultiTexCoord4f,GLenum,GLfloat,GLfloat,GLfloat,GLfloat)
+// FIXME: the third parameter should be const, but on old systems opengl headers don't allow to
 GML_MAKEFUN2V(PointParameterfv,GLenum,GLfloat,GLfloat,gmlNumArgsPointParam(A))
 GML_MAKEFUN1(PointSize,GLfloat)
 GML_MAKEFUN4V(ProgramStringARB,GLenum,GLenum,GLsizei,const GLvoid,BYTE,C)
@@ -1274,8 +1338,8 @@ GML_MAKEFUN1V(Normal3fv,const GLfloat,GLfloat,3)
 GML_MAKEFUN2(RasterPos2i,GLint,GLint,)
 GML_MAKEFUN1(ReadBuffer,GLenum)
 GML_MAKEFUN4(Scissor,GLint,GLint,GLsizei,GLsizei)
-GML_MAKEFUN4VSS(ShaderSource,GLuint,GLsizei,const GLchar,GLint,B)
-GML_MAKEFUN4VSS(ShaderSourceARB,GLhandleARB,GLsizei,const GLcharARB,GLint,B)
+GML_MAKEFUN4VSS(ShaderSource,GLuint,GLsizei,const GLchar,const GLint,B)
+GML_MAKEFUN4VSS(ShaderSourceARB,GLhandleARB,GLsizei,const GLcharARB,const GLint,B)
 GML_MAKEFUN1V(TexCoord2fv,const GLfloat,GLfloat,2)
 GML_MAKEFUN3V(TexParameterfv,GLenum,GLenum,const GLfloat,GLfloat,gmlNumArgsTexParam(B))
 GML_MAKEFUN3(Translated,GLdouble,GLdouble,GLdouble,)
@@ -1312,7 +1376,7 @@ GML_MAKEFUN2R(GetUniformLocationARB,GLhandleARB,const GLcharARB *, GLint)
 GML_MAKEFUN7(ReadPixels,GLint,GLint,GLsizei,GLsizei,GLenum,GLenum,GLvoid *,GML_SYNC())
 GML_MAKEFUN0R(GetError,GLenum,GML_DEFAULT_ERROR())
 GML_MAKEFUN3(GetObjectParameterivARB,GLhandleARB,GLenum,GLint *,GML_DEFAULT(B==GL_OBJECT_COMPILE_STATUS_ARB || B==GL_OBJECT_LINK_STATUS_ARB,*C=GL_TRUE),GML_SYNC())
-GML_MAKEFUN2R(GetUniformLocation,GLint,const GLchar *, GLint)
+GML_MAKEFUN2R(GetUniformLocation,GLuint,const GLchar *, GLint)
 GML_MAKEFUN2(GetDoublev,GLenum, GLdouble *,,GML_SYNC())
 GML_MAKEFUN3(GetProgramiv,GLuint,GLenum,GLint *,,GML_SYNC())
 GML_MAKEFUN7(GetActiveUniform,GLuint,GLuint,GLsizei,GLsizei *,GLint *,GLenum *,GLchar *,GML_SYNC())
@@ -1366,5 +1430,8 @@ GML_MAKEFUN3V(Uniform4iv,GLint,GLsizei,const GLint,GLint,4*B)
 GML_MAKEFUN3V(Uniform2fv,GLint,GLsizei,const GLfloat,GLfloat,2*B)
 GML_MAKEFUN3V(Uniform3fv,GLint,GLsizei,const GLfloat,GLfloat,3*B)
 GML_MAKEFUN3V(Uniform4fv,GLint,GLsizei,const GLfloat,GLfloat,4*B)
+GML_MAKEFUN4R(MapBufferRange,GLenum,GLintptr,GLsizeiptr,GLbitfield,GLvoid *)
+GML_MAKEFUN1(PrimitiveRestartIndexNV,GLuint)
+GML_MAKEFUN6VDRE(DrawRangeElements,GLenum,GLuint,GLuint,GLsizei,GLenum,const GLvoid)
 
-#endif
+#endif // _GML_FUN_H

@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // AAI
 //
-// A skirmish AI for the TA Spring engine.
+// A skirmish AI for the Spring engine.
 // Copyright Alexander Seizinger
 //
 // Released under GPL license: see LICENSE.html for more information.
@@ -170,39 +170,39 @@ AAIBuildTable::~AAIBuildTable(void)
 	if(aai_instances == 0)
 	{
 
-		delete [] unitList;
+		SafeDeleteArray(unitList);
 
 		for(int i = 0; i <= MOBILE_CONSTRUCTOR; ++i)
 		{
-			delete [] units_of_category[i];
+			SafeDeleteArray(units_of_category[i]);
 
-			delete [] avg_cost[i];
-			delete [] avg_buildtime[i];
-			delete [] avg_value[i];
-			delete [] max_cost[i];
-			delete [] max_buildtime[i];
-			delete [] max_value[i];
-			delete [] min_cost[i];
-			delete [] min_buildtime[i];
-			delete [] min_value[i];
+			SafeDeleteArray(avg_cost[i]);
+			SafeDeleteArray(avg_buildtime[i]);
+			SafeDeleteArray(avg_value[i]);
+			SafeDeleteArray(max_cost[i]);
+			SafeDeleteArray(max_buildtime[i]);
+			SafeDeleteArray(max_value[i]);
+			SafeDeleteArray(min_cost[i]);
+			SafeDeleteArray(min_buildtime[i]);
+			SafeDeleteArray(min_value[i]);
 		}
 
-		/*delete [] max_builder_buildtime;
-		delete [] max_builder_cost;
-		delete [] max_builder_buildspeed;*/
+		/*SafeDeleteArray(max_builder_buildtime);
+		SafeDeleteArray(max_builder_cost);
+		SafeDeleteArray(max_builder_buildspeed);*/
 
 		for(int i = 0; i < combat_categories; ++i)
 		{
-			delete [] avg_speed[i];
-			delete [] max_speed[i];
-			delete [] min_speed[i];
-			delete [] group_speed[i];
+			SafeDeleteArray(avg_speed[i]);
+			SafeDeleteArray(max_speed[i]);
+			SafeDeleteArray(min_speed[i]);
+			SafeDeleteArray(group_speed[i]);
 		}
 
-		delete [] avg_speed;
-		delete [] max_speed;
-		delete [] min_speed;
-		delete [] group_speed;
+		SafeDeleteArray(avg_speed);
+		SafeDeleteArray(max_speed);
+		SafeDeleteArray(min_speed);
+		SafeDeleteArray(group_speed);
 
 		attacked_by_category_learned.clear();
 		attacked_by_category_current.clear();
@@ -242,10 +242,11 @@ void AAIBuildTable::Init()
 		cb->GetUnitDefList(unitList);
 	}
 
-	// Try to load buildtable, if not possible create new one
+	// Try to load buildtable; if not possible, create a new one
 	if(!LoadBuildTable())
 	{
-		// one more than needed because 0 is dummy object (so UnitDef->id can be used to adress that unit in the array)
+		// one more than needed because 0 is dummy object
+		// (so UnitDef->id can be used to address that unit in the array)
 		units_static.resize(numOfUnits+1);
 		fixed_eff.resize(numOfUnits+1, vector<float>(combat_categories));
 
@@ -671,7 +672,7 @@ void AAIBuildTable::Init()
 			UnitCategory cat;
 			float eff;
 
-			for(int i = 0; i <= numOfUnits; ++i)
+			for(int i = 1; i <= numOfUnits; ++i)
 			{
 				cat = units_static[i].category;
 				eff = 1.5 + 7 * (units_static[i].cost - min_cost)/(max_cost - min_cost);
@@ -2494,16 +2495,23 @@ bool AAIBuildTable::LoadBuildTable()
 		char buffer[500];
 		STRCPY(buffer, MAIN_PATH);
 		STRCAT(buffer, MOD_LEARN_PATH);
-		STRCAT(buffer, cb->GetModName());
-		ReplaceExtension (buffer, buildtable_filename, sizeof(buildtable_filename), ".dat");
+		const std::string modHumanName = MakeFileSystemCompatible(cb->GetModHumanName());
+		STRCAT(buffer, modHumanName.c_str());
+		STRCAT(buffer, "-");
+		const std::string modHash = IntToString(cb->GetModHash(), "%x");
+		STRCAT(buffer, modHash.c_str());
+		STRCAT(buffer, ".dat");
+		STRCPY(buildtable_filename, buffer);
 
-		char buildtable_filename_r[500];
+		// this size equals the one used in "AIAICallback::GetValue(AIVAL_LOCATE_FILE_..."
+		char buildtable_filename_r[2048];
 		STRCPY(buildtable_filename_r, buildtable_filename);
 		ai->cb->GetValue(AIVAL_LOCATE_FILE_R, buildtable_filename_r);
 
 		FILE *load_file;
 
-		int tmp = 0, bo = 0, bb = 0, cat = 0;
+		int tmp = 0, cat = 0;
+		size_t bo = 0, bb = 0;
 
 		// load units if file exists
 		if((load_file = fopen(buildtable_filename_r, "r")))
@@ -2541,7 +2549,7 @@ bool AAIBuildTable::LoadBuildTable()
 
 			for(int i = 1; i <= numOfUnits; ++i)
 			{
-				fscanf(load_file, "%i %i %u %u %f %f %f %i %i %i ",&units_static[i].def_id, &units_static[i].side,
+				fscanf(load_file, "%i %i %u %u %f %f %f %i "_STPF_" "_STPF_" ",&units_static[i].def_id, &units_static[i].side,
 									&units_static[i].unit_type, &units_static[i].movement_type,
 									&units_static[i].range, &units_static[i].cost, &units_static[i].builder_cost,
 									&cat, &bo, &bb);
@@ -2564,14 +2572,14 @@ bool AAIBuildTable::LoadBuildTable()
 				units_dynamic[i].constructorsRequested = 0;
 
 				// load buildoptions
-				for(int j = 0; j < bo; j++)
+				for(size_t j = 0; j < bo; j++)
 				{
 					fscanf(load_file, "%i ", &tmp);
 					units_static[i].canBuildList.push_back(tmp);
 				}
 
 				// load builtby-list
-				for(int k = 0; k < bb; ++k)
+				for(size_t k = 0; k < bb; ++k)
 				{
 					fscanf(load_file, "%i ", &tmp);
 					units_static[i].builtByList.push_back(tmp);
@@ -2584,9 +2592,9 @@ bool AAIBuildTable::LoadBuildTable()
 				for(int cat = 0; cat <= MOBILE_CONSTRUCTOR; ++cat)
 				{
 					// load number of buildoptions
-					fscanf(load_file, "%i ", &bo);
+					fscanf(load_file, _STPF_" ", &bo);
 
-					for(int i = 0; i < bo; ++i)
+					for(size_t i = 0; i < bo; ++i)
 					{
 						fscanf(load_file, "%i ", &tmp);
 						units_of_category[cat][s].push_back(tmp);
@@ -2637,7 +2645,8 @@ void AAIBuildTable::SaveBuildTable(int game_period, MapType map_type)
 	}
 
 	// get filename
-	char buildtable_filename_w[500];
+	// this size equals the one used in "AIAICallback::GetValue(AIVAL_LOCATE_FILE_..."
+	char buildtable_filename_w[2048];
 	STRCPY(buildtable_filename_w, buildtable_filename);
 	ai->cb->GetValue(AIVAL_LOCATE_FILE_W, buildtable_filename_w);
 	FILE *save_file = fopen(buildtable_filename_w, "w+");
@@ -2673,13 +2682,13 @@ void AAIBuildTable::SaveBuildTable(int game_period, MapType map_type)
 		}
 	}
 
-	int tmp;
+//	int tmp;
 
 	for(int i = 1; i <= numOfUnits; ++i)
 	{
-		tmp = units_static[i].canBuildList.size();
+//		tmp = units_static[i].canBuildList.size();
 
-		fprintf(save_file, "%i %i %u %u %f %f %f %i %i %i ", units_static[i].def_id, units_static[i].side,
+		fprintf(save_file, "%i %i %u %u %f %f %f %i "_STPF_" "_STPF_" ", units_static[i].def_id, units_static[i].side,
 								units_static[i].unit_type, units_static[i].movement_type, units_static[i].range,
 								units_static[i].cost, units_static[i].builder_cost, (int) units_static[i].category,
 								units_static[i].canBuildList.size(), units_static[i].builtByList.size());
@@ -2705,7 +2714,7 @@ void AAIBuildTable::SaveBuildTable(int game_period, MapType map_type)
 		for(int cat = 0; cat <= MOBILE_CONSTRUCTOR; ++cat)
 		{
 			// save number of units
-			fprintf(save_file, "%i ", units_of_category[cat][s].size());
+			fprintf(save_file, _STPF_" ", units_of_category[cat][s].size());
 
 			for(list<int>::iterator unit = units_of_category[cat][s].begin(); unit != units_of_category[cat][s].end(); ++unit)
 				fprintf(save_file, "%i ", *unit);
@@ -2740,13 +2749,19 @@ void AAIBuildTable::DebugPrint()
 
 	// for debugging
 	UnitType unitType;
-	char filename[500];
+	// this size equals the one used in "AIAICallback::GetValue(AIVAL_LOCATE_FILE_..."
+	char filename[2048];
 	char buffer[500];
 	STRCPY(buffer, MAIN_PATH);
 	STRCAT(buffer, AILOG_PATH);
 	STRCAT(buffer, "BuildTable_");
-	STRCAT(buffer, cb->GetModName());
-	ReplaceExtension (buffer, filename, sizeof(filename), ".txt");
+	const std::string modHumanName = MakeFileSystemCompatible(cb->GetModHumanName());
+	STRCAT(buffer, modHumanName.c_str());
+	STRCAT(buffer, "-");
+	const std::string modHash = IntToString(cb->GetModHash(), "%x");
+	STRCAT(buffer, modHash.c_str());
+	STRCAT(buffer, ".txt");
+	STRCPY(filename, buffer);
 
 	ai->cb->GetValue(AIVAL_LOCATE_FILE_W, filename);
 
@@ -2898,6 +2913,7 @@ float AAIBuildTable::GetMaxDamage(int unit_id)
 	return max_damage;
 }
 
+// declaration is in aidef.h
 void ReplaceExtension(const char *n, char *dst, int s, const char *ext)
 {
 	unsigned int l = strlen (n);
@@ -2912,6 +2928,34 @@ void ReplaceExtension(const char *n, char *dst, int s, const char *ext)
 	dst[a+sizeof("")]=0;
 
 	strncat (dst, ext, s);
+}
+
+static bool IsFSGoodChar(const char c) {
+
+	if ((c >= '0') && (c <= '9')) {
+		return true;
+	} else if ((c >= 'a') && (c <= 'z')) {
+		return true;
+	} else if ((c >= 'A') && (c <= 'Z')) {
+		return true;
+	} else if ((c == '.') || (c == '_') || (c == '-')) {
+		return true;
+	}
+
+	return false;
+}
+// declaration is in aidef.h
+std::string MakeFileSystemCompatible(const std::string& str) {
+
+	std::string cleaned = str;
+
+	for (std::string::size_type i=0; i < cleaned.size(); i++) {
+		if (!IsFSGoodChar(cleaned[i])) {
+			cleaned[i] = '_';
+		}
+	}
+
+	return cleaned;
 }
 
 float AAIBuildTable::GetFactoryRating(int def_id)
@@ -3411,14 +3455,14 @@ bool AAIBuildTable::IsArty(int id)
 	if(!unitList[id-1]->weapons.empty())
 	{
 		float max_range = 0;
-		const WeaponDef *longest = 0;
+//		const WeaponDef *longest = 0;
 
 		for(vector<UnitDef::UnitDefWeapon>::const_iterator weapon = unitList[id-1]->weapons.begin(); weapon != unitList[id-1]->weapons.end(); weapon++)
 		{
 			if(weapon->def->range > max_range)
 			{
 				max_range = weapon->def->range;
-				longest = weapon->def;
+//				longest = weapon->def;
 			}
 		}
 
@@ -3878,8 +3922,13 @@ int AAIBuildTable::DetermineBetterUnit(int unit1, int unit2, float ground_eff, f
 	rating2 = 0.1f + ground_eff * units_static[unit2].efficiency[0] +  air_eff * units_static[unit2].efficiency[1] +  hover_eff * units_static[unit2].efficiency[2] +  sea_eff * units_static[unit2].efficiency[3] + submarine_eff * units_static[unit2].efficiency[4];
 	rating2 /= units_static[unit2].cost;
 
-	if(cost * rating1/rating2 + range * units_static[unit1].range / units_static[unit2].range + speed * unitList[unit1-1]->speed / unitList[unit2-1]->speed  > 0)
+	if (((rating2 == 0.0f) || (units_static[unit2].range == 0.0f) || (unitList[unit2 - 1]->speed == 0.0f))
+			|| ((cost * rating1 / rating2)
+				+ (range * units_static[unit1].range / units_static[unit2].range)
+				+ (speed * unitList[unit1 - 1]->speed / unitList[unit2 - 1]->speed)
+				> 0.0f)) {
 		return unit1;
-	else
+	} else {
 		return unit2;
+	}
 }

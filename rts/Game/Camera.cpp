@@ -1,15 +1,14 @@
-#include "StdAfx.h"
-// camera->cpp: implementation of the CCamera class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+#include <string.h>
+#include "System/mmgr.h"
 
-#include "myMath.h"
-#include "Matrix44f.h"
-#include "GlobalUnsynced.h"
 #include "Camera.h"
-#include "Map/Ground.h"
+#include "Map/ReadMap.h"
+#include "System/myMath.h"
+#include "System/float3.h"
+#include "System/Matrix44f.h"
+#include "Rendering/GlobalRendering.h"
 
 
 //////////////////////////////////////////////////////////////////////
@@ -19,201 +18,102 @@
 CCamera* camera;
 CCamera* cam2;
 
-unsigned int CCamera::billboardList = 0;
 
-CCamera::CCamera() :
-	pos(2000.0f, 70.0f, 1800.0f),
-	rot(0.0f, 0.0f, 0.0f),
-	forward(1.0f, 0.0f, 0.0f),   posOffset(0.0f, 0.0f, 0.0f), tiltOffset(0.0f, 0.0f, 0.0f), lppScale(0.0f)
+
+inline void GetGLdoubleMatrix(const CMatrix44f& m, GLdouble* dm)
 {
-	// stuff that wont change can be initialised here, it doesn't need to be reinitialised every update
-	modelview[ 3] =  0.0f;
-	modelview[ 7] =  0.0f;
-	modelview[11] =  0.0f;
-	modelview[15] =  1.0f;
+	for (int i = 0; i < 16; i += 4) {
+		dm[i+0] = m[i+0];
+		dm[i+1] = m[i+1];
+		dm[i+2] = m[i+2];
+		dm[i+3] = m[i+3];
+	}
+}
 
-	projection[ 1] = 0.0f;
-	projection[ 2] = 0.0f;
-	projection[ 3] = 0.0f;
 
-	projection[ 4] = 0.0f;
-	projection[ 6] = 0.0f;
-	projection[ 7] = 0.0f;
+CCamera::CCamera()
+	: pos(0.0f, 0.0f, 0.0f)
+	, rot(0.0f, 0.0f, 0.0f)
+	, forward(1.0f, 0.0f, 0.0f)
+	, up(UpVector)
+	, posOffset(ZeroVector)
+	, tiltOffset(ZeroVector)
+	, viewMatrixD(16, 0.0)
+	, projectionMatrixD(16, 0.0)
+	, fov(0.0f)
+	, halfFov(0.0f)
+	, tanHalfFov(0.0f)
+	, lppScale(0.0f)
+{
+	if (gs) {
+		// center map
+		pos = float3(gs->mapx * 0.5f * SQUARE_SIZE, 1000.f, gs->mapy * 0.5f * SQUARE_SIZE);
+	}
 
-	projection[12] = 0.0f;
-	projection[13] = 0.0f;
-	projection[15] = 0.0f;
+	memset(viewport, 0, 4 * sizeof(int));
 
-	billboard[3]  = billboard[7]  = billboard[11] = 0.0;
-	billboard[12] = billboard[13] = billboard[14] = 0.0;
-	billboard[15] = 1.0;
+	// stuff that will not change can be initialised here,
+	// so it does not need to be reinitialised every update
+	projectionMatrix[15] = 0.0f;
+	billboardMatrix[15] = 1.0f;
 
 	SetFov(45.0f);
-
-	up      = UpVector;
-
-	if (billboardList == 0) {
-		billboardList = glGenLists(1);
-	}
 }
 
-CCamera::~CCamera()
-{
-	glDeleteLists(billboardList,1);
-}
+void CCamera::CopyState(const CCamera* cam) {
+	topFrustumSideDir = cam->topFrustumSideDir;
+	botFrustumSideDir = cam->botFrustumSideDir;
+	rgtFrustumSideDir = cam->rgtFrustumSideDir;
+	lftFrustumSideDir = cam->lftFrustumSideDir;
 
-void CCamera::Roll(float rad)
-{
-	CMatrix44f rotate;
-	rotate.Rotate(rad, forward);
-	up = rotate.Mul(up);
-}
+	forward   = cam->forward;
+	right     = cam->right;
+	up        = cam->up;
 
-void CCamera::Pitch(float rad)
-{
-	CMatrix44f rotate;
-	rotate.Rotate(rad, right);
-	forward = rotate.Mul(forward);
-	forward.Normalize();
-	rot.y = atan2(forward.x,forward.z);
-	rot.x = asin(forward.y);
-	UpdateForward();
-}
+	pos       = cam->pos;
+	rot       = cam->rot;
 
-static double Calculate4x4Cofactor(const double m[4][4], int ei, int ej)
-{
-	int ai, bi, ci;
-	switch (ei) {
-		case 0: { ai = 1; bi = 2; ci = 3; break; }
-		case 1: { ai = 0; bi = 2; ci = 3; break; }
-		case 2: { ai = 0; bi = 1; ci = 3; break; }
-		case 3: { ai = 0; bi = 1; ci = 2; break; }
-	}
-	int aj, bj, cj;
-	switch (ej) {
-		case 0: { aj = 1; bj = 2; cj = 3; break; }
-		case 1: { aj = 0; bj = 2; cj = 3; break; }
-		case 2: { aj = 0; bj = 1; cj = 3; break; }
-		case 3: { aj = 0; bj = 1; cj = 2; break; }
-	}
-
-	const double val =
-	    (m[ai][aj] * ((m[bi][bj] * m[ci][cj]) - (m[ci][bj] * m[bi][cj])))
-		- (m[ai][bj] * ((m[bi][aj] * m[ci][cj]) - (m[ci][aj] * m[bi][cj])))
-		+ (m[ai][cj] * ((m[bi][aj] * m[ci][bj]) - (m[ci][aj] * m[bi][bj])));
-
-	if (((ei + ej) % 2) == 0) {
-		return +val;
-	} else {
-		return -val;
-	}
+	lppScale  = cam->lppScale;
 }
 
 
-static bool CalculateInverse4x4(const double m[4][4], double inv[4][4])
+void CCamera::Update(bool resetUp)
 {
-	double cofac[4][4];
-	for (int i = 0; i < 4; i++) {
-		for (int j = 0; j < 4; j++) {
-			cofac[i][j] = Calculate4x4Cofactor(m, i, j);
-		}
-	}
-
-	const double det = (m[0][0] * cofac[0][0]) +
-	                   (m[0][1] * cofac[0][1]) +
-	                   (m[0][2] * cofac[0][2]) +
-	                   (m[0][3] * cofac[0][3]);
-
-	if (det <= 1.0e-9) {
-		// singular matrix, set to identity?
-		for (int i = 0; i < 4; i++) {
-			for (int j = 0; j < 4; j++) {
-				inv[i][j] = (i == j) ? 1.0 : 0.0;
-			}
-		}
-		return false;
-	}
-
-	const double scale = 1.0 / det;
-	for (int i = 0; i < 4; i++) {
-		for (int j = 0; j < 4; j++) {
-			inv[i][j] = cofac[j][i] * scale; // (adjoint / determinant)
-			                                 // (note the transposition in 'cofac')
-		}
-	}
-
-	return true;
-}
-
-void CCamera::Update(bool freeze, bool resetUp)
-{
-	pos2 = pos;
-
 	if (resetUp) {
-		up.x = 0.0f;
-		up.y = 1.0f;
-		up.z = 0.0f;
+		up = UpVector;
 	}
 
 	right = forward.cross(up);
 	right.UnsafeANormalize();
-
 	up = right.cross(forward);
 	up.UnsafeANormalize();
 
-	const float aspect = gu->aspectRatio;
-	const float viewx = tan(aspect * halfFov);
-	// const float viewx = aspect * tanHalfFov;
+	const float aspect = globalRendering->aspectRatio;
+	const float viewx = math::tan(aspect * halfFov);
 	const float viewy = tanHalfFov;
 
-	if (gu->viewSizeY <= 0) {
+	if (globalRendering->viewSizeY <= 0) {
 		lppScale = 0.0f;
 	} else {
-		const float span = 2.0f * tanHalfFov;
-		lppScale = span / (float) gu->viewSizeY;
+		lppScale = (2.0f * tanHalfFov) / globalRendering->viewSizeY;
 	}
 
 	const float3 forwardy = (-forward * viewy);
-	top    = forwardy + up;
-	top.UnsafeANormalize();
-	bottom = forwardy - up;
-	bottom.UnsafeANormalize();
-
 	const float3 forwardx = (-forward * viewx);
-	rightside = forwardx + right;
-	rightside.UnsafeANormalize();
-	leftside  = forwardx - right;
-	leftside.UnsafeANormalize();
 
-	if (!freeze) {
-		cam2->bottom    = bottom;
-		cam2->forward   = forward;
-		cam2->leftside  = leftside;
-		cam2->pos       = pos;
-		cam2->right     = right;
-		cam2->rightside = rightside;
-		cam2->rot       = rot;
-		cam2->top       = top;
-		cam2->up        = up;
-		cam2->lppScale  = lppScale;
-	}
+	// note: top- and bottom-dir should be parallel to <forward>
+	topFrustumSideDir = (forwardy +    up).UnsafeANormalize();
+	botFrustumSideDir = (forwardy -    up).UnsafeANormalize();
+	rgtFrustumSideDir = (forwardx + right).UnsafeANormalize();
+	lftFrustumSideDir = (forwardx - right).UnsafeANormalize();
 
-	const float gndHeight = ground->GetHeight(pos.x, pos.z);
-	const float rangemod = 1.0f + std::max(0.0f, pos.y - gndHeight - 500.0f) * 0.0003f;
-	const float zNear = (NEAR_PLANE * rangemod);
-	gu->viewRange = MAX_VIEW_RANGE * rangemod;
+	if (this == camera)
+		cam2->CopyState(this);
 
-	glMatrixMode(GL_PROJECTION); // Select the Projection Matrix
-	glLoadIdentity();            // Reset  the Projection Matrix
-
-	// apply and store the transform, should be faster
-	// than calling glGetDoublev(GL_PROJECTION_MATRIX)
-	// right after gluPerspective()
-	myGluPerspective(aspect, zNear, gu->viewRange);
-
-
-	glMatrixMode(GL_MODELVIEW);  // Select the Modelview Matrix
-	glLoadIdentity();
+	// apply and store the projection transform
+	ComputeViewRange();
+	glMatrixMode(GL_PROJECTION);
+	myGluPerspective(aspect, globalRendering->zNear, globalRendering->viewRange);
 
 	// FIXME: should be applying the offsets to pos/up/right/forward/etc,
 	//        but without affecting the real positions (need an intermediary)
@@ -224,34 +124,53 @@ void CCamera::Update(bool freeze, bool resetUp)
 	const float3 camPos = pos + posOffset;
 	const float3 center = camPos + fShake.ANormalize();
 
-	// apply and store the transform, should be faster
-	// than calling glGetDoublev(GL_MODELVIEW_MATRIX)
-	// right after gluLookAt()
+	// apply and store the view transform
+	glMatrixMode(GL_MODELVIEW);
 	myGluLookAt(camPos, center, up);
 
+	// create extra matrices
+	viewProjectionMatrix = viewMatrix * projectionMatrix;
+	viewMatrixInverse = viewMatrix.InvertAffine();
+	projectionMatrixInverse = projectionMatrix.Invert();
+	viewProjectionMatrixInverse = viewProjectionMatrix.Invert();
 
-	// the inverse modelview matrix (handy for shaders to have)
-	CalculateInverse4x4((double(*)[4])modelview, (double(*)[4])modelviewInverse);
+	// GLdouble versions
+	GetGLdoubleMatrix(viewMatrix, &viewMatrixD[0]);
+	GetGLdoubleMatrix(projectionMatrix, &projectionMatrixD[0]);
 
-	// transpose the 3x3
-	billboard[0]  = modelview[0];
-	billboard[1]  = modelview[4];
-	billboard[2]  = modelview[8];
-	billboard[4]  = modelview[1];
-	billboard[5]  = modelview[5];
-	billboard[6]  = modelview[9];
-	billboard[8]  = modelview[2];
-	billboard[9]  = modelview[6];
-	billboard[10] = modelview[10];
+	// Billboard Matrix
+	billboardMatrix = viewMatrix;
+	billboardMatrix.SetPos(ZeroVector);
+	billboardMatrix.Transpose(); // viewMatrix is affine, equals inverse
+	billboardMatrix[15] = 1.0f; // SetPos() touches m[15]
 
-	glNewList(billboardList, GL_COMPILE);
-	glMultMatrixd(billboard);
-	glEndList();
-
+	// viewport
 	viewport[0] = 0;
 	viewport[1] = 0;
-	viewport[2] = gu->viewSizeX;
-	viewport[3] = gu->viewSizeY;
+	viewport[2] = globalRendering->viewSizeX;
+	viewport[3] = globalRendering->viewSizeY;
+}
+
+
+void CCamera::ComputeViewRange()
+{
+	float wantedViewRange = CGlobalRendering::MAX_VIEW_RANGE;
+
+	// Camera height dependent (i.e. TAB-view)
+	wantedViewRange = std::max(wantedViewRange, (pos.y - std::max(0.0f, readmap->currMinHeight)) * 2.4f);
+
+	// View angle dependent (i.e. FPS-view)
+	const float azimuthCos       = forward.dot(UpVector);
+	const float maxDistToBorderX = std::max(pos.x, float3::maxxpos - pos.x);
+	const float maxDistToBorderZ = std::max(pos.z, float3::maxzpos - pos.z);
+	const float minViewRange     = (1.0f - azimuthCos) * math::sqrt(Square(maxDistToBorderX) + Square(maxDistToBorderZ));
+	wantedViewRange = std::max(wantedViewRange, minViewRange);
+	//LOG("viewRange %f", wantedViewRange);
+
+	// Update
+	const float factor = wantedViewRange / CGlobalRendering::MAX_VIEW_RANGE;
+	globalRendering->zNear     = CGlobalRendering::NEAR_PLANE * factor;
+	globalRendering->viewRange = CGlobalRendering::MAX_VIEW_RANGE * factor;
 }
 
 
@@ -266,34 +185,30 @@ static inline bool AABBInOriginPlane(const float3& plane, const float3& camPos,
 }
 
 
-bool CCamera::InView(const float3& mins, const float3& maxs)
+bool CCamera::InView(const float3& mins, const float3& maxs) const
 {
 	// Axis-aligned bounding box test  (AABB)
-	if (AABBInOriginPlane(rightside, pos, mins, maxs) &&
-	    AABBInOriginPlane(leftside,  pos, mins, maxs) &&
-	    AABBInOriginPlane(bottom,    pos, mins, maxs) &&
-	    AABBInOriginPlane(top,       pos, mins, maxs)) {
-		return true;
-	}
-	return false;
+	if (!AABBInOriginPlane(rgtFrustumSideDir, pos, mins, maxs)) return false;
+	if (!AABBInOriginPlane(lftFrustumSideDir, pos, mins, maxs)) return false;
+	if (!AABBInOriginPlane(botFrustumSideDir, pos, mins, maxs)) return false;
+	if (!AABBInOriginPlane(topFrustumSideDir, pos, mins, maxs)) return false;
+
+	return true;
 }
 
-bool CCamera::InView(const float3 &p, float radius)
+bool CCamera::InView(const float3& p, float radius) const
 {
 	const float3 t   = (p - pos);
 	const float  lsq = t.SqLength();
 
-	if (lsq < 2500.0f) {
-		return true;
-	}
-	else if (lsq > Square(gu->viewRange)) {
+	if (lsq > Square(globalRendering->viewRange)) {
 		return false;
 	}
 
-	if ((t.dot(rightside) > radius) ||
-	    (t.dot(leftside)  > radius) ||
-	    (t.dot(bottom)    > radius) ||
-	    (t.dot(top)       > radius)) {
+	if ((t.dot(rgtFrustumSideDir) > radius) ||
+	    (t.dot(lftFrustumSideDir) > radius) ||
+	    (t.dot(botFrustumSideDir) > radius) ||
+	    (t.dot(topFrustumSideDir) > radius)) {
 		return false;
 	}
 
@@ -303,89 +218,176 @@ bool CCamera::InView(const float3 &p, float radius)
 
 void CCamera::UpdateForward()
 {
-	forward.z = cos(rot.y) * cos(rot.x);
-	forward.x = sin(rot.y) * cos(rot.x);
-	forward.y = sin(rot.x);
-	forward.ANormalize();
+	forward.z = math::cos(rot.y) * math::cos(rot.x);
+	forward.x = math::sin(rot.y) * math::cos(rot.x);
+	forward.y = math::sin(rot.x);
+	forward.Normalize();
 }
 
-
-float3 CCamera::CalcPixelDir(int x, int y)
-{
-	float dx = float(x-gu->viewPosX-gu->viewSizeX/2)/gu->viewSizeY * tanHalfFov * 2;
-	float dy = float(y-gu->viewSizeY/2)/gu->viewSizeY * tanHalfFov * 2;
-	float3 dir = forward - up * dy + right * dx;
-	dir.ANormalize();
-	return dir;
-}
-
-
-float3 CCamera::CalcWindowCoordinates(const float3& objPos)
-{
-	double winPos[3];
-	gluProject((GLdouble)objPos.x, (GLdouble)objPos.y, (GLdouble)objPos.z,
-	           modelview, projection, viewport,
-	           &winPos[0], &winPos[1], &winPos[2]);
-	return float3((float)winPos[0], (float)winPos[1], (float)winPos[2]);
-}
-
-inline void CCamera::myGluPerspective(float aspect, float zNear, float zFar) {
-	GLdouble t = zNear * tanHalfFov;
-	GLdouble b = -t;
-	GLdouble l = b * aspect;
-	GLdouble r = t * aspect;
-
-	projection[ 0] = (2.0f * zNear) / (r - l);
-
-	projection[ 5] = (2.0f * zNear) / (t - b);
-
-	projection[ 8] = (r + l) / (r - l);
-	projection[ 9] = (t + b) / (t - b);
-	projection[10] = -(zFar + zNear) / (zFar - zNear);
-	projection[11] = -1.0f;
-
-	projection[14] = -(2.0f * zFar * zNear) / (zFar - zNear);
-
-	glMultMatrixd(projection);
-}
-
-inline void CCamera::myGluLookAt(const float3& eye, const float3& center, const float3& up) {
-	float3 f = (center - eye).ANormalize();
-	float3 s = f.cross(up);
-	float3 u = s.cross(f);
-
-	modelview[ 0] =  s.x;
-	modelview[ 1] =  u.x;
-	modelview[ 2] = -f.x;
-
-
-	modelview[ 4] =  s.y;
-	modelview[ 5] =  u.y;
-	modelview[ 6] = -f.y;
-
-	modelview[ 8] =  s.z;
-	modelview[ 9] =  u.z;
-	modelview[10] = -f.z;
-
-	// save a glTranslated(-eye.x, -eye.y, -eye.z) call
-	modelview[12] = ( s.x * -eye.x) + ( s.y * -eye.y) + ( s.z * -eye.z);
-	modelview[13] = ( u.x * -eye.x) + ( u.y * -eye.y) + ( u.z * -eye.z);
-	modelview[14] = (-f.x * -eye.x) + (-f.y * -eye.y) + (-f.z * -eye.z);
-
-	glMultMatrixd(modelview);
-}
-
-const GLdouble* CCamera::GetProjection() const { return projection; }
-const GLdouble* CCamera::GetModelview() const { return modelview; }
-const GLdouble* CCamera::GetBillboard() const { return billboard; }
-
-float CCamera::GetFov() const { return fov; }
-float CCamera::GetHalfFov() const { return halfFov; }
-float CCamera::GetTanHalfFov() const { return tanHalfFov; }
 
 void CCamera::SetFov(float myfov)
 {
 	fov = myfov;
-	halfFov = fov * 0.008726646f;
-	tanHalfFov = tan(halfFov);
+	halfFov = (fov * 0.5f) * (PI / 180.f);
+	tanHalfFov = math::tan(halfFov);
+}
+
+
+float3 CCamera::CalcPixelDir(int x, int y) const
+{
+	const int vsx = std::max(1, globalRendering->viewSizeX);
+	const int vsy = std::max(1, globalRendering->viewSizeY);
+
+	const float dx = float(x - globalRendering->viewPosX - (vsx >> 1)) / vsy * (tanHalfFov * 2.0f);
+	const float dy = float(y -                             (vsy >> 1)) / vsy * (tanHalfFov * 2.0f);
+
+	const float3 dir = (forward - up * dy + right * dx).Normalize();
+	return dir;
+}
+
+
+float3 CCamera::CalcWindowCoordinates(const float3& objPos) const
+{
+	double winPos[3];
+	gluProject((GLdouble)objPos.x, (GLdouble)objPos.y, (GLdouble)objPos.z,
+	           &viewMatrixD[0], &projectionMatrixD[0], viewport,
+	           &winPos[0], &winPos[1], &winPos[2]);
+	return float3((float)winPos[0], (float)winPos[1], (float)winPos[2]);
+}
+
+
+inline void CCamera::myGluPerspective(float aspect, float zNear, float zFar) {
+	const float t = zNear * tanHalfFov;
+	const float b = -t;
+	const float l = b * aspect;
+	const float r = t * aspect;
+
+	projectionMatrix[ 0] = (2.0f * zNear) / (r - l);
+
+	projectionMatrix[ 5] = (2.0f * zNear) / (t - b);
+
+	projectionMatrix[ 8] = (r + l) / (r - l);
+	projectionMatrix[ 9] = (t + b) / (t - b);
+	projectionMatrix[10] = -(zFar + zNear) / (zFar - zNear);
+	projectionMatrix[11] = -1.0f;
+
+	projectionMatrix[14] = -(2.0f * zFar * zNear) / (zFar - zNear);
+
+	glLoadMatrixf(projectionMatrix);
+}
+
+
+inline void CCamera::myGluLookAt(const float3& eye, const float3& center, const float3& up) {
+	const float3 f = (center - eye).ANormalize();
+	const float3 s = f.cross(up);
+	const float3 u = s.cross(f);
+
+	viewMatrix[ 0] =  s.x;
+	viewMatrix[ 1] =  u.x;
+	viewMatrix[ 2] = -f.x;
+
+	viewMatrix[ 4] =  s.y;
+	viewMatrix[ 5] =  u.y;
+	viewMatrix[ 6] = -f.y;
+
+	viewMatrix[ 8] =  s.z;
+	viewMatrix[ 9] =  u.z;
+	viewMatrix[10] = -f.z;
+
+	// save a glTranslated(-eye.x, -eye.y, -eye.z) call
+	viewMatrix[12] = ( s.x * -eye.x) + ( s.y * -eye.y) + ( s.z * -eye.z);
+	viewMatrix[13] = ( u.x * -eye.x) + ( u.y * -eye.y) + ( u.z * -eye.z);
+	viewMatrix[14] = (-f.x * -eye.x) + (-f.y * -eye.y) + (-f.z * -eye.z);
+
+	glLoadMatrixf(viewMatrix);
+}
+
+
+
+void CCamera::GetFrustumSides(float miny, float maxy, float scale, bool negSide) {
+	ClearFrustumSides();
+	// note: order does not matter
+	GetFrustumSide(topFrustumSideDir, ZeroVector,  miny, maxy, scale,  (topFrustumSideDir.y > 0.0f), negSide);
+	GetFrustumSide(botFrustumSideDir, ZeroVector,  miny, maxy, scale,  (botFrustumSideDir.y > 0.0f), negSide);
+	GetFrustumSide(lftFrustumSideDir, ZeroVector,  miny, maxy, scale,  (lftFrustumSideDir.y > 0.0f), negSide);
+	GetFrustumSide(rgtFrustumSideDir, ZeroVector,  miny, maxy, scale,  (rgtFrustumSideDir.y > 0.0f), negSide);
+}
+
+void CCamera::GetFrustumSide(
+	const float3& zdir,
+	const float3& offset,
+	float miny,
+	float maxy,
+	float scale,
+	bool upwardDir,
+	bool negSide)
+{
+	// compose an orthonormal axis-system around <zdir>
+	float3 xdir = (zdir.cross(UpVector)).UnsafeANormalize();
+	float3 ydir = (zdir.cross(xdir)).UnsafeANormalize();
+
+	// intersection of vector from <pos> along <ydir> with xz-plane
+	float3 pInt;
+
+	// prevent DIV0 when calculating line.dir
+	if (math::fabs(xdir.z) < 0.001f)
+		xdir.z = 0.001f;
+
+	if (ydir.y != 0.0f) {
+		// if <zdir> is angled toward the sky instead of the ground,
+		// subtract <miny> from the camera's y-position, else <maxy>
+		if (upwardDir) {
+			pInt = (pos + offset) - ydir * ((pos.y - miny) / ydir.y);
+		} else {
+			pInt = (pos + offset) - ydir * ((pos.y - maxy) / ydir.y);
+		}
+	}
+
+	// <line.dir> is the direction coefficient (0 ==> parallel to z-axis, inf ==> parallel to x-axis)
+	// in the xz-plane; <line.base> is the x-coordinate at which line intersects x-axis; <line.sign>
+	// indicates line direction, ie. left-to-right (whenever <xdir.z> is negative) or right-to-left
+	// NOTE:
+	//     (b.x / b.z) is actually the reciprocal of the DC (ie. the number of steps along +x for
+	//     one step along +y); the world z-axis is inverted wrt. a regular Carthesian grid, so the
+	//     DC is also inverted
+	FrustumLine line;
+	line.dir  = (xdir.x / xdir.z);
+	line.base = (pInt.x - (pInt.z * line.dir)) / scale;
+	line.sign = (xdir.z <= 0.0f)? 1: -1;
+	line.minz = (                  0.0f) - (gs->mapy);
+	line.maxz = (gs->mapy * SQUARE_SIZE) + (gs->mapy);
+
+	if (line.sign == 1 || negSide) {
+		negFrustumSides.push_back(line);
+	} else {
+		posFrustumSides.push_back(line);
+	}
+}
+
+void CCamera::ClipFrustumLines(bool neg, const float zmin, const float zmax) {
+	std::vector<FrustumLine>& lines = neg? negFrustumSides: posFrustumSides;
+	std::vector<FrustumLine>::iterator fli, fli2;
+
+	for (fli = lines.begin(); fli != lines.end(); ++fli) {
+		for (fli2 = lines.begin(); fli2 != lines.end(); ++fli2) {
+			if (fli == fli2)
+				continue;
+
+			const float dbase = fli->base - fli2->base;
+			const float ddir = fli->dir - fli2->dir;
+
+			if (ddir == 0.0f)
+				continue;
+
+			const float colz = -(dbase / ddir);
+
+			if ((fli2->sign * ddir) > 0.0f) {
+				if ((colz > fli->minz) && (colz < zmax))
+					fli->minz = colz;
+			} else {
+				if ((colz < fli->maxz) && (colz > zmin))
+					fli->maxz = colz;
+			}
+		}
+	}
 }

@@ -1,44 +1,38 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /*
- * This file has to be C99 compatible, as it is not only used by the engine,
- * but also by AIs.
+ * This file has to be C90 compatible, as it is not only used by the engine,
+ * but also by AIs, which might be compiled with compilers (for example VS)
+ * that do not support C99.
  */
 
-#ifndef _MAINDEFINES_H
-#define _MAINDEFINES_H
+#ifndef MAIN_DEFINES_H
+#define MAIN_DEFINES_H
 
 #include <stdio.h>
 
 #if       !defined __cplusplus && !defined bool
 // include the bool type (defines: bool, true, false)
 #if defined _MSC_VER
-#include "booldefines.h"
+#include "System/booldefines.h"
 #else
 #include <stdbool.h>
 #endif
 #endif // !defined __cplusplus && !defined bool
 
+// define if we have a X11 enviroment (:= linux/freebsd)
+#if !defined(__APPLE__) && !defined(_WIN32)
+	//FIXME move this check to cmake, which has FindX11.cmake?
+	#define _X11
+#endif
+
 // define a common indicator for 32bit or 64bit-ness
 #if defined _WIN64 || defined __LP64__ || defined __ppc64__ || defined __ILP64__ || defined __SILP64__ || defined __LLP64__ || defined(__sparcv9)
 #define __arch64__
+#define __archBits__ 64
 #else
 #define __arch32__
+#define __archBits__ 32
 #endif
 
 // define a cross-platform/-compiler compatible "%z" format replacement for
@@ -69,13 +63,13 @@
 		#define PRINTF    printf_s
 		#define FPRINTF   fprintf_s
 		#define SNPRINTF  sprintf_s
-		#define VSNPRINTF vsprintf_s
+		#define VSNPRINTF _vsnprintf // vsprintf_s misbehaves in debug mode, triggering breakpoints
 		#define STRCPY    strcpy
 		#define STRCPYS   strcpy_s
-		#define STRNCPY   strncpy_s
+		#define STRNCPY   strncpy
 		#define STRCAT    strcat
 		#define STRCATS   strcat_s
-		#define STRNCAT   strncat_s
+		#define STRNCAT   strncat
 		#define FOPEN     fopen_s
 	#else              // Visual Studio 2003
 		#define PRINTF    _printf
@@ -111,35 +105,47 @@
 
 // define a platform independent path separator C-string and char
 #ifndef sPS
-#ifdef _WIN32
-#define sPS "\\"
-#else // _WIN32
-#define sPS "/"
-#endif // _WIN32
+	#define sPS_WIN32 "\\"
+	#define sPS_POSIX "/"
+
+	#ifdef    _WIN32
+	#define sPS sPS_WIN32
+	#else  // _WIN32
+	#define sPS sPS_POSIX
+	#endif // _WIN32
 #endif // sPS
 #ifndef cPS
-#ifdef _WIN32
-#define cPS '\\'
-#else // _WIN32
-#define cPS '/'
-#endif // _WIN32
+	#define cPS_WIN32 '\\'
+	#define cPS_POSIX '/'
+
+	#ifdef    _WIN32
+	#define cPS cPS_WIN32
+	#else  // _WIN32
+	#define cPS cPS_POSIX
+	#endif // _WIN32
 #endif // cPS
 
 // define a platform independent path delimitter C-string and char
 #ifndef sPD
-#ifdef _WIN32
-#define sPD ";"
-#else // _WIN32
-#define sPD ":"
-#endif // _WIN32
+	#define sPD_WIN32 ";"
+	#define sPD_POSIX ":"
+
+	#ifdef    _WIN32
+	#define sPD sPD_WIN32
+	#else  // _WIN32
+	#define sPD sPD_POSIX
+	#endif // _WIN32
 #endif // sPD
 #ifndef cPD
-#ifdef _WIN32
-#define cPD ';'
-#else // _WIN32
-#define cPD ':'
-#endif // _WIN32
+	#define cPD_WIN32 ';'
+	#define cPD_POSIX ':'
+
+	#ifdef    _WIN32
+	#define cPD cPD_WIN32
+	#else  // _WIN32
+	#define cPD cPD_POSIX
+	#endif // _WIN32
 #endif // cPD
 
 
-#endif // _MAINDEFINES_H
+#endif // MAIN_DEFINES_H

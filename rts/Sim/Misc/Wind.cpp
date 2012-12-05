@@ -1,14 +1,16 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 
 #include "Wind.h"
 #include "GlobalSynced.h"
-#include "Sim/Units/UnitHandler.h"
+#include "Sim/Units/Unit.h"
+#include "System/creg/STL_Map.h"
+#include "System/myMath.h"
 
 CR_BIND(CWind, );
 
 CR_REG_METADATA(CWind, (
-
 	CR_MEMBER(maxWind),
 	CR_MEMBER(minWind),
 
@@ -19,63 +21,120 @@ CR_REG_METADATA(CWind, (
 	CR_MEMBER(newWind),
 	CR_MEMBER(oldWind),
 	CR_MEMBER(status),
-	CR_RESERVED(12)
-	));
 
+	CR_MEMBER(windGens),
+	CR_RESERVED(12)
+));
+
+
+static const int UpdateRate = 15 * GAME_SPEED; //! update all 15sec
 
 CWind wind;
 
 
 CWind::CWind()
 {
-	curDir=float3(1,0,0);
-	curStrength=0;
-	curWind=float3(0,0,0);
-	newWind=curWind;
-	oldWind=curWind;
-	maxWind=100;
-	minWind=0;
-	status=0;
-}
+	curDir = float3(1.0f, 0.0f, 0.0f);
+	curStrength = 0.0f;
 
+	curWind = ZeroVector;
+	newWind = curWind;
+	oldWind = curWind;
+
+	maxWind = 100.0f;
+	minWind =   0.0f;
+
+	status = 0;
+}
 
 CWind::~CWind()
 {
+	windGens.clear();
 }
 
 
-void CWind::LoadWind(float min, float max)
+
+bool CWind::AddUnit(CUnit* u) {
+	std::map<int, CUnit*>::iterator it = windGens.find(u->id);
+
+	if (it != windGens.end()) {
+		return false;
+	}
+
+	windGens[u->id] = u;
+	// start pointing in direction of wind
+	u->UpdateWind(curDir.x, curDir.z, curStrength);
+	return true;
+}
+
+bool CWind::DelUnit(CUnit* u) {
+	std::map<int, CUnit*>::iterator it = windGens.find(u->id);
+
+	if (it == windGens.end()) {
+		return false;
+	}
+
+	windGens.erase(it);
+	return true;
+}
+
+
+
+void CWind::LoadWind(float minw, float maxw)
 {
-	minWind = min;
-	maxWind = max;
-	curWind = float3(minWind,0,0);
+	minWind = std::min(minw, maxw);
+	maxWind = std::max(minw, maxw);
+	curWind = float3(minWind, 0.0f, 0.0f);
+	oldWind = curWind;
 }
 
 
 void CWind::Update()
 {
-	if(status==0){
-		oldWind=curWind;
-		float ns=gs->randFloat()*(maxWind-minWind)+minWind;
-		float nd=gs->randFloat()*2*PI;
+	//! zero-strength wind does not need updates
+	if (maxWind <= 0.0f)
+		return;
 
-		newWind=float3(sin(nd)*ns,0,cos(nd)*ns);
+	if (status == 0) {
+		oldWind = curWind;
+		newWind = oldWind;
 
-		// TODO: decouple
-		uh->UpdateWind(newWind.x, newWind.z, newWind.Length());
+		//! generate new wind direction
+		float len;
+		do {
+			newWind.x -= (gs->randFloat() - 0.5f) * maxWind;
+			newWind.z -= (gs->randFloat() - 0.5f) * maxWind;
+			len = newWind.Length();
+		} while (len == 0.0f);
+
+		//! clamp: windMin <= strength <= windMax
+		newWind /= len;
+		len = Clamp(len, minWind, maxWind);
+		newWind *= len;
 
 		status++;
-	} else if(status <= 900) {
-		float mod=status/900.0f;
-		curStrength = oldWind.Length()*(1.0-mod)+newWind.Length()*mod; // strength changes ~ mod
-		curWind=oldWind*(1.0-mod)+newWind*mod; // dir changes ~ arctan (mod)
-		curWind.SafeNormalize();
-		curDir=curWind;
-		curWind *= curStrength;
+	} else if (status <= UpdateRate) {
+		float mod = status / float(UpdateRate);
+		mod = smoothstep(0.0f, 1.0f, mod);
+
+		//! blend between old & new wind directions
+		#define blend(x,y,a) x * (1.0f - a) + y * a
+		curWind = blend(oldWind, newWind, mod);
+		curStrength = curWind.Length();
+		if (curStrength != 0.0f) {
+			curDir = curWind / curStrength;
+		}
+
 		status++;
-	} else if(status > 900) {
-		status=0;
 	} else {
-		status++;
+		status = 0;
+	}
+	
+	if (status == UpdateRate / 3) {
+		//! update units
+		const float newStrength = newWind.Length();
+		for (std::map<int, CUnit*>::iterator it = windGens.begin(); it != windGens.end(); ++it) {
+			(it->second)->UpdateWind(newWind.x, newWind.z, newStrength);
+		}
 	}
 }

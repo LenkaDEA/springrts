@@ -1,19 +1,19 @@
-#ifdef _MSC_VER
-#include "StdAfx.h"
-#endif
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include "LobbyConnection.h"
 
 #include <boost/bind.hpp>
 
 #include "UpdaterWindow.h"
-#include "ConfigHandler.h"
+#include "System/Config/ConfigHandler.h"
 #include "Game/GameVersion.h"
 #include "aGui/Gui.h"
 
+CONFIG(std::string, LobbyServer).defaultValue("lobby.springrts.com");
 
 LobbyConnection::LobbyConnection() : upwin(NULL)
 {
-	Connect(configHandler->GetString("LobbyServer", "taspringmaster.clan-sy.com"), 8200);
+	Connect(configHandler->GetString("LobbyServer"), 8200);
 }
 
 LobbyConnection::~LobbyConnection()
@@ -57,10 +57,10 @@ void LobbyConnection::DoneConnecting(bool success, const std::string& err)
 
 void LobbyConnection::ServerGreeting(const std::string& serverVer, const std::string& springVer, int udpport, int mode)
 {
-	upwin->ServerLabel(std::string("Connected to TASServer v")+serverVer);
-	if (springVer != SpringVersion::Get())
+	upwin->ServerLabel(std::string("Connected to TASServer v")+serverVer); // TODO change "TASServer" to something like "spring-lobby server"
+	if (springVer != SpringVersion::GetSync())
 	{
-		upwin->Label(std::string("Server has new version: ")+springVer + " (Yours: "+ SpringVersion::Get() + ")");
+		upwin->Label(std::string("Server has new version: ")+springVer + " (Yours: "+ SpringVersion::GetSync() + ")");
 	}
 	else
 	{
@@ -73,7 +73,7 @@ void LobbyConnection::Denied(const std::string& reason)
 	upwin->ServerLabel(reason);
 }
 
-void LobbyConnection::Aggreement(const std::string text)
+void LobbyConnection::Aggreement(const std::string& text)
 {
 	upwin->ShowAggreement(text);
 }

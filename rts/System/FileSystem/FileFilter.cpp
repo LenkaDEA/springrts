@@ -1,13 +1,15 @@
-#include "StdAfx.h"
-#include <limits.h>
-#include <boost/regex.hpp>
-#include <ctype.h>
-#include <sstream>
-#include <vector>
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "FileFilter.h"
 
+#include "System/mmgr.h"
+
+#include <boost/regex.hpp>
+
+#include <limits.h>
+#include <ctype.h>
+#include <sstream>
+#include <vector>
 
 using std::string;
 using std::vector;
@@ -55,9 +57,9 @@ Note that:
  - Leading and trailing whitespace is ignored.
  - Globbing characters '*' and '?' can be used, both do NOT match path
    separators (like in shell, but unlike fnmatch(), or so I've been told.)
-   e.g. 'foo\*\baz' matches 'foo/bar/baz' but not 'foo/ba/r/baz'.
+   e.g. 'foo\\*\\baz' matches 'foo/bar/baz' but not 'foo/ba/r/baz'.
  - Any path separator matches any other path separator, so there is no need to
-   worry about converting them: 'foo/bar' matches 'foo\bar' and 'foo:bar' too.
+   worry about converting them: 'foo/bar' matches 'foo\\bar' and 'foo:bar' too.
  - A path can be prefixed with an exclamation mark '!', this negates the
    pattern. Because the rules are matched in-order, one can use this to exclude
    a file from a more generic pattern.
@@ -126,7 +128,7 @@ bool CFileFilter::Match(const string& filename) const
 }
 
 
-string CFileFilter::glob_to_regex(const string& glob)
+string CFileFilter::glob_to_regex(const string& glob) // FIXME remove; duplicate in FileSystem::ConvertGlobToRegex
 {
 #define PATH_SEPARATORS "/\\:"
 

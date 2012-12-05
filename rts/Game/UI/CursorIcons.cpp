@@ -1,7 +1,8 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include <algorithm>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "CursorIcons.h"
 #include "CommandColors.h"
@@ -11,12 +12,10 @@
 #include "Game/Camera.h"
 #include "Game/GameHelper.h"
 #include "Rendering/glFont.h"
+#include "Rendering/UnitDrawer.h"
 #include "Rendering/GL/myGL.h"
-#include "Rendering/UnitModels/UnitDrawer.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitDefHandler.h"
-
-
 
 
 CCursorIcons cursorIcons;
@@ -92,7 +91,7 @@ void CCursorIcons::DrawCursors()
 	glColor4f(1.0f, 1.0f, 1.0f, cmdColors.QueueIconAlpha());
 	
 	int currentCmd = (icons.begin()->cmd + 1); // force the first binding
-	CMouseCursor* currentCursor = NULL;
+	const CMouseCursor* currentCursor = NULL;
 	
 	std::set<Icon>::iterator it;
 	for (it = icons.begin(); it != icons.end(); ++it) {
@@ -123,11 +122,11 @@ void CCursorIcons::DrawCursors()
 
 void CCursorIcons::DrawTexts()
 {
-	glViewport(gu->viewPosX, 0, gu->viewSizeX, gu->viewSizeY);
+	glViewport(globalRendering->viewPosX, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
 	glColor4f(1.0f,  1.0f, 1.0f, 1.0f);
 
 	const float fontScale = 1.0f;
-	const float yOffset = 50.0f * gu->pixelY;
+	const float yOffset = 50.0f * globalRendering->pixelY;
 
 	font->Begin();
 	font->SetColors(); //default
@@ -136,8 +135,8 @@ void CCursorIcons::DrawTexts()
 	for (it = texts.begin(); it != texts.end(); ++it) {
 		const float3 winPos = camera->CalcWindowCoordinates(it->pos);
 		if (winPos.z <= 1.0f) {
-			const float x = (winPos.x * gu->pixelX);
-			const float y = (winPos.y * gu->pixelY) + yOffset;
+			const float x = (winPos.x * globalRendering->pixelX);
+			const float y = (winPos.y * globalRendering->pixelY) + yOffset;
 
 			if (guihandler->GetOutlineFonts()) {
 				font->glPrint(x, y, fontScale, FONT_OUTLINE | FONT_CENTER | FONT_TOP | FONT_SCALE | FONT_NORM, it->text);
@@ -152,7 +151,7 @@ void CCursorIcons::DrawTexts()
 
 void CCursorIcons::DrawBuilds()
 {
-	glViewport(gu->viewPosX, 0, gu->viewSizeX, gu->viewSizeY);
+	glViewport(globalRendering->viewPosX, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
 
 	glEnable(GL_DEPTH_TEST);
 	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
@@ -168,7 +167,7 @@ void CCursorIcons::DrawBuilds()
 
 
 
-CMouseCursor* CCursorIcons::GetCursor(int cmd)
+const CMouseCursor* CCursorIcons::GetCursor(int cmd) const
 {
 	string cursorName;
 
@@ -176,7 +175,7 @@ CMouseCursor* CCursorIcons::GetCursor(int cmd)
 		case CMD_WAIT:            cursorName = "Wait";         break;
 		case CMD_TIMEWAIT:        cursorName = "TimeWait";     break;
 		case CMD_SQUADWAIT:       cursorName = "SquadWait";    break;
-		case CMD_DEATHWAIT:       cursorName = "DeathWait";    break;
+		case CMD_DEATHWAIT:       cursorName = "Wait";         break; // there is a "DeathWait" cursor, but to prevent cheating, we have to use the same like for CMD_WAIT
 		case CMD_GATHERWAIT:      cursorName = "GatherWait";   break;
 		case CMD_MOVE:            cursorName = "Move";         break;
 		case CMD_PATROL:          cursorName = "Patrol";       break;
@@ -191,14 +190,13 @@ CMouseCursor* CCursorIcons::GetCursor(int cmd)
 		case CMD_UNLOAD_UNITS:    cursorName = "Unload units"; break;
 		case CMD_UNLOAD_UNIT:     cursorName = "Unload units"; break;
 		case CMD_RECLAIM:         cursorName = "Reclaim";      break;
-		case CMD_DGUN:            cursorName = "DGun";         break;
+		case CMD_MANUALFIRE:      cursorName = "ManualFire";   break;
 		case CMD_RESURRECT:       cursorName = "Resurrect";    break;
 		case CMD_CAPTURE:         cursorName = "Capture";      break;
 		case CMD_SELFD:           cursorName = "SelfD";        break;
 		case CMD_RESTORE:         cursorName = "Restore";      break;
 /*
 		case CMD_STOP:
-		case CMD_AISELECT:
 		case CMD_GROUPSELECT:
 		case CMD_GROUPADD:
 		case CMD_GROUPCLEAR:
@@ -223,11 +221,6 @@ CMouseCursor* CCursorIcons::GetCursor(int cmd)
 		}
 	}
 
-	std::map<std::string, CMouseCursor *>::const_iterator it;
-	it = mouse->cursorCommandMap.find(cursorName);
-	if (it != mouse->cursorCommandMap.end()) {
-		return it->second;
-	}
-	
-	return NULL;
+	// look for the cursor of this name assigned in MouseHandler
+	return mouse->FindCursor(cursorName);
 }

@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_UNSYNCED_CTRL_H
 #define LUA_UNSYNCED_CTRL_H
-// LuaUnsyncedCtrl.h: interface for the LuaUnsyncedCtrl class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include "Sim/Units/UnitSet.h"
 
@@ -12,18 +11,19 @@ struct lua_State;
 #undef SendMessage
 
 class LuaUnsyncedCtrl {
+	friend class CLuaIntro;
+
 	public:
 		static bool PushEntries(lua_State* L);
 
 		static void DrawUnitCommandQueues();
 		static void ClearUnitCommandQueues();
-		static CUnitSet drawCmdQueueUnits;
 
 	private:
 
 	private:
 		static int Echo(lua_State* L);
-
+		static int Log(lua_State* L);
 		static int SendMessage(lua_State* L);
 		static int SendMessageToPlayer(lua_State* L);
 		static int SendMessageToTeam(lua_State* L);
@@ -61,10 +61,20 @@ class LuaUnsyncedCtrl {
 		static int SetDrawGround(lua_State* L);
 
 		static int SetWaterParams(lua_State* L);
+		static int SetSoundEffectParams(lua_State* L);
+
+		static int AddMapLight(lua_State* L);
+		static int AddModelLight(lua_State* L);
+		static int UpdateMapLight(lua_State* L);
+		static int UpdateModelLight(lua_State* L);
+		static int SetMapLightTrackingState(lua_State* L);
+		static int SetModelLightTrackingState(lua_State* L);
+		static int SetMapSquareTexture(lua_State* L);
 
 		static int SetUnitNoDraw(lua_State* L);
 		static int SetUnitNoMinimap(lua_State* L);
 		static int SetUnitNoSelect(lua_State* L);
+		static int SetUnitLeaveTracks(lua_State* L);
 
 		static int AddUnitIcon(lua_State* L);
 		static int FreeUnitIcon(lua_State* L);
@@ -82,15 +92,18 @@ class LuaUnsyncedCtrl {
 		static int SetConfigString(lua_State* L);
 
 		static int CreateDir(lua_State* L);
-		static int MakeFont(lua_State* L);
 
 		static int Restart(lua_State* L);
+		static int SetWMIcon(lua_State* L);
+		static int SetWMCaption(lua_State* L);
 
 		static int SetUnitDefIcon(lua_State* L);
 		static int SetUnitDefImage(lua_State* L);
 
 		static int SetActiveCommand(lua_State* L);
 
+		static int LoadCmdColorsConfig(lua_State* L);
+		static int LoadCtrlPanelConfig(lua_State* L);
 		static int ForceLayoutUpdate(lua_State* L);
 
 		static int SetLosViewColors(lua_State* L);
@@ -129,6 +142,14 @@ class LuaUnsyncedCtrl {
 
 		static int SetBuildSpacing(lua_State* L);
 		static int SetBuildFacing(lua_State* L);
+
+		static int SetSunParameters(lua_State* L);
+		static int SetSunManualControl(lua_State* L);
+		static int SetSunDirection(lua_State* L);
+
+		static int SendSkirmishAIMessage(lua_State* L);
+
+		static int ClearWatchDogTimer(lua_State* L);
 };
 
 

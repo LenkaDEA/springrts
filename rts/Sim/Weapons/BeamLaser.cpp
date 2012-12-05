@@ -1,21 +1,24 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include "BeamLaser.h"
 #include "Game/GameHelper.h"
+#include "Game/TraceRay.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Map/Ground.h"
-#include "Matrix44f.h"
+#include "System/Matrix44f.h"
 #include "Sim/Features/FeatureHandler.h"
 #include "Sim/Misc/InterceptHandler.h"
-#include "Sim/MoveTypes/AirMoveType.h"
+#include "Sim/Misc/TeamHandler.h"
+#include "Sim/MoveTypes/StrafeAirMoveType.h"
 #include "Sim/Projectiles/WeaponProjectiles/BeamLaserProjectile.h"
 #include "Sim/Projectiles/WeaponProjectiles/LargeBeamLaserProjectile.h"
 #include "Sim/Projectiles/WeaponProjectiles/LaserProjectile.h"
-#include "Sim/Units/COB/UnitScript.h"
+#include "Sim/Units/Scripts/UnitScript.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitTypes/Building.h"
 #include "PlasmaRepulser.h"
 #include "WeaponDefHandler.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 CR_BIND_DERIVED(CBeamLaser, CWeapon, (NULL));
 
@@ -29,13 +32,12 @@ CR_REG_METADATA(CBeamLaser,(
 CBeamLaser::CBeamLaser(CUnit* owner)
 : CWeapon(owner),
 	oldDir(ZeroVector),
+	damageMul(0),
 	lastFireFrame(0)
 {
 }
 
-CBeamLaser::~CBeamLaser(void)
-{
-}
+
 
 void CBeamLaser::Update(void)
 {
@@ -53,7 +55,7 @@ void CBeamLaser::Update(void)
 
 		if (!onlyForward) {
 			wantedDir = targetPos - weaponPos;
-			wantedDir.ANormalize();
+			wantedDir.SafeNormalize();
 		}
 
 		if (!weaponDef->beamburst) {
@@ -65,7 +67,7 @@ void CBeamLaser::Update(void)
 	}
 	CWeapon::Update();
 
-	if (lastFireFrame > gs->frameNum - 18 && lastFireFrame != gs->frameNum  && weaponDef->sweepFire) {
+	if (lastFireFrame > gs->frameNum - 18 && lastFireFrame != gs->frameNum && weaponDef->sweepFire) {
 		if (teamHandler->Team(owner->team)->metal >= metalFireCost &&
 			teamHandler->Team(owner->team)->energy >= energyFireCost) {
 
@@ -73,13 +75,13 @@ void CBeamLaser::Update(void)
 			owner->UseMetal(metalFireCost / salvoSize);
 
 			const int piece = owner->script->QueryWeapon(weaponNum);
-			CMatrix44f weaponMat = owner->script->GetPieceMatrix(piece);
+			const CMatrix44f weaponMat = owner->script->GetPieceMatrix(piece);
 
 			const float3 relWeaponPos = weaponMat.GetPos();
 			const float3 dir =
-				owner->frontdir *  weaponMat[10] +
-				owner->updir    *  weaponMat[ 6] +
-				owner->rightdir * -weaponMat[ 2];
+				owner->frontdir * weaponMat[10] +
+				owner->updir    * weaponMat[ 6] +
+				owner->rightdir * weaponMat[ 2];
 
 			weaponPos =
 				owner->pos +
@@ -97,43 +99,35 @@ bool CBeamLaser::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
 	if (!CWeapon::TryTarget(pos, userTarget, unit))
 		return false;
 
-	if (!weaponDef->waterweapon) {
-		if (unit) {
-			if (unit->isUnderWater)
-				return false;
-		} else {
-			if (pos.y < 0)
-				return false;
-		}
-	}
+	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
+		return false;
 
 	float3 dir = pos - weaponMuzzlePos;
 	float length = dir.Length();
 
-	if (length == 0)
+	if (length == 0.0f)
 		return true;
 
 	dir /= length;
 
 	if (!onlyForward) {
-		// skip ground col testing for aircraft
-		float g = ground->LineGroundCol(weaponMuzzlePos, pos);
-		if (g > 0 && g < length * 0.9f)
+		if (!HaveFreeLineOfFire(weaponMuzzlePos, dir, length, unit)) {
 			return false;
+		}
 	}
 
-	float spread = (accuracy + sprayAngle) * (1 - owner->limExperience * 0.7f);
+	const float spread =
+		(accuracy + sprayAngle) *
+		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
 
-	if (avoidFeature && helper->LineFeatureCol(weaponMuzzlePos, dir, length)) {
+	if (avoidFeature && TraceRay::LineFeatureCol(weaponMuzzlePos, dir, length)) {
 		return false;
 	}
-	if (avoidFriendly) {
-		if (helper->TestAllyCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, owner))
-			return false;
+	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, true, false, false, owner)) {
+		return false;
 	}
-	if (avoidNeutral) {
-		if (helper->TestNeutralCone(weaponMuzzlePos, dir, length, spread, owner))
-			return false;
+	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, false, true, false, owner)) {
+		return false;
 	}
 
 	return true;
@@ -143,13 +137,11 @@ void CBeamLaser::Init(void)
 {
 	if (!weaponDef->beamburst) {
 		salvoDelay = 0;
-		salvoSize = (int) (weaponDef->beamtime * 30);
-
-		if (salvoSize <= 0)
-			salvoSize = 1;
+		salvoSize = int(weaponDef->beamtime * GAME_SPEED);
+		salvoSize = std::max(salvoSize, 1);
 
 		// multiply damage with this on each shot so the total damage done is correct
-		damageMul = 1.0f / (float) salvoSize;
+		damageMul = 1.0f / salvoSize;
 	} else {
 		damageMul = 1.0f;
 	}
@@ -161,30 +153,32 @@ void CBeamLaser::Init(void)
 void CBeamLaser::FireImpl(void)
 {
 	float3 dir;
-	if (onlyForward && dynamic_cast<CAirMoveType*>(owner->moveType)) {
-		// the taairmovetype can't align itself properly, change back when that is fixed
+	if (onlyForward && dynamic_cast<CStrafeAirMoveType*>(owner->moveType)) {
+		// [?] HoverAirMoveType cannot align itself properly, change back when that is fixed
 		dir = owner->frontdir;
 	} else {
 		if (salvoLeft == salvoSize - 1) {
 			dir = targetPos - weaponMuzzlePos;
-			dir.ANormalize();
+			dir.SafeNormalize();
 			oldDir = dir;
 		} else if (weaponDef->beamburst) {
-			dir = targetPos-weaponMuzzlePos;
-			dir.ANormalize();
+			dir = targetPos - weaponMuzzlePos;
+			dir.SafeNormalize();
 		} else {
 			dir = oldDir;
 		}
 	}
 
-	dir += (salvoError) * (1 - owner->limExperience * 0.7f);
-	dir.ANormalize();
+	dir += ((salvoError) * (1.0f - owner->limExperience * weaponDef->ownerExpAccWeight));
+	dir.SafeNormalize();
 
 	FireInternal(dir, false);
 }
 
-void CBeamLaser::FireInternal(float3 dir, bool sweepFire)
+void CBeamLaser::FireInternal(float3 curDir, bool sweepFire)
 {
+	// fix negative damage when hitting big spheres
+	float actualRange = range;
 	float rangeMod = 1.0f;
 
 	if (dynamic_cast<CBuilding*>(owner) == NULL) {
@@ -192,7 +186,7 @@ void CBeamLaser::FireInternal(float3 dir, bool sweepFire)
 		rangeMod = 1.3f;
 	}
 
-	if (owner->directControl) {
+	if (owner->fpsControlPlayer != NULL) {
 		rangeMod = 0.95f;
 	}
 
@@ -201,145 +195,135 @@ void CBeamLaser::FireInternal(float3 dir, bool sweepFire)
 
 	float3 curPos = weaponMuzzlePos;
 	float3 hitPos;
+	float3 newDir;
 
-	dir += gs->randVector() * sprayAngle * (1 - owner->limExperience * 0.7f);
-	dir.ANormalize();
+	curDir +=
+		((gs->randVector() * sprayAngle *
+		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight)));
+	curDir.SafeNormalize();
 
 	bool tryAgain = true;
+	bool doDamage = true;
+
 
 	// increase range if targets are searched for in a cylinder
-	if (cylinderTargetting > 0.01f) {
-		// const float3 up(0, owner->radius*cylinderTargetting, 0);
-		// const float uplen = up.dot(dir);
-		const float uplen = owner->radius * cylinderTargetting * dir.y;
-		maxLength = streflop::sqrtf(maxLength * maxLength + uplen * uplen);
+	if (cylinderTargeting > 0.01f) {
+		const float verticalDist = owner->radius * cylinderTargeting * curDir.y;
+		const float maxLengthModSq = maxLength * maxLength + verticalDist * verticalDist;
+
+		maxLength = math::sqrt(maxLengthModSq);
 	}
 
 	// increase range if targetting edge of hitsphere
 	if (targetType == Target_Unit && targetUnit && targetBorder != 0) {
-		maxLength += targetUnit->radius * targetBorder;
+		maxLength += (targetUnit->radius * targetBorder);
 	}
 
+
 	// unit at the end of the beam
-	const CUnit* hit = 0;
-	const CFeature* hitfeature = 0;
+	CUnit* hitUnit = NULL;
+	CFeature* hitFeature = NULL;
+	CPlasmaRepulser* hitShield = NULL;
+
 	for (int tries = 0; tries < 5 && tryAgain; ++tries) {
-		tryAgain = false;
-		hit = NULL;
+		float beamLength = TraceRay::TraceRay(curPos, curDir, maxLength - curLength, collisionFlags, owner, hitUnit, hitFeature);
 
-		float length = helper->TraceRay(
-			curPos,
-			dir,
-			maxLength - curLength,
-			weaponDef->damages[0],
-			owner,
-			hit,
-			collisionFlags,
-			&hitfeature
-		);
-
-		if (hit && hit->allyteam == owner->allyteam && sweepFire) {
+		if (hitUnit && teamHandler->AlliedTeams(hitUnit->team, owner->team) && sweepFire) {
 			// never damage friendlies with sweepfire
-			lastFireFrame = 0;
-			return;
+			lastFireFrame = 0; doDamage = false; break;
 		}
 
-		float3 newDir;
-		CPlasmaRepulser* shieldHit = NULL;
-		const float shieldLength = interceptHandler.AddShieldInterceptableBeam(this, curPos, dir, length, newDir, shieldHit);
-
-		if (shieldLength < length) {
-			length = shieldLength;
-
-			if (shieldHit->BeamIntercepted(this, damageMul)) {
-				// repulsed
-				tryAgain = true;
+		if (!weaponDef->waterweapon) {
+			// terminate beam at water surface if necessary
+			if ((curDir.y < 0.0f) && ((curPos.y + curDir.y * beamLength) <= 0.0f)) {
+				beamLength = curPos.y / -curDir.y;
 			}
 		}
 
-		hitPos = curPos + dir * length;
+		// if the beam gets intercepted, this modifies newDir
+		//
+		// we do more than one trace-iteration and set dir to
+		// newDir only in the case there is a shield in our way
+		const float shieldLength = interceptHandler.AddShieldInterceptableBeam(this, curPos, curDir, beamLength, newDir, hitShield);
 
-		const float baseAlpha  = weaponDef->intensity * 255.0f;
-		const float startAlpha = (1.0f - (curLength         ) / (range * 1.3f)) * baseAlpha;
-		const float endAlpha   = (1.0f - (curLength + length) / (range * 1.3f)) * baseAlpha;
-
-		if (weaponDef->largeBeamLaser) {
-			new CLargeBeamLaserProjectile(curPos, hitPos, color, weaponDef->visuals.color2, owner, weaponDef);
+		if (shieldLength < beamLength) {
+			beamLength = shieldLength;
+			tryAgain = hitShield->BeamIntercepted(this, damageMul); // repulsed
 		} else {
-			new CBeamLaserProjectile(
-				curPos, hitPos,
-				startAlpha, endAlpha,
-				color, weaponDef->visuals.color2,
-				owner,
-				weaponDef->thickness,
-				weaponDef->corethickness,
-				weaponDef->laserflaresize,
-				weaponDef,
-				weaponDef->visuals.beamttl,
-				weaponDef->visuals.beamdecay
-			);
+			tryAgain = false;
+		}
+
+		hitPos = curPos + curDir * beamLength;
+
+		{
+			const float baseAlpha  = weaponDef->intensity * 255.0f;
+			const float startAlpha = (1.0f - (curLength             ) / (range * 1.3f)) * baseAlpha;
+			const float endAlpha   = (1.0f - (curLength + beamLength) / (range * 1.3f)) * baseAlpha;
+
+			if (weaponDef->largeBeamLaser) {
+				new CLargeBeamLaserProjectile(curPos, hitPos, color, weaponDef->visuals.color2, owner, weaponDef);
+			} else {
+				new CBeamLaserProjectile(curPos, hitPos, startAlpha, endAlpha, color, owner, weaponDef);
+			}
 		}
 
 		curPos = hitPos;
-		curLength += length;
-		dir = newDir;
+		curDir = newDir;
+		curLength += beamLength;
 	}
-	CUnit* hitM = (hit == NULL) ? NULL : uh->units[hit->id];
-	CFeature* hitF = hitfeature ? featureHandler->GetFeature(hitfeature->id) : 0;
 
-	// fix negative damage when hitting big spheres
-	float actualRange = range;
-	if (hit) {
-		if (hit->unitDef->usePieceCollisionVolumes) {
-			// getting the actual piece here is probably overdoing it
-			hitM->SetLastAttackedPiece(hit->localmodel->pieces[0], gs->frameNum);
-		}
+	if (!doDamage)
+		return;
 
-		if (targetBorder > 0) {
-			actualRange += hit->radius * targetBorder;
+	if (hitUnit != NULL) {
+		// getting the actual piece here is probably overdoing it
+		// TODO change this if we really need proper flanking bonus support
+		// for beam-lasers
+		hitUnit->SetLastAttackedPiece(hitUnit->localmodel->GetRoot(), gs->frameNum);
+
+		if (targetBorder > 0.0f) {
+			actualRange += (hitUnit->radius * targetBorder);
 		}
 	}
 
 	// make it possible to always hit with some minimal intensity (melee weapons have use for that)
-	const float intensity = std::max(minIntensity, 1.0f - (curLength) / (actualRange * 2));
+	const float hitIntensity = std::max(minIntensity, 1.0f - (curLength) / (actualRange * 2));
 
 	if (curLength < maxLength) {
-		// Dynamic Damage
-		DamageArray dynDamages;
-
-		if (weaponDef->dynDamageExp > 0) {
-			dynDamages = weaponDefHandler->DynamicDamages(
+		const DamageArray& baseDamages = (weaponDef->dynDamageExp <= 0.0f)?
+			weaponDef->damages:
+			weaponDefHandler->DynamicDamages(
 				weaponDef->damages,
 				weaponMuzzlePos,
 				curPos,
-				weaponDef->dynDamageRange > 0?
+				(weaponDef->dynDamageRange > 0.0f)?
 					weaponDef->dynDamageRange:
 					weaponDef->range,
 				weaponDef->dynDamageExp,
 				weaponDef->dynDamageMin,
 				weaponDef->dynDamageInverted
 			);
-		}
-		
-		helper->Explosion(
+
+		const DamageArray damages = baseDamages * (hitIntensity * damageMul);
+		const CGameHelper::ExplosionParams params = {
 			hitPos,
-			weaponDef->dynDamageExp > 0?
-				dynDamages * (intensity * damageMul):
-				weaponDef->damages * (intensity * damageMul),
-			areaOfEffect,
+			curDir,
+			damages,
+			weaponDef,
+			owner,
+			hitUnit,
+			hitFeature,
+			craterAreaOfEffect,
+			damageAreaOfEffect,
 			weaponDef->edgeEffectiveness,
 			weaponDef->explosionSpeed,
-			owner,
-			true,
-			1.0f,
-			weaponDef->noExplode || weaponDef->noSelfDamage, /*false*/
-			weaponDef->impactOnly,                           /*false*/
-			weaponDef->explosionGenerator,
-			hitM,
-			dir,
-			weaponDef->id,
-			hitF
-		);
+			1.0f,                                             // gfxMod
+			weaponDef->impactOnly,
+			weaponDef->noExplode || weaponDef->noSelfDamage,  // ignoreOwner
+			true                                              // damageGround
+		};
+
+		helper->Explosion(params);
 	}
 
 	if (targetUnit) {

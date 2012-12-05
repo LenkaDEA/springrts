@@ -1,16 +1,19 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "ChatMessage.h"
 
-#include "BaseNetProtocol.h"
-#include "Net/PackPacket.h"
-#include "Net/UnpackPacket.h"
+#include "System/BaseNetProtocol.h"
+#include "System/Net/PackPacket.h"
+#include "System/Net/UnpackPacket.h"
 
 using namespace netcode;
 
-ChatMessage::ChatMessage(int from, int dest, const std::string& chat) : fromPlayer(from), destination(dest), msg(chat)
+ChatMessage::ChatMessage(int from, int dest, const std::string& chat)
+	: fromPlayer(from)
+	, destination(dest)
+	, msg(chat)
 {
 }
 
@@ -29,7 +32,7 @@ ChatMessage::ChatMessage(boost::shared_ptr<const netcode::RawPacket> data)
 
 const netcode::RawPacket* ChatMessage::Pack() const
 {
-	unsigned char size = 4*sizeof(unsigned char) + msg.size()+1;
+	unsigned char size = (4 * sizeof(unsigned char)) + (msg.size() + 1);
 	PackPacket* buffer = new PackPacket(size, NETMSG_CHAT);
 	*buffer << size;
 	*buffer << (unsigned char)fromPlayer;

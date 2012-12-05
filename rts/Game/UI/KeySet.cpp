@@ -1,21 +1,18 @@
-#include "StdAfx.h"
-// CKeyBindings.cpp: implementation of the CKeyBindings class.
-//
-//////////////////////////////////////////////////////////////////////
-#include <stdlib.h>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "mmgr.h"
+
+#include "System/mmgr.h"
 
 #include "KeySet.h"
 #include "KeyCodes.h"
-#include "SDL_keysym.h"
 
-#include "LogOutput.h"
-#include "Util.h"
+#include "System/Log/ILog.h"
+#include "System/Util.h"
+#include "System/Input/KeyInput.h"
+
+#include <cstdlib>
 #include <boost/cstdint.hpp>
-
-extern boost::uint8_t* keys; // from System/Main.cpp
-
+#include <SDL_keysym.h>
 
 #define DISALLOW_RELEASE_BINDINGS
 
@@ -49,12 +46,14 @@ CKeySet::CKeySet(int k, bool release)
 {
 	key = k;
 	modifiers = 0;
-	if (keys[SDLK_LALT])   { modifiers |= KS_ALT; }  		
-	if (keys[SDLK_LCTRL])  { modifiers |= KS_CTRL; }		
-	if (keys[SDLK_LMETA])  { modifiers |= KS_META; }		
-	if (keys[SDLK_LSHIFT]) { modifiers |= KS_SHIFT; }
+
+	if (keyInput->IsKeyPressed(SDLK_LALT))   { modifiers |= KS_ALT; }
+	if (keyInput->IsKeyPressed(SDLK_LCTRL))  { modifiers |= KS_CTRL; }
+	if (keyInput->IsKeyPressed(SDLK_LMETA))  { modifiers |= KS_META; }
+	if (keyInput->IsKeyPressed(SDLK_LSHIFT)) { modifiers |= KS_SHIFT; }
+
 #ifndef DISALLOW_RELEASE_BINDINGS
-	if (release)           { modifiers |= KS_RELEASE; }
+	if (release) { modifiers |= KS_RELEASE; }
 #endif
 }
 
@@ -131,12 +130,12 @@ bool CKeySet::Parse(const std::string& token)
 		key = strtol(start, &end, 16);
 		if (end == start) {
 			Reset();
-			logOutput.Print("Bad hex value: %s\n", s.c_str());
+			LOG_L(L_ERROR, "KeySet: Bad hex value: %s", s.c_str());
 			return false;
 		}
 		if (key >= SDLK_LAST) {
 			Reset();
-			logOutput.Print("Hex value out of range: %s\n", s.c_str());
+			LOG_L(L_ERROR, "KeySet: Hex value out of range: %s", s.c_str());
 			return false;
 		}
 	}
@@ -144,7 +143,7 @@ bool CKeySet::Parse(const std::string& token)
 		key = keyCodes->GetCode(s);
 		if (key < 0) {
 			Reset();
-			logOutput.Print("Bad keysym: %s\n", s.c_str());
+			LOG_L(L_ERROR, "KeySet: Bad keysym: %s", s.c_str());
 			return false;
 		}
 	}

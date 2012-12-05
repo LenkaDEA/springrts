@@ -1,29 +1,40 @@
-#include "StdAfx.h"
-#include "Rendering/Textures/Bitmap.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifdef WIN32
-#  include "windows.h"
-#  include "MouseInput.h"
-typedef unsigned char byte;
-#elif defined(__APPLE__)
-	/*do nothing (duno how to create cursors on runtime on macs)*/
-#else
-#  include <X11/Xcursor/Xcursor.h>
+#include "System/Platform/Win/win32.h"
+#if !defined(HEADLESS)
+#include "Rendering/Textures/Bitmap.h"
 #endif
 
-#include "mmgr.h"
+#if defined(__APPLE__) || defined(HEADLESS)
+	// no hardware cursor support for mac's and headless build
+	// FIXME: duno how to create cursors at runtime on macs
+#elif defined(WIN32)
+	#include "windows.h"
+	#include "System/Input/MouseInput.h"
+	typedef unsigned char byte;
+#else
+	#include <X11/Xcursor/Xcursor.h>
+#endif
+
+#include "HwMouseCursor.h"
+
+#if !defined(__APPLE__) && !defined(HEADLESS)
+#include "System/mmgr.h"
 
 #include "Rendering/GL/myGL.h"
-#include "bitops.h"
+#include "System/bitops.h"
 #include "MouseCursor.h"
-#include "HwMouseCursor.h"
 #include "CommandColors.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/SimpleParser.h"
-#include "LogOutput.h"
-#include "myMath.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/SimpleParser.h"
+#include "System/Log/ILog.h"
+#include "System/myMath.h"
+#include <cstring> // for memset
 
 #include <SDL_syswm.h>
+#include <SDL_mouse.h>
+#include <SDL_events.h>
+#endif
 
 
 
@@ -33,8 +44,8 @@ typedef unsigned char byte;
 // Platform dependent classes
 //////////////////////////////////////////////////////////////////////
 
-#ifdef __APPLE__
-// no hardware cursor support for mac's
+#if defined(__APPLE__) || defined(HEADLESS)
+// no hardware cursor support for mac's and headless build
 class CHwDummyCursor : public IHwCursor {
 	public:
 		void PushImage(int xsize, int ysize, void* mem){};
@@ -66,6 +77,7 @@ class CHwWinCursor : public IHwCursor {
 	protected:
 		HCURSOR cursor;
 
+	#pragma push(pack,1)
 		struct CursorDirectoryHeader {
 			byte  xsize,ysize,ncolors,reserved1;
 			short hotx,hoty;
@@ -81,7 +93,8 @@ class CHwWinCursor : public IHwCursor {
 		struct AnihStructure {
 			DWORD size,images,frames,width,height,bpp,planes,rate,flags;
 		};
-
+	#pragma pop(pack)
+		
 	protected:
 		struct ImageData {
 			unsigned char* data;
@@ -131,10 +144,11 @@ class CHwX11Cursor : public IHwCursor {
 
 IHwCursor* GetNewHwCursor()
 {
-#ifdef WIN32
-	return new CHwWinCursor();
-#elif defined(__APPLE__)
+#if defined(__APPLE__) || defined(HEADLESS)
+	// no hardware cursor support for mac's and headless build
 	return new CHwDummyCursor();
+#elif defined(WIN32)
+	return new CHwWinCursor();
 #else
 	return new CHwX11Cursor();
 #endif
@@ -146,8 +160,8 @@ IHwCursor* GetNewHwCursor()
 //////////////////////////////////////////////////////////////////////
 
 
-#ifdef __APPLE__
-	// no hardware cursor support for mac's
+#if defined(__APPLE__) || defined(HEADLESS)
+	// no hardware cursor support for mac's and headless build
 #elif defined(WIN32)
 
 void CHwWinCursor::PushImage(int xsize, int ysize, void* mem)
@@ -295,7 +309,7 @@ void CHwWinCursor::Finish()
 	int squaresize =  next_power_of_2( std::max(xmaxsize,ymaxsize) );
 
 	//resize images
-	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); it++)
+	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); ++it)
 		resizeImage(&*it,squaresize,squaresize);
 
 	const int riffsize  = 32 + sizeof(AnihStructure) + (frames.size()+2) * 2 * sizeof(DWORD);
@@ -338,7 +352,7 @@ void CHwWinCursor::Finish()
 		dwmem[0] = iconssize+4;		curmem+=4;
 		strcpy((char*)curmem,"fram");	curmem+=4;
 
-		for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); it++) {
+		for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); ++it) {
 			buildIco(curmem,*it);
 			curmem += 2*sizeof(DWORD) + 3*sizeof(WORD)+sizeof(CursorDirectoryHeader)+sizeof(CursorInfoHeader)+squaresize*squaresize*4+squaresize*squaresize/8;
 		}
@@ -372,11 +386,11 @@ void CHwWinCursor::Finish()
 	cursor = (HCURSOR)CreateIconFromResourceEx((PBYTE)mem,totalsize,FALSE,0x00030000,squaresize,squaresize,0);
 
 	delete[] mem;
-	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); it++)
+	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); ++it)
 		delete[] (*it).data;
 	icons.clear();
 
-	//if (cursor==NULL) logOutput.Print("hw cursor failed: x%d y%d",squaresize,squaresize);
+	//if (cursor==NULL) LOG_L(L_ERROR, "HW cursor failed: x%d y%d", squaresize, squaresize);
 }
 
 void CHwWinCursor::Bind()
@@ -384,11 +398,12 @@ void CHwWinCursor::Bind()
 	/*SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
 	if (!SDL_GetWMInfo(&info)) {
-		logOutput.Print("SDL error: can't get window handle");
+		LOG_L(L_ERROR, "SDL error: can't get window handle");
 		return;
 	}
 	SetClassLong(info.window,GCL_HCURSOR,(LONG)cursor);*/ //SDL doesn't let us use it :<
 
+	SDL_ShowCursor(SDL_ENABLE);
 	SetCursor(cursor);
 	mouseInput->SetWMMouseCursor(cursor);
 }
@@ -399,6 +414,7 @@ CHwWinCursor::CHwWinCursor(void)
 	hotSpot= CMouseCursor::Center;
 	image_count = 0;
 	xmaxsize = ymaxsize = 0;
+	hotx = hoty = 0;
 }
 
 CHwWinCursor::~CHwWinCursor(void)
@@ -406,7 +422,7 @@ CHwWinCursor::~CHwWinCursor(void)
 	if (cursor!=NULL)
 		DestroyCursor(cursor);
 
-	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); it++)
+	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); ++it)
 		delete[] (*it).data;
 	icons.clear();
 }
@@ -502,7 +518,7 @@ void CHwX11Cursor::Finish()
 	if (!SDL_GetWMInfo(&info)) {
 		XcursorImagesDestroy(cis);
 		cimages.clear();
-		logOutput.Print("SDL error: can't get X11 window info");
+		LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 		return;
 	}
 
@@ -516,10 +532,14 @@ void CHwX11Cursor::Bind()
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
 	if (!SDL_GetWMInfo(&info)) {
-		logOutput.Print("SDL error: can't get X11 window info");
+		LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 		return;
 	}
-	XDefineCursor(info.info.x11.display,info.info.x11.window,cursor);
+	// do between lock/unlock so SDL's default cursors doesn't flicker in
+	info.info.x11.lock_func();
+		SDL_ShowCursor(SDL_ENABLE);
+		XDefineCursor(info.info.x11.display, info.info.x11.window, cursor);
+	info.info.x11.unlock_func();
 }
 
 CHwX11Cursor::CHwX11Cursor(void)
@@ -531,7 +551,7 @@ CHwX11Cursor::CHwX11Cursor(void)
 
 CHwX11Cursor::~CHwX11Cursor(void)
 {
-	for (std::vector<XcursorImage*>::iterator it=cimages.begin() ; it < cimages.end(); it++ )
+	for (std::vector<XcursorImage*>::iterator it=cimages.begin() ; it < cimages.end(); ++it )
 		XcursorImageDestroy(*it);
 	cimages.clear();
 
@@ -539,7 +559,7 @@ CHwX11Cursor::~CHwX11Cursor(void)
 		SDL_SysWMinfo info;
 		SDL_VERSION(&info.version);
 		if (!SDL_GetWMInfo(&info)) {
-			logOutput.Print("SDL error: can't get X11 window info");
+			LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 			return;
 		}
 		XFreeCursor(info.info.x11.display,cursor);

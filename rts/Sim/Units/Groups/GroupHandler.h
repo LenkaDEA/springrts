@@ -1,58 +1,66 @@
-/*
-	@author ???
-	@author Robin Vobruba <hoijui.quaero@gmail.com>
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef	_GROUPHANDLER_H
-#define	_GROUPHANDLER_H
+#ifndef	_GROUP_HANDLER_H
+#define	_GROUP_HANDLER_H
+
+#include "System/creg/creg_cond.h"
 
 #include <map>
 #include <string>
 #include <vector>
 #include <set>
-#include "creg/creg_cond.h"
 
 class CGroup;
 
 /**
- * Handles All Groups of a single team.
+ * Handles all groups of a single team.
+ * The default groups (aka hot-key groups) are the ones with
+ * single digit IDs (1 - 9).
+ * Groups with higher IDs are considered special.
+ * Manual group creation/selection only works for the default groups.
  */
 class CGroupHandler {
 private:
 	CR_DECLARE(CGroupHandler);
+
 	CGroupHandler(int teamId);
 	virtual ~CGroupHandler();
 
 public:
+	/// lowest ID of the first group not reachable through a hot-key
+	static const size_t FIRST_SPECIAL_GROUP = 10;
 
 	/**
-	 * This function initialized a singleton instance,
+	 * Initializes a singleton instance,
 	 * if not yet done by a call to GetInstance()
 	 */
 //	static void Initialize(int teamId);
 //	static CGroupHandler* GetInstance(int teamId);
 //	static void Destroy(int teamId);
 
-	void PostLoad();
-
 	void Update();
-	void DrawCommands();
+
 	void GroupCommand(int num);
 	void GroupCommand(int num, const std::string& cmd);
+
 	CGroup* CreateNewGroup();
 	void RemoveGroup(CGroup* group);
-	void Load(std::istream *s);
-	void Save(std::ostream *s);
+
+	void PushGroupChange(int id);
 
 	std::vector<CGroup*> groups;
-
 	int team;
+
 protected:
 	std::vector<int> freeGroups;
+	/**
+	 * The lowest ID not in use.
+	 * This is always greater or equal FIRST_SPECIAL_GROUP.
+	 */
 	int firstUnusedGroup;
+	std::set<int> changedGroups;
 };
 
-//extern CGroupHandler* grouphandler;
 extern std::vector<CGroupHandler*> grouphandlers;
 
-#endif	// _GROUPHANDLER_H
+#endif	// _GROUP_HANDLER_H

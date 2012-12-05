@@ -1,22 +1,7 @@
-/*
-	Copyright (c) 2008 Robin Vobruba <hoijui.quaero@gmail.com>
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#ifndef _SKIRMISHAILIBRARYINFO_H
-#define _SKIRMISHAILIBRARYINFO_H
+#ifndef SKIRMISH_AI_LIBRARY_INFO_H
+#define SKIRMISH_AI_LIBRARY_INFO_H
 
 #include <vector>
 #include <map>
@@ -28,9 +13,21 @@ struct Option;
 class CSkirmishAILibraryInfo {
 public:
 	CSkirmishAILibraryInfo(const CSkirmishAILibraryInfo& aiInfo);
+
+	/**
+	 * This is used when initializing from purely Lua files
+	 * (AIInfo.lua & AIOptions.lua).
+	 */
 	CSkirmishAILibraryInfo(const std::string& aiInfoFile,
 			const std::string& aiOptionFile = "");
-	~CSkirmishAILibraryInfo();
+	/**
+	 * This is used when initializing from data fetched through the AI Interface
+	 * library plugin, through C functions.
+	 */
+	CSkirmishAILibraryInfo(const std::map<std::string, std::string>& aiInfo,
+			const std::string& aiOptionLua = "");
+
+	virtual ~CSkirmishAILibraryInfo();
 
 	virtual size_t size() const;
 	virtual const std::string& GetKeyAt(size_t index) const;
@@ -82,4 +79,4 @@ private:
 	std::vector<Option> options;
 };
 
-#endif // _SKIRMISHAILIBRARYINFO_H
+#endif // SKIRMISH_AI_LIBRARY_INFO_H

@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_UTILS_H
 #define LUA_UTILS_H
-// LuaUtils.h: lua utility routines
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 #include <vector>
@@ -21,6 +20,31 @@ using std::vector;
 
 class LuaUtils {
 	public:
+
+		struct DataDump {
+			int type;
+			std::string str;
+			float num;
+			bool bol;
+			std::vector<std::pair<DataDump, DataDump> > table;
+		};
+		struct ShallowDataDump {
+			int type;
+			union {
+				std::string *str;
+				float num;
+				bool bol;
+			} data;
+		};
+
+		static int Backup(std::vector<DataDump> &backup, lua_State* src, int count);
+
+		static int Restore(const std::vector<DataDump> &backup, lua_State* dst);
+
+		static int ShallowBackup(std::vector<ShallowDataDump> &backup, lua_State* src, int count);
+
+		static int ShallowRestore(const std::vector<ShallowDataDump> &backup, lua_State* dst);
+
 		static int CopyData(lua_State* dst, lua_State* src, int count);
 
 		static void PushCurrentFuncEnv(lua_State* L, const char* caller);
@@ -33,10 +57,10 @@ class LuaUtils {
 		// from LuaUI.cpp / LuaSyncedCtrl.cpp (used to be duplicated)
 		static void ParseCommandOptions(lua_State* L, const char* caller,
 		                                int index, Command& cmd);
-		static void ParseCommand(lua_State* L, const char* caller,
-		                         int idIndex, Command& cmd);
-		static void ParseCommandTable(lua_State* L, const char* caller,
-		                              int table, Command& cmd);
+		static Command ParseCommand(lua_State* L, const char* caller,
+				int idIndex);
+		static Command ParseCommandTable(lua_State* L, const char* caller,
+				int table);
 		static void ParseCommandArray(lua_State* L, const char* caller,
 		                              int table, vector<Command>& commands);
 		static int ParseFacing(lua_State* L, const char* caller, int index);
@@ -52,6 +76,8 @@ class LuaUtils {
 		// from LuaParser.cpp / LuaUnsyncedCtrl.cpp
 		// (implementation copied from lua/src/lib/lbaselib.c)
 		static int Echo(lua_State* L);
+		static int Log(lua_State* L);
+		static bool PushLogEntries(lua_State* L);
 
 		static int ZlibCompress(lua_State* L);
 		static int ZlibDecompress(lua_State* L);
@@ -83,13 +109,15 @@ class LuaUtils {
 		                             vector<string>& vec);
 
 		static void PushStringVector(lua_State* L, const vector<string>& vec);
+
+		static void PushCommandDesc(lua_State* L, const CommandDescription& cd);
 };
 
 
 inline void LuaPushNamedBool(lua_State* L,
                              const string& key, bool value)
 {
-	lua_pushstring(L, key.c_str());
+	lua_pushsstring(L, key);
 	lua_pushboolean(L, value);
 	lua_rawset(L, -3);
 }
@@ -98,7 +126,7 @@ inline void LuaPushNamedBool(lua_State* L,
 inline void LuaPushNamedNumber(lua_State* L,
                                const string& key, lua_Number value)
 {
-	lua_pushstring(L, key.c_str());
+	lua_pushsstring(L, key);
 	lua_pushnumber(L, value);
 	lua_rawset(L, -3);
 }
@@ -107,8 +135,8 @@ inline void LuaPushNamedNumber(lua_State* L,
 inline void LuaPushNamedString(lua_State* L,
                                const string& key, const string& value)
 {
-	lua_pushstring(L, key.c_str());
-	lua_pushstring(L, value.c_str());
+	lua_pushsstring(L, key);
+	lua_pushsstring(L, value);
 	lua_rawset(L, -3);
 }
 
@@ -116,7 +144,7 @@ inline void LuaPushNamedString(lua_State* L,
 inline void LuaPushNamedCFunc(lua_State* L,
                               const string& key, int (*func)(lua_State*))
 {
-	lua_pushstring(L, key.c_str());
+	lua_pushsstring(L, key);
 	lua_pushcfunction(L, func);
 	lua_rawset(L, -3);
 }
@@ -124,11 +152,11 @@ inline void LuaPushNamedCFunc(lua_State* L,
 
 inline void LuaInsertDualMapPair(lua_State* L, const string& name, int number)
 {
-	lua_pushstring(L, name.c_str());
+	lua_pushsstring(L, name);
 	lua_pushnumber(L, number);
 	lua_rawset(L, -3);
 	lua_pushnumber(L, number);
-	lua_pushstring(L, name.c_str());
+	lua_pushsstring(L, name);
 	lua_rawset(L, -3);
 }
 

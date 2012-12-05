@@ -1,26 +1,26 @@
-// DrawWater.h: interface for the CDrawWater class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef __BASIC_WATER_H__
-#define __BASIC_WATER_H__
+#ifndef BASIC_WATER_H
+#define BASIC_WATER_H
 
-#include "Rendering/GL/myGL.h"
-#include "BaseWater.h"
+#include "IWater.h"
 
-class CBasicWater : public CBaseWater
+class CBasicWater : public IWater
 {
 public:
-	void Draw();
-	void UpdateWater(CGame* game);
 	CBasicWater();
-	virtual ~CBasicWater();
-	int GetID() const { return 0; }
+	~CBasicWater();
 
-	GLuint texture;
-	unsigned int displist;
-	int textureWidth;
-	int textureHeight;
+	void Draw();
+	void UpdateWater(CGame* game) {}
+	int GetID() const { return WATER_RENDERER_BASIC; }
+	const char* GetName() const { return "basic"; }
+
+private:
+	unsigned int GenWaterQuadsList(unsigned int textureWidth, unsigned int textureHeight) const;
+
+	unsigned int textureID;
+	unsigned int displistID;
 };
 
-#endif // __BASIC_WATER_H__
+#endif // BASIC_WATER_H

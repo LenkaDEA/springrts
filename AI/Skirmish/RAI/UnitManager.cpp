@@ -10,7 +10,7 @@ sRAIGroup::sRAIGroup(int Index)
 
 sRAIGroup::~sRAIGroup()
 {
-	for( map<int,EnemyInfo*>::iterator i=Enemies.begin(); i!=Enemies.end(); i++ )
+	for( map<int,EnemyInfo*>::iterator i=Enemies.begin(); i!=Enemies.end(); ++i )
 	{
 		i->second->attackGroups.erase(this);
 	}
@@ -24,6 +24,9 @@ cUnitManager::cUnitManager(IAICallback* callback, cRAI* Global)
 	GroupSize=0;
 	AttackOrders=false;
 	SLSize=0;
+	MaxGroupMSize=0;
+	memset(SL, 0, SCOUT_POSITON_LIST_SIZE);
+	memset(Group, 0, RAI_GROUP_SIZE);
 }
 
 void cUnitManager::UnitFinished(int unit,UnitInfo *U)
@@ -118,10 +121,10 @@ void cUnitManager::UnitIdle(int unit,UnitInfo *U)
 				U->inCombat = true;
 				G->UpdateEventAdd(1,cb->GetCurrentFrame()+90,unit,U);
 			}
-			if( G->Enemies.size() == 0 && (UAssault.size() > 50 || (G->UDH->BLMobileRadar->UDefActiveTemp == 0)) )
+			if( G->Enemies.empty() && (UAssault.size() > 50 || (G->UDH->BLMobileRadar->UDefActiveTemp == 0)) )
 			{
 				int num=0;
-				for( map<int,UnitInfo*>::iterator iU = U->group->Units.begin(); iU != U->group->Units.end(); iU++ )
+				for( map<int,UnitInfo*>::iterator iU = U->group->Units.begin(); iU != U->group->Units.end(); ++iU )
 				{
 					if( cb->GetUnitPos(iU->first).distance2D(U->group->M->ScoutPoint) < 350.0f )
 						num++;
@@ -129,7 +132,7 @@ void cUnitManager::UnitIdle(int unit,UnitInfo *U)
 				if( num >= 1+int(U->group->Units.size())/2 )
 				{
 					U->group->M->ScoutPoint = G->GetRandomPosition(U->area);
-					for( map<int,UnitInfo*>::iterator iU = U->group->Units.begin(); iU != U->group->Units.end(); iU++ )
+					for( map<int,UnitInfo*>::iterator iU = U->group->Units.begin(); iU != U->group->Units.end(); ++iU )
 						G->UpdateEventAdd(1,0,iU->first,iU->second);
 				}
 
@@ -210,7 +213,7 @@ void cUnitManager::UnitIdle(int unit,UnitInfo *U)
 			if( int(G->Enemies.size()) > 0 && G->CM->GetClosestEnemy(cb->GetUnitPos(unit), U) >= 0 )
 			{
 				set<int> Targets;
-				for( map<int,EnemyInfo>::iterator iE=G->Enemies.begin(); iE!=G->Enemies.end(); iE++ )
+				for( map<int,EnemyInfo>::iterator iE=G->Enemies.begin(); iE!=G->Enemies.end(); ++iE )
 					if( G->TM->CanMoveToPos(U->area,G->CM->GetEnemyPosition(iE->first,&iE->second)) )
 						Targets.insert(iE->first);
 
@@ -275,7 +278,7 @@ bool cUnitManager::UnitMoveFailed(int unit, UnitInfo *U)
 {
 	if( int(UTrans.size()) == 0 )
 		return false;
-	for( map<int,sTransportUnitInfo>::iterator iT=UTrans.begin(); iT!=UTrans.end(); iT++ )
+	for( map<int,sTransportUnitInfo>::iterator iT=UTrans.begin(); iT!=UTrans.end(); ++iT )
 	{
 		if( iT->second.AssistID == -1 && iT->second.ud->transportMass >= U->ud->mass )
 		{
@@ -312,7 +315,7 @@ bool cUnitManager::ActiveAttackOrders()
 			for( int i=0; i<GroupSize; i++ ) // TEMP
 			{
 				set<int> deletion;
-				for( map<int,EnemyInfo*>::iterator iE = Group[i]->Enemies.begin(); iE != Group[i]->Enemies.end(); iE++ )
+				for( map<int,EnemyInfo*>::iterator iE = Group[i]->Enemies.begin(); iE != Group[i]->Enemies.end(); ++iE )
 					if( iE->second->baseThreatID == -1 )
 						deletion.insert(iE->first);
 				while( int(deletion.size()) > 0 )
@@ -391,7 +394,7 @@ void cUnitManager::GroupAddEnemy(int enemy, EnemyInfo *E, sRAIGroup* group)
 	E->attackGroups.insert(group);
 	if( group->Enemies.size() == 1 )
 	{
-		for( map<int,UnitInfo*>::iterator iU = group->Units.begin(); iU != group->Units.end(); iU++ )
+		for( map<int,UnitInfo*>::iterator iU = group->Units.begin(); iU != group->Units.end(); ++iU )
 		{
 			iU->second->inCombat=true;
 			if( !G->IsHumanControled(iU->first,iU->second) )
@@ -407,7 +410,7 @@ void cUnitManager::GroupRemoveEnemy(int enemy, EnemyInfo *E, sRAIGroup* group)
 
 	group->Enemies.erase(enemy);
 	E->attackGroups.erase(group);
-	for( map<int,UnitInfo*>::iterator iU = group->Units.begin(); iU != group->Units.end(); iU++ )
+	for( map<int,UnitInfo*>::iterator iU = group->Units.begin(); iU != group->Units.end(); ++iU )
 	{
 		if( iU->second->enemyID == enemy )
 		{
@@ -428,15 +431,15 @@ void cUnitManager::GroupResetRallyPoint(sRAIGroup* group)
 	float3 GPos = cb->GetUnitPos(group->Units.begin()->first);
 	UnitInfo* GU = group->Units.begin()->second;
 	int iBest=-1;
-	UnitInfo* uBest;
+//	UnitInfo* uBest;
 
 	G->ValidateUnitList(&G->UImmobile);
-	for(map<int,UnitInfo*>::iterator iU=G->UImmobile.begin(); iU!=G->UImmobile.end(); iU++)
+	for(map<int,UnitInfo*>::iterator iU=G->UImmobile.begin(); iU!=G->UImmobile.end(); ++iU)
 	{
 		if( G->TM->CanMoveToPos(GU->area,cb->GetUnitPos(iU->first)) && GPos.distance2D(cb->GetUnitPos(iU->first)) < GPos.distance2D(cb->GetUnitPos(iBest)) )
 		{
 			iBest = iU->first;
-			uBest = iU->second;
+//			uBest = iU->second;
 		}
 	}
 
@@ -481,7 +484,7 @@ void cUnitManager::Assign(int unit,UnitInfo *U)
 			int(Group[i]->Units.size()) < MaxGroupMSize )
 		{
 			Grs.insert(i);
-			for(map<int,UnitInfo*>::iterator GM=Group[i]->Units.begin(); GM!=Group[i]->Units.end(); GM++)
+			for(map<int,UnitInfo*>::iterator GM=Group[i]->Units.begin(); GM!=Group[i]->Units.end(); ++GM)
 			{
 				sRAIUnitDef* udr = GM->second->udr;
 				if( U->ud->speed > 1.5*udr->ud->speed || 1.5*U->ud->speed < udr->ud->speed )
@@ -521,7 +524,7 @@ void cUnitManager::SendattackGroups()
 		if( (Group[i]->Enemies.size() == (size_t)0) &&
 		    ( (Group[i]->Units.size() >= (size_t)4) ||
 		      (G->UDH->BLBuilder->UDefActive == 0) ) ) {
-			int enemyID = G->CM->GetClosestEnemy(cb->GetUnitPos(Group[i]->Units.begin()->first), Group[i]->Units.begin()->second);
+//			int enemyID = G->CM->GetClosestEnemy(cb->GetUnitPos(Group[i]->Units.begin()->first), Group[i]->Units.begin()->second);
 			// TODO: FIXME: implement me
 		}
 	}

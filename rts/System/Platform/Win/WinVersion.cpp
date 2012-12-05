@@ -1,4 +1,5 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include <sstream>
 #include <string>
 
@@ -53,8 +54,6 @@
 
 #endif
 
-using namespace std;
-
 typedef void (WINAPI *PGNSI)(LPSYSTEM_INFO);
 typedef BOOL (WINAPI *PGPI)(DWORD, DWORD, DWORD, DWORD, PDWORD);
 
@@ -66,11 +65,9 @@ typedef BOOL (WINAPI *PGPI)(DWORD, DWORD, DWORD, DWORD, PDWORD);
 // always provide a long enough buffer
 std::string GetOSDisplayString()
 {
-    ostringstream oss;
     OSVERSIONINFOEX osvi;
     SYSTEM_INFO si;
     PGNSI pGNSI;
-    PGPI pGPI;
     BOOL bOsVersionInfoEx;
     DWORD dwType;
 
@@ -80,7 +77,7 @@ std::string GetOSDisplayString()
     osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
 
     if ( !(bOsVersionInfoEx = GetVersionEx ((OSVERSIONINFO *) &osvi)) )
-        return string("error getting Windows version");
+		return std::string("error getting Windows version");
 
     // Call GetNativeSystemInfo if supported or GetSystemInfo otherwise.
 
@@ -94,6 +91,7 @@ std::string GetOSDisplayString()
     if ( VER_PLATFORM_WIN32_NT==osvi.dwPlatformId &&
             osvi.dwMajorVersion > 4 )
     {
+		std::ostringstream oss;
         oss << "Microsoft ";
 
         // Test for the specific product.
@@ -110,7 +108,7 @@ std::string GetOSDisplayString()
                else oss << "Windows Server 2008 R2 ";
             }
 
-            pGPI = (PGPI) GetProcAddress(
+            PGPI pGPI = (PGPI) GetProcAddress(
                        GetModuleHandle(TEXT("kernel32.dll")),
                        "GetProductInfo");
 
@@ -265,7 +263,7 @@ std::string GetOSDisplayString()
 
     else
     {
-        return string("unsupported version of Windows");
+        return std::string("unsupported version of Windows");
     }
 }
 
@@ -273,7 +271,7 @@ std::string GetOSDisplayString()
 // this tries to read info about the CPU and available memory
 std::string GetHardwareInfoString()
 {
-    ostringstream oss;
+	std::ostringstream oss;
 
     unsigned char regbuf[200];
     DWORD regLength=sizeof(regbuf);

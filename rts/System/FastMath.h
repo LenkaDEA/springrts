@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef FASTMATH_H
 #define FASTMATH_H
 
@@ -9,11 +11,10 @@
 #include "System/maindefines.h"
 
 #ifdef _MSC_VER
-#define __builtin_sqrtf sqrtf
+#define __builtin_sqrtf math::sqrtf
 #endif
 
 /**
- * @file FastMath.cpp
  * @brief Fast math routines
  *
  * Contains faster alternatives for the more time
@@ -248,6 +249,20 @@ namespace fastmath {
 	inline float cos(float x) {
 		return sin(x + HALFPI);
 	}
+
+
+	/**
+	* @brief fast version of std::floor
+	*
+	* Like 2-3x faster than glibc ones.
+	* Note: It seems std::floor operates on FPU's 80bit while this custom solution always works on 32bit.
+	* So the results differ at the end of the 32bit precision range.
+	*/
+	template<typename T>
+	inline float floor(const T& f)
+	{
+		return (f >= 0) ? int(f) : int(f+0.000001f)-1;
+	}
 }
 
 using fastmath::PI;
@@ -259,6 +274,8 @@ namespace math {
 
 	using fastmath::isqrt;
 	using fastmath::isqrt2;
+	
+	using fastmath::floor;
 }
 
 #endif

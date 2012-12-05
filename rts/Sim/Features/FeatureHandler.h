@@ -1,19 +1,19 @@
-#ifndef __FEATURE_HANDLER_H__
-#define __FEATURE_HANDLER_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _FEATURE_HANDLER_H
+#define _FEATURE_HANDLER_H
 
 #include <string>
 #include <list>
 #include <vector>
 #include <boost/noncopyable.hpp>
-#include "creg/creg_cond.h"
+#include "System/creg/creg_cond.h"
 #include "FeatureDef.h"
 #include "FeatureSet.h"
 
 
 struct S3DModel;
-class CFileHandler;
-class CLoadSaveInterface;
-class CVertexArray;
+struct UnitDef;
 class LuaTable;
 
 
@@ -27,7 +27,7 @@ public:
 
 	CFeature* CreateWreckage(const float3& pos, const std::string& name,
 		float rot, int facing, int iter, int team, int allyteam, bool emitSmoke,
-		std::string fromUnit, const float3& speed = ZeroVector);
+		const UnitDef* udef, const float3& speed = ZeroVector);
 
 	void Update();
 
@@ -36,7 +36,7 @@ public:
 	CFeature* GetFeature(int id);
 
 	void LoadFeaturesFromMap(bool onlyCreateDefs);
-	const FeatureDef* GetFeatureDef(const std::string name, const bool showError = true);
+	const FeatureDef* GetFeatureDef(std::string name, const bool showError = true);
 	const FeatureDef* GetFeatureDefByID(int id);
 
 	void SetFeatureUpdateable(CFeature* feature);
@@ -46,8 +46,11 @@ public:
 	const CFeatureSet& GetActiveFeatures() const { return activeFeatures; }
 
 private:
+	FeatureDef* CreateDefaultTreeFeatureDef(const std::string& name) const;
+	FeatureDef* CreateDefaultGeoFeatureDef(const std::string& name) const;
+	FeatureDef* CreateFeatureDef(const LuaTable& luaTable, const std::string& name) const;
+
 	void AddFeatureDef(const std::string& name, FeatureDef* feature);
-	void CreateFeatureDef(const LuaTable& luaTable, const std::string& name);
 
 private:
 	std::map<std::string, const FeatureDef*> featureDefs;
@@ -65,4 +68,4 @@ private:
 extern CFeatureHandler* featureHandler;
 
 
-#endif // __FEATURE_HANDLER_H__
+#endif // _FEATURE_HANDLER_H

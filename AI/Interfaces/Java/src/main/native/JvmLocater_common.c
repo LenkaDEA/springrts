@@ -1,18 +1,4 @@
-/*
-	Copyright (c) 2009 Robin Vobruba <hoijui.quaero@gmail.com>
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include <stdlib.h>
 #include <sys/types.h>
@@ -31,6 +17,8 @@
 #define CURRENT_DATA_MODEL (CHAR_BIT * sizeof(void*))
 
 #include "CUtils/SimpleLog.h"
+#include "System/maindefines.h"
+#include "System/SafeCStrings.h"
 
 // implemented in the OS specific files
 const char* GetArchPath();
@@ -68,7 +56,7 @@ bool GetJREPathFromConfig(char* path, size_t pathSize, const char* configFile)
 		return false;
 	} else {
 		simpleLog_logL(SIMPLELOG_LEVEL_FINER, "JRE found in config file!");
-		STRCPYS(path, pathSize, jvmLocation);
+		STRCPY_T(path, pathSize, jvmLocation);
 		return true;
 	}
 #else // defined LOC_PROP_FILE
@@ -99,7 +87,7 @@ bool GetJREPathFromConfig(char* path, size_t pathSize, const char* configFile)
 		if (line_size > 0 && *line == '/') {
 			*(line+line_size-1) = '\0'; // remove trailing '/'
 		}
-		STRCPYS(path, pathSize, line);
+		STRCPY_T(path, pathSize, line);
 		found = true;
 	}
 	fclose(cfp);
@@ -174,7 +162,7 @@ bool GetJREPath(char* path, size_t pathSize, const char* configFile,
 
 int main(int argc, const char* argv[]) {
 
-	simpleLog_init(NULL, false, SIMPLELOG_LEVEL_FINEST);
+	simpleLog_init(NULL, false, SIMPLELOG_LEVEL_FINEST, false);
 
 	static const size_t path_sizeMax = 1024;
 	char path[path_sizeMax];

@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef LUA_MATERIAL_H
 #define LUA_MATERIAL_H
-// LuaMaterial.h: interface for the CLuaMatHandler class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 #include <vector>
@@ -131,7 +130,7 @@ class LuaMaterial {
 		  preList(0), postList(0),
 		  useCamera(true), culling(0),
 		  cameraLoc(-1), cameraInvLoc(-1), cameraPosLoc(-1),
-		  shadowLoc(-1), shadowParamsLoc(-1)
+		  sunPosLoc(-1), shadowLoc(-1), shadowParamsLoc(-1)
 		{}
 
 		void Finalize();
@@ -166,44 +165,11 @@ class LuaMaterial {
 		GLint cameraLoc;       // view matrix
 		GLint cameraInvLoc;    // inverse view matrix
 		GLint cameraPosLoc;
+		GLint sunPosLoc;
 		GLint shadowLoc;       // shadow matrix
 		GLint shadowParamsLoc;
 
 		static const LuaMaterial defMat;
-};
-
-
-/******************************************************************************/
-
-class LuaMatBuilder {
-	public:
-		LuaMatBuilder()
-		: type(LuaMatType(-1)), // invalid
-		  order(0), texCount(0),
-		  preList(0), postList(0),
-		  useCamera(true), culling(0),
-		  cameraLoc(-1), cameraPosLoc(-1),
-		  shadowLoc(-1), shadowParamsLoc(-1)
-		{}
-
-		LuaMatRef GetRef() const;
-
-	public:
-		LuaMatType type;
-		int order; // for manually adjusting rendering order
-		LuaMatShader shader;
-		int texCount;
-		LuaMatTexture textures[LuaMatTexture::maxTexUnits];
-
-		GLuint preList;
-		GLuint postList;
-
-		bool useCamera;
-		GLenum culling;
-		GLint cameraLoc;
-		GLint cameraPosLoc;
-		GLint shadowLoc;
-		GLint shadowParamsLoc;
 };
 
 
@@ -240,8 +206,8 @@ class LuaMatBin : public LuaMaterial {
 
 struct LuaMatBinPtrLessThan {
 	bool operator()(const LuaMatBin* a, const LuaMatBin* b) const {	
-		const LuaMaterial* ma = (LuaMaterial*) a;
-		const LuaMaterial* mb = (LuaMaterial*) b;
+		const LuaMaterial* ma = static_cast<const LuaMaterial*>(a);
+		const LuaMaterial* mb = static_cast<const LuaMaterial*>(b);
 		return (*ma < *mb);
 	}
 };
@@ -280,18 +246,8 @@ class LuaMatHandler {
 		~LuaMatHandler();
 
 	private:
-		
 		LuaMatBinSet binTypes[LUAMAT_TYPE_COUNT];
-
 		LuaMaterial* prevMat;
-
-	public:
-		// global uniforms
-		GLint   gameFrameExact;
-		GLfloat gameFrame; // extrapolated
-		GLfloat clientTime;
-		GLfloat windVel[3];
-		GLfloat sunPos[3];
 
 	public:
 		static LuaMatHandler handler;

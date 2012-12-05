@@ -1,12 +1,16 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+
 #include <algorithm>
 #include <cctype>
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "CategoryHandler.h"
-#include "LogOutput.h"
-#include "creg/STL_Map.h"
-#include "Util.h"
+
+#include "System/creg/STL_Map.h"
+#include "System/Util.h"
+#include "System/Log/ILog.h"
+#include "lib/gml/gmlmut.h"
 
 CR_BIND(CCategoryHandler, );
 
@@ -38,27 +42,27 @@ CCategoryHandler::~CCategoryHandler()
 
 unsigned int CCategoryHandler::GetCategory(std::string name)
 {
-	unsigned int cat = 0;
-
+	StringTrimInPlace(name);
 	StringToLowerInPlace(name);
-	// remove leading spaces
-	while (!name.empty() && (*name.begin() == ' ')) {
-		name.erase(name.begin());
-	}
 
-	if (name.empty()) {
-		// the empty category
-		cat = 0;
-	} else if (categories.find(name) == categories.end()) {
+	if (name.empty())
+		return 0; // the empty category
+
+	unsigned int cat = 0;
+	
+	GML_STDMUTEX_LOCK(cat); // GetCategory
+
+	if (categories.find(name) == categories.end()) {
 		// this category is yet unknown
 		if (firstUnused >= CCategoryHandler::GetMaxCategories()) {
 			// skip this category
-			logOutput.Print("WARNING: too many unit categories (%i), skipping %s", firstUnused, name.c_str());
+			LOG_L(L_WARNING, "too many unit categories (%i), skipping %s",
+					firstUnused, name.c_str());
 			cat = 0;
 		} else {
 			// create the category (bit field value)
 			cat = (1 << firstUnused);
-//			logOutput.Print("New cat %s #%i", name.c_str(), firstUnused);
+			//LOG_L(L_DEBUG, "New unit-category %s #%i", name.c_str(), firstUnused);
 		}
 		// if (cat == 0), this will prevent further warnings for this category
 		categories[name] = cat;
@@ -78,20 +82,13 @@ unsigned int CCategoryHandler::GetCategories(std::string names)
 
 	StringToLowerInPlace(names);
 
-	while (!names.empty()) {
-		std::string name = names;
-
-		if (names.find_first_of(' ') != std::string::npos) {
-			name.erase(name.find_first_of(' '), 5000);
+	// split on ' '
+	std::stringstream namesStream(names);
+	std::string name;
+	while (std::getline(namesStream, name, ' ')) {
+		if (!name.empty()) {
+			ret |= GetCategory(name);
 		}
-
-		if (names.find_first_of(' ') == std::string::npos) {
-			names.clear();
-		} else {
-			names.erase(0, names.find_first_of(' ') + 1);
-		}
-
-		ret |= GetCategory(name);
 	}
 
 	return ret;
@@ -102,10 +99,12 @@ std::vector<std::string> CCategoryHandler::GetCategoryNames(unsigned int bits) c
 {
 	std::vector<std::string> names;
 
-	unsigned int bit;
-	for (bit = 1; bit != 0; bit = (bit << 1)) {
+	std::map<std::string, unsigned int>::const_iterator it;
+
+	GML_STDMUTEX_LOCK(cat); // GetCategoryNames
+
+	for (unsigned int bit = 1; bit != 0; bit = (bit << 1)) {
 		if ((bit & bits) != 0) {
-			std::map<std::string,unsigned int>::const_iterator it;
 			for (it = categories.begin(); it != categories.end(); ++it) {
 				if (it->second == bit) {
 					names.push_back(it->first);

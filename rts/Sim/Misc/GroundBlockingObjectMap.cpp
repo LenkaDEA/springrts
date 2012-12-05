@@ -1,14 +1,16 @@
-#include "StdAfx.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #include <assert.h>
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "GroundBlockingObjectMap.h"
 
 #include "GlobalSynced.h"
 #include "GlobalConstants.h"
 #include "Sim/Objects/SolidObject.h"
-#include "Sim/Path/PathManager.h"
-#include "creg/STL_Map.h"
+#include "Sim/Path/IPathManager.h"
+#include "System/creg/STL_Map.h"
+#include "lib/gml/gmlmut.h"
 
 CGroundBlockingObjectMap* groundBlockingObjectMap;
 
@@ -28,9 +30,15 @@ inline static const int GetObjectID(CSolidObject* obj)
 }
 
 
-
 void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object)
 {
+	if (object->blockMap) {
+		AddGroundBlockingObject(object, YARDMAP_BLOCKED);
+		return;
+	}
+	
+	GML_STDMUTEX_LOCK(block); // AddGroundBlockingObject
+
 	const int objID = GetObjectID(object);
 
 	object->isMarkedOnBlockingMap = true;
@@ -41,34 +49,31 @@ void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object)
 		object->mapPos.y &= 0xfffffe;
 	}
 
-	const int bx = object->mapPos.x;
-	const int bz = object->mapPos.y;
-	const int minXSqr = bx;
-	const int minZSqr = bz;
-	const int maxXSqr = bx + object->xsize;
-	const int maxZSqr = bz + object->zsize;
+	const int bx = object->mapPos.x, sx = object->xsize;
+	const int bz = object->mapPos.y, sz = object->zsize;
+	const int minXSqr = bx, maxXSqr = bx + sx;
+	const int minZSqr = bz, maxZSqr = bz + sz;
 
 	for (int zSqr = minZSqr; zSqr < maxZSqr; zSqr++) {
 		for (int xSqr = minXSqr; xSqr < maxXSqr; xSqr++) {
 			const int idx = xSqr + zSqr * gs->mapx;
-			BlockingMapCell& cell = groundBlockingMap[idx];
-			BlockingMapCellIt it = cell.find(objID);
 
-			if (it == cell.end()) {
-				cell[objID] = object;
-			}
+			BlockingMapCell& cell = groundBlockingMap[idx];
+			cell[objID] = object;
 		}
 	}
 
 	// FIXME: needs dependency injection (observer pattern?)
-	if (!object->mobility && pathManager) {
+	if (object->moveDef == NULL && pathManager) {
 		pathManager->TerrainChange(minXSqr, minZSqr, maxXSqr, maxZSqr);
 	}
 }
 
 
-void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object, unsigned char* yardMap, unsigned char mask)
+void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object, const YardMapStatus& mask)
 {
+	GML_STDMUTEX_LOCK(block); // AddGroundBlockingObject
+
 	const int objID = GetObjectID(object);
 
 	object->isMarkedOnBlockingMap = true;
@@ -79,28 +84,27 @@ void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object, uns
 		object->mapPos.y &= 0xfffffe;
 	}
 
-	const int bx = object->mapPos.x;
-	const int bz = object->mapPos.y;
-	const int minXSqr = bx;
-	const int minZSqr = bz;
-	const int maxXSqr = bx + object->xsize;
-	const int maxZSqr = bz + object->zsize;
+	const int bx = object->mapPos.x, sx = object->xsize;
+	const int bz = object->mapPos.y, sz = object->zsize;
+	const int minXSqr = bx, maxXSqr = bx + sx;
+	const int minZSqr = bz, maxZSqr = bz + sz;
 
-	for (int z = 0; minZSqr + z < maxZSqr; z++) {
-		for (int x = 0; minXSqr + x < maxXSqr; x++) {
-			const int idx = minXSqr + x + (minZSqr + z) * gs->mapx;
-			const int off = x + z * object->xsize;
-			BlockingMapCell& cell = groundBlockingMap[idx];
-			BlockingMapCellIt it = cell.find(objID);
+	for (int z = minZSqr; z < maxZSqr; z++) {
+		for (int x = minXSqr; x < maxXSqr; x++) {
+			// unit yardmaps always contain sx=UnitDef::xsize * sz=UnitDef::zsize
+			// cells (the unit->moveDef footprint can have different dimensions)
+			const float3 testPos = float3(x, 0.0f, z) * SQUARE_SIZE;
+			if (object->GetGroundBlockingAtPos(testPos) & mask) {
+				const int idx = x + (z) * gs->mapx;
 
-			if ((it == cell.end()) && (yardMap[off] & mask)) {
+				BlockingMapCell& cell = groundBlockingMap[idx];
 				cell[objID] = object;
 			}
 		}
 	}
 
 	// FIXME: needs dependency injection (observer pattern?)
-	if (!object->mobility && pathManager) {
+	if (object->moveDef == NULL && pathManager) {
 		pathManager->TerrainChange(minXSqr, minZSqr, maxXSqr, maxZSqr);
 	}
 }
@@ -108,44 +112,31 @@ void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object, uns
 
 void CGroundBlockingObjectMap::RemoveGroundBlockingObject(CSolidObject* object)
 {
+	GML_STDMUTEX_LOCK(block); // RemoveGroundBlockingObject
+
 	const int objID = GetObjectID(object);
 
-	object->isMarkedOnBlockingMap = false;
 	const int bx = object->mapPos.x;
 	const int bz = object->mapPos.y;
 	const int sx = object->xsize;
 	const int sz = object->zsize;
 
+	object->isMarkedOnBlockingMap = false;
+
 	for (int z = bz; z < bz + sz; ++z) {
 		for (int x = bx; x < bx + sx; ++x) {
-			int idx = x + z * gs->mapx;
-			BlockingMapCell& cell = groundBlockingMap[idx];
-			BlockingMapCellIt it = cell.find(objID);
+			const int idx = x + z * gs->mapx;
 
-			if (it != cell.end()) {
-				cell.erase(objID);
-			}
+			BlockingMapCell& cell = groundBlockingMap[idx];
+			cell.erase(objID);
 		}
 	}
 
 	// FIXME: needs dependency injection (observer pattern?)
-	if (!object->mobility) {
+	if (object->moveDef == NULL && pathManager) {
 		pathManager->TerrainChange(bx, bz, bx + sx, bz + sz);
 	}
 }
-
-
-/**
-  * Moves a ground blocking object from old position to the current on map.
-  * No longer used, functionality is handled by CSolidObject::{Un}Block()
-  */
-/*
-void CGroundBlockingObjectMap::MoveGroundBlockingObject(CSolidObject* object, float3 oldPos) {
-	RemoveGroundBlockingObject(object);
-	AddGroundBlockingObject(object);
-}
-*/
-
 
 
 /**
@@ -153,90 +144,115 @@ void CGroundBlockingObjectMap::MoveGroundBlockingObject(CSolidObject* object, fl
   * If it's not blocked (empty), then NULL is returned. Otherwise, a
   * pointer to the top-most / bottom-most blocking object is returned.
   */
-CSolidObject* CGroundBlockingObjectMap::GroundBlockedUnsafe(int mapSquare, bool topMost) {
-	if (groundBlockingMap[mapSquare].empty()) {
+CSolidObject* CGroundBlockingObjectMap::GroundBlockedUnsafe(int mapSquare) const {
+	GML_STDMUTEX_LOCK(block); // GroundBlockedUnsafe
+
+	const BlockingMapCell& cell = groundBlockingMap[mapSquare];
+
+	if (cell.empty()) {
 		return NULL;
 	}
+
+	return cell.begin()->second;
+}
+
+
+CSolidObject* CGroundBlockingObjectMap::GroundBlocked(int x, int z) const {
+	if (x < 0 || x >= gs->mapx || z < 0 || z >= gs->mapy)
+		return NULL;
+
+	return GroundBlockedUnsafe(x + z * gs->mapx);
+}
+
+
+CSolidObject* CGroundBlockingObjectMap::GroundBlocked(const float3& pos) const {
+	const int xSqr = int(pos.x / SQUARE_SIZE);
+	const int zSqr = int(pos.z / SQUARE_SIZE);
+	return GroundBlocked(xSqr, zSqr);
+}
+
+
+bool CGroundBlockingObjectMap::GroundBlocked(int x, int z, CSolidObject* ignoreObj) const
+{
+	if (x < 0 || x >= gs->mapx || z < 0 || z >= gs->mapy)
+		return NULL;
+
+	const int mapSquare = x + z * gs->mapx;
+
+	GML_STDMUTEX_LOCK(block); // GroundBlockedUnsafe
+
+	if (groundBlockingMap[mapSquare].empty()) {
+		return false;
+	}
+
+	const int objID = GetObjectID(ignoreObj);
 
 	const BlockingMapCell& cell = groundBlockingMap[mapSquare];
 	BlockingMapCellIt it = cell.begin();
-	CSolidObject* p = it->second;
-	CSolidObject* q = it->second;
-	it++;
-
-	for (; it != cell.end(); it++) {
-		CSolidObject* obj = it->second;
-		if (obj->pos.y > p->pos.y) { p = obj; }
-		if (obj->pos.y < q->pos.y) { q = obj; }
+	if (it != cell.end()) {
+		if (it->first != objID) {
+			// there are other objects blocking the square
+			return true;
+		} else {
+			// ignoreObj is in the square. Check if there are other objects, too
+			return (cell.size() >= 2);
+		}
 	}
 
-	return ((topMost)? p: q);
+	return false;
 }
 
-CSolidObject* CGroundBlockingObjectMap::GroundBlocked(int mapSquare, bool topMost) {
-	if (mapSquare < 0 || mapSquare >= gs->mapSquares) {
-		return NULL;
-	}
 
-	return GroundBlockedUnsafe(mapSquare);
-}
-
-CSolidObject* CGroundBlockingObjectMap::GroundBlocked(const float3& pos, bool topMost) {
-	if (!pos.IsInBounds()) {
-		return NULL;
-	}
-
+bool CGroundBlockingObjectMap::GroundBlocked(const float3& pos, CSolidObject* ignoreObj) const
+{
 	const int xSqr = int(pos.x / SQUARE_SIZE);
 	const int zSqr = int(pos.z / SQUARE_SIZE);
-	return GroundBlocked(xSqr + zSqr * gs->mapx, topMost);
+	return GroundBlocked(xSqr, zSqr, ignoreObj);
 }
+
 
 
 /**
   * Opens up a yard in a blocked area.
   * When a factory opens up, for example.
   */
-void CGroundBlockingObjectMap::OpenBlockingYard(CSolidObject* yard, unsigned char* yardMap) {
-	RemoveGroundBlockingObject(yard);
-	AddGroundBlockingObject(yard, yardMap, 2);
+void CGroundBlockingObjectMap::OpenBlockingYard(CSolidObject* object) {
+	RemoveGroundBlockingObject(object);
+	AddGroundBlockingObject(object, YARDMAP_YARDFREE);
 }
 
 /**
   * Closes a yard, blocking the area.
   * When a factory closes, for example.
   */
-void CGroundBlockingObjectMap::CloseBlockingYard(CSolidObject* yard, unsigned char* yardMap) {
-	RemoveGroundBlockingObject(yard);
-	AddGroundBlockingObject(yard, yardMap, 1);
+void CGroundBlockingObjectMap::CloseBlockingYard(CSolidObject* object) {
+	RemoveGroundBlockingObject(object);
+	AddGroundBlockingObject(object, YARDMAP_YARDBLOCKED);
 }
 
-bool CGroundBlockingObjectMap::CanCloseYard(CSolidObject* yard)
+
+inline bool CGroundBlockingObjectMap::CheckYard(CSolidObject* yardUnit, const YardMapStatus& mask) const
 {
-	const int objID = GetObjectID(yard);
+	//GML_STDMUTEX_LOCK(block); //done in GroundBlocked
 
-	for (int z = yard->mapPos.y; z < yard->mapPos.y + yard->zsize; ++z) {
-		for (int x = yard->mapPos.x; x < yard->mapPos.x + yard->xsize; ++x) {
-			const int idx = z * gs->mapx + x;
-			BlockingMapCell& cell = groundBlockingMap[idx];
-			BlockingMapCellIt it = cell.find(objID);
-
-			if (it == cell.end()) {
-				// we are non-blocking in this part of
-				// our yardmap footprint, but something
-				// might be inside us
-				if (cell.size() >= 1) {
+	for (int z = yardUnit->mapPos.y; z < yardUnit->mapPos.y + yardUnit->zsize; ++z) {
+		for (int x = yardUnit->mapPos.x; x < yardUnit->mapPos.x + yardUnit->xsize; ++x) {
+			if (yardUnit->GetGroundBlockingAtPos(float3(x * SQUARE_SIZE, 0.0f, z * SQUARE_SIZE)) & mask)
+				if (GroundBlocked(x, z, yardUnit))
 					return false;
-				}
-			} else {
-				// this part of our yardmap is blocking, we
-				// can't close if something else present on
-				// it besides us
-				if (cell.size() >= 2) {
-					return false;
-				}
-			}
 		}
 	}
 
 	return true;
+}
+
+
+bool CGroundBlockingObjectMap::CanOpenYard(CSolidObject* yardUnit) const
+{
+	return CheckYard(yardUnit, YARDMAP_YARDINV);
+}
+
+bool CGroundBlockingObjectMap::CanCloseYard(CSolidObject* yardUnit) const
+{
+	return CheckYard(yardUnit, YARDMAP_YARD);
 }

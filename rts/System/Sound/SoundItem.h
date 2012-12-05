@@ -1,3 +1,5 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef SOUNDITEM_H
 #define SOUNDITEM_H
 
@@ -10,14 +12,14 @@ class SoundBuffer;
 /**
  * @brief A class representing a sound which can be played
  * 
- * This can be played by SoundSource.
+ * This can be played by CSoundSource.
  * Each soundsource has exactly one SoundBuffer it wraps around, while one buffer can be shared among multiple Items.
  * You can adjust various playing parameters within this class, sou you can have 1 buffer and multiple SoundItems
  * which differ in pitch, volume etc.
  */
 class SoundItem
 {
-	friend class SoundSource;
+	friend class CSoundSource;
 public:
 	SoundItem(boost::shared_ptr<SoundBuffer> buffer, const std::map<std::string, std::string>& items);
 
@@ -47,7 +49,7 @@ private:
 	/// volume gain, applied to this sound
 	float gain;
 	float gainMod;
-	/// sound pitch (multiplied with globalPitch from SoundSource when played)
+	/// sound pitch (multiplied with globalPitch from CSoundSource when played)
 	float pitch;
 	float pitchMod;
 	float dopplerScale;

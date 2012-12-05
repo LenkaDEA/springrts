@@ -1,8 +1,7 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef KEY_AUTO_BINDER_H
 #define KEY_AUTO_BINDER_H
-// KeyAutoBinder.h: interface for the CKeyAutoBinder class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 #include <vector>
@@ -10,9 +9,9 @@
 
 #include "Lua/LuaHandle.h"
 
-
 struct UnitDef;
 struct lua_State;
+
 
 class CKeyAutoBinder : public CLuaHandle
 {
@@ -27,8 +26,8 @@ class CKeyAutoBinder : public CLuaHandle
 
 	private:
 		string LoadFile(const string& filename) const;
-		bool LoadCode(const string& code, const string& debug);
-		bool LoadCompareFunc();
+		bool LoadCode(lua_State *L, const string& code, const string& debug);
+		bool LoadCompareFunc(lua_State *L);
 		string MakeRequirementCall(const vector<string>& requirements);
 		string MakeSortCriteriaCall(const vector<string>& sortCriteria);
 		string AddUnitDefPrefix(const string& text, const string& pre) const;
@@ -39,14 +38,14 @@ class CKeyAutoBinder : public CLuaHandle
 	private:
 		class UnitDefHolder {
 			public:
+				UnitDefHolder(int udID, const UnitDef* ud) : udID(udID), ud(ud) {}
 				bool operator<(const UnitDefHolder&) const;
-			public:
+
 				int udID;
 				const UnitDef* ud;
 		};
 
 	friend class CKeyAutoBinder::UnitDefHolder;
 };
-
 
 #endif /* KEY_AUTO_BINDER_H */

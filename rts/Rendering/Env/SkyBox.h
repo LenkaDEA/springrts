@@ -1,22 +1,25 @@
-#ifndef SKYBOX_H
-#define SKYBOX_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "BaseSky.h"
+#ifndef SKY_BOX_H
+#define SKY_BOX_H
+
 #include <string>
+#include "ISky.h"
 
-class CSkyBox : public CBaseSky
+class CSkyBox : public ISky
 {
 public:
-	CSkyBox(std::string texture);
-	~CSkyBox(void);
-	void Update();
-	void DrawSun(void);
+	CSkyBox(const std::string& texture);
+	~CSkyBox();
 
 	void Draw();
+	void Update() {}
+	void UpdateSunDir() {}
+	void UpdateSkyTexture() {}
+	void DrawSun() {}
 
 private:
 	unsigned int tex;
-	unsigned int displist;
 };
 
-#endif
+#endif // SKY_BOX_H

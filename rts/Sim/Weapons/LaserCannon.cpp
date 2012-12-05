@@ -1,12 +1,13 @@
-#include "StdAfx.h"
-#include "Game/GameHelper.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "Game/TraceRay.h"
 #include "LaserCannon.h"
 #include "Map/Ground.h"
-#include "Sim/MoveTypes/AirMoveType.h"
+#include "Sim/MoveTypes/StrafeAirMoveType.h"
 #include "Sim/Projectiles/WeaponProjectiles/LaserProjectile.h"
 #include "Sim/Units/Unit.h"
 #include "WeaponDefHandler.h"
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 CR_BIND_DERIVED(CLaserCannon, CWeapon, (NULL));
 
@@ -20,20 +21,27 @@ CLaserCannon::CLaserCannon(CUnit* owner)
 {
 }
 
-CLaserCannon::~CLaserCannon(void)
-{
-}
+
 
 void CLaserCannon::Update(void)
 {
-	if(targetType!=Target_None){
-		weaponPos=owner->pos+owner->frontdir*relWeaponPos.z+owner->updir*relWeaponPos.y+owner->rightdir*relWeaponPos.x;
-		weaponMuzzlePos=owner->pos+owner->frontdir*relWeaponMuzzlePos.z+owner->updir*relWeaponMuzzlePos.y+owner->rightdir*relWeaponMuzzlePos.x;
-		if(!onlyForward){
-			wantedDir=targetPos-weaponPos;
-			wantedDir.Normalize();
+	if(targetType != Target_None){
+		weaponPos = owner->pos +
+			owner->frontdir * relWeaponPos.z +
+			owner->updir    * relWeaponPos.y +
+			owner->rightdir * relWeaponPos.x;
+		weaponMuzzlePos = owner->pos +
+			owner->frontdir * relWeaponMuzzlePos.z +
+			owner->updir    * relWeaponMuzzlePos.y +
+			owner->rightdir * relWeaponMuzzlePos.x;
+
+		float3 wantedDirTemp(targetPos - weaponPos);
+		float len = wantedDirTemp.Length();
+		if(!onlyForward && (len != 0.0f)) {
+			wantedDir = wantedDirTemp;
+			wantedDir /= len;
 		}
-		predict=(targetPos-weaponPos).Length()/projectileSpeed;
+		predict=len/projectileSpeed;
 	}
 	CWeapon::Update();
 }
@@ -43,15 +51,10 @@ bool CLaserCannon::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
 	if (!CWeapon::TryTarget(pos, userTarget, unit))
 		return false;
 
-	if (unit) {
-		if (unit->isUnderWater && !weaponDef->waterweapon)
-			return false;
-	} else {
-		if (pos.y < 0 && !weaponDef->waterweapon)
-			return false;
-	}
+	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
+		return false;
 
-	float3 dir = pos - weaponMuzzlePos;
+	float3 dir(pos - weaponMuzzlePos);
 	const float length = dir.Length();
 	if (length == 0)
 		return true;
@@ -59,21 +62,22 @@ bool CLaserCannon::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
 	dir /= length;
 
 	if (!onlyForward) {
-		// skip ground col testing for aircraft
-		float g = ground->LineGroundCol(weaponMuzzlePos, pos);
-		if (g > 0 && g < length * 0.9f)
+		if (!HaveFreeLineOfFire(weaponMuzzlePos, dir, length, unit)) {
 			return false;
+		}
 	}
 
-	const float spread = (accuracy + sprayAngle) * (1 - owner->limExperience * 0.7f);
+	const float spread =
+		(accuracy + sprayAngle) *
+		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
 
-	if (avoidFeature && helper->LineFeatureCol(weaponMuzzlePos, dir, length)) {
+	if (avoidFeature && TraceRay::LineFeatureCol(weaponMuzzlePos, dir, length)) {
 		return false;
 	}
-	if (avoidFriendly && helper->TestAllyCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, owner)) {
+	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, true, false, false, owner)) {
 		return false;
 	}
-	if (avoidNeutral && helper->TestNeutralCone(weaponMuzzlePos, dir, length, spread, owner)) {
+	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, dir, length, spread, owner->allyteam, false, true, false, owner)) {
 		return false;
 	}
 
@@ -88,26 +92,27 @@ void CLaserCannon::Init(void)
 void CLaserCannon::FireImpl()
 {
 	float3 dir;
-	if(onlyForward && dynamic_cast<CAirMoveType*>(owner->moveType)){		//the taairmovetype cant align itself properly, change back when that is fixed
-		dir=owner->frontdir;
+	if (onlyForward && dynamic_cast<CStrafeAirMoveType*>(owner->moveType)) {
+		// HoverAirMovetype cannot align itself properly, change back when that is fixed
+		dir = owner->frontdir;
 	} else {
-		dir=targetPos-weaponMuzzlePos;
+		dir = targetPos - weaponMuzzlePos;
 		dir.Normalize();
 	}
-	dir+=(gs->randVector()*sprayAngle+salvoError)*(1-owner->limExperience*0.7f);
+
+	dir +=
+		(gs->randVector() * sprayAngle + salvoError) *
+		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
 	dir.Normalize();
 
-	int fpsSub=0;
-	if(owner->directControl)
-		fpsSub=6;
+	// subtract a magic 24 elmos in FPS mode (helps against range-exploits)
+	const int fpsRangeSub = (owner->fpsControlPlayer != NULL)? (SQUARE_SIZE * 3): 0;
+	const float boltLength = weaponDef->duration * (weaponDef->projectilespeed * GAME_SPEED);
+	const int boltTTL = ((weaponDef->range - fpsRangeSub) / weaponDef->projectilespeed) - (fpsRangeSub >> 2);
 
 	new CLaserProjectile(weaponMuzzlePos, dir * projectileSpeed, owner,
-		weaponDef->duration * weaponDef->maxvelocity,
+		boltLength,
 		weaponDef->visuals.color, weaponDef->visuals.color2,
 		weaponDef->intensity, weaponDef,
-		(int) ((weaponDef->range - fpsSub * 4) / weaponDef->projectilespeed) - fpsSub);
+		boltTTL);
 }
-
-
-
-

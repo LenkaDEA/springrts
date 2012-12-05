@@ -1,5 +1,6 @@
-#include "StdAfx.h"
-#include "mmgr.h"
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#include "System/mmgr.h"
 #include "Sound.h"
 
 #include <cstdlib>
@@ -7,70 +8,94 @@
 #include <alc.h>
 #include <boost/cstdint.hpp>
 
+#include "SoundChannels.h"
+#include "SoundLog.h"
 #include "SoundSource.h"
 #include "SoundBuffer.h"
 #include "SoundItem.h"
-#include "AudioChannel.h"
-#include "Music.h"
 #include "ALShared.h"
-#include "Music.h"
+#include "EFX.h"
+#include "EFXPresets.h"
 
-#include "LogOutput.h"
-#include "TimeProfiler.h"
-#include "ConfigHandler.h"
-#include "Exceptions.h"
-#include "FileSystem/FileHandler.h"
-#include "Platform/errorhandler.h"
+#include "System/TimeProfiler.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/Exceptions.h"
+#include "System/FileSystem/FileHandler.h"
 #include "Lua/LuaParser.h"
+#include "Map/Ground.h"
+#include "Sim/Misc/GlobalConstants.h"
+#include "System/myMath.h"
+#include "System/Util.h"
+#include "System/Platform/errorhandler.h"
+#include "System/Platform/Watchdog.h"
 
-CSound* sound = NULL;
+#include "System/float3.h"
 
-CSound::CSound() : prevVelocity(0.0, 0.0, 0.0), numEmptyPlayRequests(0), numAbortedPlays(0), soundThread(NULL)
+CONFIG(int, MaxSounds).defaultValue(128);
+CONFIG(bool, PitchAdjust).defaultValue(false);
+CONFIG(int, snd_volmaster).defaultValue(60);
+CONFIG(int, snd_volgeneral).defaultValue(100);
+CONFIG(int, snd_volunitreply).defaultValue(100);
+CONFIG(int, snd_volbattle).defaultValue(100);
+CONFIG(int, snd_volui).defaultValue(100);
+CONFIG(int, snd_volmusic).defaultValue(100);
+CONFIG(std::string, snd_device).defaultValue("");
+
+boost::recursive_mutex soundMutex;
+
+
+CSound::CSound()
+	: myPos(0., 0., 0.)
+	, prevVelocity(0., 0., 0.)
+	, soundThread(NULL)
+	, soundThreadQuit(false)
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 	mute = false;
 	appIsIconified = false;
-	int maxSounds = configHandler->Get("MaxSounds", 128);
-	pitchAdjust = configHandler->Get("PitchAdjust", false);
+	int maxSounds = configHandler->GetInt("MaxSounds");
+	pitchAdjust = configHandler->GetBool("PitchAdjust");
 
-	masterVolume = configHandler->Get("snd_volmaster", 60) * 0.01f;
-	Channels::General.SetVolume(configHandler->Get("snd_volgeneral", 100 ) * 0.01f);
-	Channels::UnitReply.SetVolume(configHandler->Get("snd_volunitreply", 100 ) * 0.01f);
+	masterVolume = configHandler->GetInt("snd_volmaster") * 0.01f;
+	Channels::General.SetVolume(configHandler->GetInt("snd_volgeneral") * 0.01f);
+	Channels::UnitReply.SetVolume(configHandler->GetInt("snd_volunitreply") * 0.01f);
+	Channels::UnitReply.SetMaxConcurrent(1);
 	Channels::UnitReply.SetMaxEmmits(1);
-	Channels::Battle.SetVolume(configHandler->Get("snd_volbattle", 100 ) * 0.01f);
-	Channels::UserInterface.SetVolume(configHandler->Get("snd_volui", 100 ) * 0.01f);
-	Channels::BGMusic.SetVolume(configHandler->Get("snd_volmusic", 100 ) * 0.01f);
+	Channels::Battle.SetVolume(configHandler->GetInt("snd_volbattle") * 0.01f);
+	Channels::UserInterface.SetVolume(configHandler->GetInt("snd_volui") * 0.01f);
+	Channels::BGMusic.SetVolume(configHandler->GetInt("snd_volmusic") * 0.01f);
 
 	SoundBuffer::Initialise();
 	soundItemDef temp;
 	temp["name"] = "EmptySource";
-	SoundItem* empty = new SoundItem(SoundBuffer::GetById(0), temp);
-	sounds.push_back(empty);
+	sounds.push_back(NULL);
 
-	if (maxSounds <= 0)
-	{
-		LogObject(LOG_SOUND) << "MaxSounds set to 0, sound is disabled";
-	}
-	else
+	if (maxSounds <= 0) {
+		LOG_L(L_WARNING, "MaxSounds set to 0, sound is disabled");
+	} else {
 		soundThread = new boost::thread(boost::bind(&CSound::StartThread, this, maxSounds));
+	}
 
 	configHandler->NotifyOnChange(this);
 }
 
 CSound::~CSound()
 {
-	if (soundThread)
-	{
-		soundThread->interrupt();
+	soundThreadQuit = true;
+
+	if (soundThread) {
 		soundThread->join();
 		delete soundThread;
-		soundThread = 0;
+		soundThread = NULL;
 	}
+
+	for (soundVecT::iterator it = sounds.begin(); it != sounds.end(); ++it)
+		delete *it;
 	sounds.clear();
 	SoundBuffer::Deinitialise();
 }
 
-bool CSound::HasSoundItem(const std::string& name)
+bool CSound::HasSoundItem(const std::string& name) const
 {
 	soundMapT::const_iterator it = soundMap.find(name);
 	if (it != soundMap.end())
@@ -79,7 +104,7 @@ bool CSound::HasSoundItem(const std::string& name)
 	}
 	else
 	{
-		soundItemDefMap::const_iterator it = soundItemDefs.find(name);
+		soundItemDefMap::const_iterator it = soundItemDefs.find(StringToLower(name));
 		if (it != soundItemDefs.end())
 			return true;
 		else
@@ -89,7 +114,7 @@ bool CSound::HasSoundItem(const std::string& name)
 
 size_t CSound::GetSoundId(const std::string& name, bool hardFail)
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 
 	if (sources.empty())
 		return 0;
@@ -102,7 +127,7 @@ size_t CSound::GetSoundId(const std::string& name, bool hardFail)
 	}
 	else
 	{
-		soundItemDefMap::const_iterator itemDefIt = soundItemDefs.find(name);
+		soundItemDefMap::const_iterator itemDefIt = soundItemDefs.find(StringToLower(name));
 		if (itemDefIt != soundItemDefs.end())
 		{
 			return MakeItemFromDef(itemDefIt->second);
@@ -124,7 +149,7 @@ size_t CSound::GetSoundId(const std::string& name, bool hardFail)
 				}
 				else
 				{
-					LogObject(LOG_SOUND) << "CSound::GetSoundId: could not find sound: " << name;
+					LOG_L(L_WARNING, "CSound::GetSoundId: could not find sound: %s", name.c_str());
 					return 0;
 				}
 			}
@@ -132,41 +157,73 @@ size_t CSound::GetSoundId(const std::string& name, bool hardFail)
 	}
 }
 
-SoundSource* CSound::GetNextBestSource(bool lock)
+SoundItem* CSound::GetSoundItem(size_t id) const {
+	//! id==0 is a special id and invalid
+	if (id == 0 || id >= sounds.size())
+		return NULL;
+	return sounds[id];
+}
+
+CSoundSource* CSound::GetNextBestSource(bool lock)
 {
+	boost::recursive_mutex::scoped_lock lck(soundMutex, boost::defer_lock);
+	if (lock)
+		lck.lock();
+
 	if (sources.empty())
 		return NULL;
-	sourceVecT::iterator bestPos = sources.begin();
-	
+
+	CSoundSource* bestPos = NULL;
 	for (sourceVecT::iterator it = sources.begin(); it != sources.end(); ++it)
 	{
 		if (!it->IsPlaying())
 		{
-			return &(*it); //argh
+			return &(*it);
 		}
-		else if (it->GetCurrentPriority() <= bestPos->GetCurrentPriority())
+		else if (it->GetCurrentPriority() <= (bestPos ? bestPos->GetCurrentPriority() : INT_MAX))
 		{
-			bestPos = it;
+			bestPos = &(*it);
 		}
 	}
-	return &(*bestPos);
+	return bestPos;
 }
 
 void CSound::PitchAdjust(const float newPitch)
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 	if (pitchAdjust)
-		SoundSource::SetPitch(newPitch);
+		CSoundSource::SetPitch(newPitch);
 }
 
 void CSound::ConfigNotify(const std::string& key, const std::string& value)
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 	if (key == "snd_volmaster")
 	{
 		masterVolume = std::atoi(value.c_str()) * 0.01f;
 		if (!mute && !appIsIconified)
 			alListenerf(AL_GAIN, masterVolume);
+	}
+	else if (key == "snd_eaxpreset")
+	{
+		efx->SetPreset(value);
+	}
+	else if (key == "snd_filter")
+	{
+		float gainlf = 1.f;
+		float gainhf = 1.f;
+		sscanf(value.c_str(), "%f %f", &gainlf, &gainhf);
+		efx->sfxProperties->filter_properties_f[AL_LOWPASS_GAIN]   = gainlf;
+		efx->sfxProperties->filter_properties_f[AL_LOWPASS_GAINHF] = gainhf;
+		efx->CommitEffects();
+	}
+	else if (key == "UseEFX")
+	{
+		bool enable = (std::atoi(value.c_str()) != 0);
+		if (enable)
+			efx->Enable();
+		else
+			efx->Disable();
 	}
 	else if (key == "snd_volgeneral")
 	{
@@ -199,7 +256,7 @@ void CSound::ConfigNotify(const std::string& key, const std::string& value)
 
 bool CSound::Mute()
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 	mute = !mute;
 	if (mute)
 		alListenerf(AL_GAIN, 0.0);
@@ -215,7 +272,7 @@ bool CSound::IsMuted() const
 
 void CSound::Iconified(bool state)
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 	if (appIsIconified != state && !mute)
 	{
 		if (state == false)
@@ -226,134 +283,126 @@ void CSound::Iconified(bool state)
 	appIsIconified = state;
 }
 
-void CSound::PlaySample(size_t id, const float3& p, const float3& velocity, float volume, bool relative)
-{
-	boost::mutex::scoped_lock lck(soundMutex);
-
-	if (sources.empty() || volume == 0.0f)
-		return;
-
-	if (id == 0)
-	{
-		numEmptyPlayRequests++;
-		return;
-	}
-
-	if (p.distance(myPos) > sounds[id].MaxDistance())
-	{
-		if (!relative)
-			return;
-		else
-			LogObject(LOG_SOUND) << "CSound::PlaySample: maxdist ignored for relative payback: " << sounds[id].Name();
-	}
-
-	SoundSource* best = GetNextBestSource(false);
-	if (best && (!best->IsPlaying() || (best->GetCurrentPriority() <= 0 && best->GetCurrentPriority() < sounds[id].GetPriority())))
-	{
-		if (best->IsPlaying())
-			++numAbortedPlays;
-		best->Play(&sounds[id], p, velocity, volume, relative);
-	}
-	CheckError("CSound::PlaySample");
-}
-
 void CSound::StartThread(int maxSounds)
 {
-	try
 	{
-		{
-			boost::mutex::scoped_lock lck(soundMutex);
-			//TODO: device choosing, like this:
-			//const ALchar* deviceName = "ALSA Software on SB Live 5.1 [SB0220] [Multichannel Playback]";
-			const ALchar* deviceName = NULL;
-			ALCdevice *device = alcOpenDevice(deviceName);
+		boost::recursive_mutex::scoped_lock lck(soundMutex);
 
-			if (device == NULL)
+		// NULL -> default device
+		const ALchar* deviceName = NULL;
+		std::string configDeviceName = "";
+
+		// we do not want to set a default for snd_device,
+		// so we do it like this ...
+		if (configHandler->IsSet("snd_device"))
+		{
+			configDeviceName = configHandler->GetString("snd_device");
+			deviceName = configDeviceName.c_str();
+		}
+
+		ALCdevice* device = alcOpenDevice(deviceName);
+
+		if ((device == NULL) && (deviceName != NULL))
+		{
+			LOG_L(L_WARNING,
+					"Could not open the sound device \"%s\", trying the default device ...",
+					deviceName);
+			configDeviceName = "";
+			deviceName = NULL;
+			device = alcOpenDevice(deviceName);
+		}
+
+		if (device == NULL)
+		{
+			LOG_L(L_ERROR, "Could not open a sound device, disabling sounds");
+			CheckError("CSound::InitAL");
+			return;
+		}
+		else
+		{
+			ALCcontext *context = alcCreateContext(device, NULL);
+			if (context != NULL)
 			{
-				LogObject(LOG_SOUND) <<  "Could not open a sounddevice, disabling sounds";
-				CheckError("CSound::InitAL");
-				return;
+				alcMakeContextCurrent(context);
+				CheckError("CSound::CreateContext");
 			}
 			else
 			{
-				ALCcontext *context = alcCreateContext(device, NULL);
-				if (context != NULL)
-				{
-					alcMakeContextCurrent(context);
-					CheckError("CSound::CreateContext");
-				}
-				else
-				{
-					alcCloseDevice(device);
-					LogObject(LOG_SOUND) << "Could not create OpenAL audio context";
-					return;
-				}
+				alcCloseDevice(device);
+				LOG_L(L_ERROR, "Could not create OpenAL audio context");
+				return;
 			}
-
-			LogObject(LOG_SOUND) << "OpenAL info:\n";
-			LogObject(LOG_SOUND) << "  Vendor:     " << (const char*)alGetString(AL_VENDOR );
-			LogObject(LOG_SOUND) << "  Version:    " << (const char*)alGetString(AL_VERSION);
-			LogObject(LOG_SOUND) << "  Renderer:   " << (const char*)alGetString(AL_RENDERER);
-			LogObject(LOG_SOUND) << "  AL Extensions: " << (const char*)alGetString(AL_EXTENSIONS);
-			LogObject(LOG_SOUND) << "  ALC Extensions: " << (const char*)alcGetString(device, ALC_EXTENSIONS);
-			if(alcIsExtensionPresent(NULL, "ALC_ENUMERATION_EXT"))
-			{
-				LogObject(LOG_SOUND) << "  Device:     " << alcGetString(device, ALC_DEVICE_SPECIFIER);
-				const char *s = alcGetString(NULL, ALC_DEVICE_SPECIFIER);
-				LogObject(LOG_SOUND) << "  Available Devices:  ";
-				while (*s != '\0')
-				{
-					LogObject(LOG_SOUND) << "                      " << s;
-					while (*s++ != '\0')
-						;
-				}
-			}
-
-			// Generate sound sources
-			for (int i = 0; i < maxSounds; i++)
-			{
-				SoundSource* thenewone = new SoundSource();
-				if (thenewone->IsValid())
-				{
-					sources.push_back(thenewone);
-				}
-				else
-				{
-					maxSounds = std::max(i-1,0);
-					LogObject(LOG_SOUND) << "Your hardware/driver can not handle more than " << maxSounds << " soundsources";
-					delete thenewone;
-					break;
-				}
-			}
-
-			// Set distance model (sound attenuation)
-			alDistanceModel(AL_INVERSE_DISTANCE_CLAMPED);
-			//alDopplerFactor(1.0);
-
-			alListenerf(AL_GAIN, masterVolume);
 		}
-		configHandler->Set("MaxSounds", maxSounds);
 
-		while (true)
+		LOG("OpenAL info:");
+		if(alcIsExtensionPresent(NULL, "ALC_ENUMERATION_EXT"))
 		{
-			boost::this_thread::sleep(boost::posix_time::millisec(50)); // sleep
-			boost::mutex::scoped_lock lck(soundMutex); // lock
-			Update(); // call update
+			LOG("  Available Devices:");
+			const char* deviceSpecifier = alcGetString(NULL, ALC_DEVICE_SPECIFIER);
+			while (*deviceSpecifier != '\0') {
+				LOG("              %s", deviceSpecifier);
+				while (*deviceSpecifier++ != '\0')
+					;
+			}
+			LOG("  Device:     %s", (const char*)alcGetString(device, ALC_DEVICE_SPECIFIER));
 		}
+		LOG("  Vendor:         %s", (const char*)alGetString(AL_VENDOR));
+		LOG("  Version:        %s", (const char*)alGetString(AL_VERSION));
+		LOG("  Renderer:       %s", (const char*)alGetString(AL_RENDERER));
+		LOG("  AL Extensions:  %s", (const char*)alGetString(AL_EXTENSIONS));
+		LOG("  ALC Extensions: %s", (const char*)alcGetString(device, ALC_EXTENSIONS));
+
+		// Init EFX
+		efx = new CEFX(device);
+
+		// Generate sound sources
+		for (int i = 0; i < maxSounds; i++)
+		{
+			CSoundSource* thenewone = new CSoundSource();
+			if (thenewone->IsValid()) {
+				sources.push_back(thenewone);
+			} else {
+				maxSounds = std::max(i-1, 0);
+				LOG_L(L_WARNING,
+						"Your hardware/driver can not handle more than %i soundsources",
+						maxSounds);
+				delete thenewone;
+				break;
+			}
+		}
+		LOG("  Max Sounds: %i", maxSounds);
+
+		// Set distance model (sound attenuation)
+		alDistanceModel(AL_INVERSE_DISTANCE_CLAMPED);
+		alDopplerFactor(0.2f);
+
+		alListenerf(AL_GAIN, masterVolume);
 	}
-	catch(boost::thread_interrupted const&)
-	{
-		sources.clear(); // delete all sources
-		ALCcontext *curcontext = alcGetCurrentContext();
-		ALCdevice *curdevice = alcGetContextsDevice(curcontext);
-		alcMakeContextCurrent(NULL);
-		alcDestroyContext(curcontext);
-		alcCloseDevice(curdevice);
+	configHandler->Set("MaxSounds", maxSounds);
+
+	Threading::SetThreadName("audio");
+	Watchdog::RegisterThread(WDT_AUDIO);
+
+	while (!soundThreadQuit) {
+		boost::this_thread::sleep(boost::posix_time::millisec(50)); //! 20Hz
+		Watchdog::ClearTimer(WDT_AUDIO);
+		Update();
 	}
+
+	Watchdog::DeregisterThread(WDT_AUDIO);
+
+	sources.clear(); // delete all sources
+	delete efx; // must happen after sources and before context
+	ALCcontext* curcontext = alcGetCurrentContext();
+	ALCdevice* curdevice = alcGetContextsDevice(curcontext);
+	alcMakeContextCurrent(NULL);
+	alcDestroyContext(curcontext);
+	alcCloseDevice(curdevice);
 }
 
 void CSound::Update()
 {
+	boost::recursive_mutex::scoped_lock lck(soundMutex); // lock
 	for (sourceVecT::iterator it = sources.begin(); it != sources.end(); ++it)
 		it->Update();
 	CheckError("CSound::Update");
@@ -361,37 +410,58 @@ void CSound::Update()
 
 size_t CSound::MakeItemFromDef(const soundItemDef& itemDef)
 {
+	//! MakeItemFromDef is private. Only caller is LoadSoundDefs and it sets the mutex itself.
+	//boost::recursive_mutex::scoped_lock lck(soundMutex);
 	const size_t newid = sounds.size();
 	soundItemDef::const_iterator it = itemDef.find("file");
-	boost::shared_ptr<SoundBuffer> buffer = SoundBuffer::GetById(LoadSoundBuffer(it->second, false));
-	if (buffer)
-	{
-		SoundItem* buf = new SoundItem(buffer, itemDef);
-		sounds.push_back(buf);
-		soundMap[buf->Name()] = newid;
-		return newid;
-	}
-	else
+	if (it == itemDef.end())
 		return 0;
+
+	boost::shared_ptr<SoundBuffer> buffer = SoundBuffer::GetById(LoadSoundBuffer(it->second, false));
+	
+	if (!buffer)
+		return 0;
+		
+	SoundItem* buf = new SoundItem(buffer, itemDef);
+	sounds.push_back(buf);
+	soundMap[buf->Name()] = newid;
+	return newid;
 }
 
 void CSound::UpdateListener(const float3& campos, const float3& camdir, const float3& camup, float lastFrameTime)
 {
-	boost::mutex::scoped_lock lck(soundMutex);
-
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 	if (sources.empty())
 		return;
-	const float3 prevPos = myPos;
-	myPos = campos;
-	alListener3f(AL_POSITION, myPos.x, myPos.y, myPos.z);
 
-	SoundSource::SetHeightRolloffModifer(std::min(5.*600./std::max(campos.y, 200.f), 5.0));
-	//TODO: reactivate when it does not go crazy on camera "teleportation" or fast movement,
-	// like when clicked on minimap
-	//const float3 velocity = (myPos - prevPos)*(10.0/myPos.y)/(lastFrameTime);
-	//const float3 velocityAvg = (velocity+prevVelocity)/2;
-	//alListener3f(AL_VELOCITY, velocityAvg.x, velocityAvg.y , velocityAvg.z);
-	//prevVelocity = velocity;
+	myPos = campos;
+	const float3 myPosInMeters = myPos * ELMOS_TO_METERS;
+	alListener3f(AL_POSITION, myPosInMeters.x, myPosInMeters.y, myPosInMeters.z);
+
+	//! reduce the rolloff when the camera is high above the ground (so we still hear something in tab mode or far zoom)
+	//! for altitudes up to and including 600 elmos, the rolloff is always clamped to 1
+	const float camHeight = std::max(1.0f, campos.y - ground->GetHeightAboveWater(campos.x, campos.z));
+	const float newMod = std::min(600.0f / camHeight, 1.0f);
+
+	CSoundSource::SetHeightRolloffModifer(newMod);
+	efx->SetHeightRolloffModifer(newMod);
+
+	//! Result were bad with listener related doppler effects.
+	//! The user experiences the camera/listener not as a world-interacting object.
+	//! So changing sounds on camera movements were irritating, esp. because zooming with the mouse wheel
+	//! often is faster than the speed of sound, causing very high frequencies.
+	//! Note: soundsource related doppler effects are not deactivated by this! Flying cannon shoots still change their frequencies.
+	//! Note2: by not updating the listener velocity soundsource related velocities are calculated wrong,
+	//! so even if the camera is moving with a cannon shoot the frequency gets changed.
+	/*
+	const float3 velocity = (myPos - prevPos) / (lastFrameTime);
+	float3 velocityAvg = velocity * 0.6f + prevVelocity * 0.4f;
+	prevVelocity = velocityAvg;
+	velocityAvg *= ELMOS_TO_METERS;
+	velocityAvg.y *= 0.001f; //! scale vertical axis separatly (zoom with mousewheel is faster than speed of sound!)
+	velocityAvg *= 0.15f;
+	alListener3f(AL_VELOCITY, velocityAvg.x, velocityAvg.y, velocityAvg.z);
+	*/
 
 	ALfloat ListenerOri[] = {camdir.x, camdir.y, camdir.z, camup.x, camup.y, camup.z};
 	alListenerfv(AL_ORIENTATION, ListenerOri);
@@ -400,30 +470,29 @@ void CSound::UpdateListener(const float3& campos, const float3& camdir, const fl
 
 void CSound::PrintDebugInfo()
 {
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 
-	LogObject(LOG_SOUND) << "OpenAL Sound System:";
-	LogObject(LOG_SOUND) << "# SoundSources: " << sources.size();
-	LogObject(LOG_SOUND) << "# SoundBuffers: " << SoundBuffer::Count();
+	LOG_L(L_DEBUG, "OpenAL Sound System:");
+	LOG_L(L_DEBUG, "# SoundSources: %i", (int)sources.size());
+	LOG_L(L_DEBUG, "# SoundBuffers: %i", (int)SoundBuffer::Count());
 
-	LogObject(LOG_SOUND) << "# reserved for buffers: " << (SoundBuffer::AllocedSize()/1024) << " kB";
-	LogObject(LOG_SOUND) << "# PlayRequests for empty sound: " << numEmptyPlayRequests;
-	LogObject(LOG_SOUND) << "# Samples disrupted: " << numAbortedPlays;
-	LogObject(LOG_SOUND) << "# SoundItems: " << sounds.size();
+	LOG_L(L_DEBUG, "# reserved for buffers: %i kB", (int)(SoundBuffer::AllocedSize() / 1024));
+	LOG_L(L_DEBUG, "# PlayRequests for empty sound: %i", numEmptyPlayRequests);
+	LOG_L(L_DEBUG, "# Samples disrupted: %i", numAbortedPlays);
+	LOG_L(L_DEBUG, "# SoundItems: %i", (int)sounds.size());
 }
 
-bool CSound::LoadSoundDefs(const std::string& filename)
+bool CSound::LoadSoundDefs(const std::string& fileName)
 {
 	//! can be called from LuaUnsyncedCtrl too
-	boost::mutex::scoped_lock lck(soundMutex);
+	boost::recursive_mutex::scoped_lock lck(soundMutex);
 
-	LuaParser parser(filename, SPRING_VFS_MOD, SPRING_VFS_ZIP);
-	parser.SetLowerKeys(false);
-	parser.SetLowerCppKeys(false);
+	LuaParser parser(fileName, SPRING_VFS_MOD, SPRING_VFS_ZIP);
 	parser.Execute();
 	if (!parser.IsValid())
 	{
-		LogObject(LOG_SOUND) << "Could not load " << filename << ": " << parser.GetErrorLog();
+		LOG_L(L_WARNING, "Could not load %s: %s",
+				fileName.c_str(), parser.GetErrorLog().c_str());
 		return false;
 	}
 	else
@@ -432,7 +501,7 @@ bool CSound::LoadSoundDefs(const std::string& filename)
 		const LuaTable soundItemTable = soundRoot.SubTable("SoundItems");
 		if (!soundItemTable.IsValid())
 		{
-			LogObject(LOG_SOUND) << "CSound(): could not parse SoundItems table in " << filename;
+			LOG_L(L_WARNING, "CSound(): could not parse SoundItems table in %s", fileName.c_str());
 			return false;
 		}
 		else
@@ -441,29 +510,51 @@ bool CSound::LoadSoundDefs(const std::string& filename)
 			soundItemTable.GetKeys(keys);
 			for (std::vector<std::string>::const_iterator it = keys.begin(); it != keys.end(); ++it)
 			{
-				const std::string name(*it);
+				std::string name(*it);
+
 				soundItemDef bufmap;
-				const LuaTable buf(soundItemTable.SubTable(*it));
+				const LuaTable buf(soundItemTable.SubTable(name));
 				buf.GetMap(bufmap);
 				bufmap["name"] = name;
 				soundItemDefMap::const_iterator sit = soundItemDefs.find(name);
+
+				if (name == "default") {
+					defaultItem = bufmap;
+					defaultItem.erase("name"); //must be empty for default item
+					defaultItem.erase("file");
+					continue;
+				}
+
 				if (sit != soundItemDefs.end())
-					LogObject(LOG_SOUND) << "Sound " << name << " gets overwritten by " << filename;
+					LOG_L(L_WARNING, "Sound %s gets overwritten by %s", name.c_str(), fileName.c_str());
 
-				soundItemDef::const_iterator inspec = bufmap.find("file");
-				if (inspec == bufmap.end())	// no file, drop
-					LogObject(LOG_SOUND) << "Sound " << name << " is missing file tag (ignoring)";
-				else
+				if (!buf.KeyExists("file")) {
+					// no file, drop
+					LOG_L(L_WARNING, "Sound %s is missing file tag (ignoring)", name.c_str());
+					continue;
+				} else {
 					soundItemDefs[name] = bufmap;
+				}
 
-				if (buf.KeyExists("preload"))
-				{
+				if (buf.KeyExists("preload")) {
 					MakeItemFromDef(bufmap);
 				}
 			}
-			LogObject(LOG_SOUND) << " parsed " << keys.size() << " sounds from " << filename;
+			LOG(" parsed %i sounds from %s", (int)keys.size(), fileName.c_str());
 		}
 	}
+
+	//FIXME why do sounds w/o an own soundItemDef create (!=pointer) a new one from the defaultItem?
+	for (soundItemDefMap::iterator it = soundItemDefs.begin(); it != soundItemDefs.end(); ++it) {
+		soundItemDef& snddef = it->second;
+		if (snddef.find("name") == snddef.end()) {
+			// uses defaultItem! update it!
+			const std::string file = snddef["file"];
+			snddef = defaultItem;
+			snddef["file"] = file;
+		}
+	}
+
 	return true;
 }
 
@@ -471,27 +562,19 @@ bool CSound::LoadSoundDefs(const std::string& filename)
 size_t CSound::LoadSoundBuffer(const std::string& path, bool hardFail)
 {
 	const size_t id = SoundBuffer::GetId(path);
-	
-	if (id > 0)
-	{
+
+	if (id > 0) {
 		return id; // file is loaded already
-	}
-	else
-	{
+	} else {
 		CFileHandler file(path);
 
-		if (!file.FileExists())
-		{
+		if (!file.FileExists()) {
 			if (hardFail) {
-				handleerror(0, "Couldn't open audio file", path.c_str(),0);
+				handleerror(0, "Could not open audio file", path.c_str(), 0);
+			} else {
+				LOG_L(L_WARNING, "Unable to open audio file: %s", path.c_str());
 			}
-			else
-				LogObject(LOG_SOUND) << "Unable to open audio file: " << path;
 			return 0;
-		}
-		else
-		{
-			
 		}
 
 		std::vector<boost::uint8_t> buf(file.FileSize());
@@ -500,25 +583,22 @@ size_t CSound::LoadSoundBuffer(const std::string& path, bool hardFail)
 		boost::shared_ptr<SoundBuffer> buffer(new SoundBuffer());
 		bool success = false;
 		const std::string ending = file.GetFileExt();
-		if (ending == "wav")
+		if (ending == "wav") {
 			success = buffer->LoadWAV(path, buf, hardFail);
-		else if (ending == "ogg")
+		} else if (ending == "ogg") {
 			success = buffer->LoadVorbis(path, buf, hardFail);
-		else
-		{
-			LogObject(LOG_SOUND) << "CSound::LoadALBuffer: unknown audio format: " << ending;
+		} else {
+			LOG_L(L_WARNING, "CSound::LoadALBuffer: unknown audio format: %s",
+					ending.c_str());
 		}
 
 		CheckError("CSound::LoadALBuffer");
-		if (!success)
-		{
-			LogObject(LOG_SOUND) << "Failed to load file: " << path;
+		if (!success) {
+			LOG_L(L_WARNING, "Failed to load file: %s", path.c_str());
 			return 0;
 		}
-		else
-		{
-			return SoundBuffer::Insert(buffer);
-		}
+
+		return SoundBuffer::Insert(buffer);
 	}
 }
 

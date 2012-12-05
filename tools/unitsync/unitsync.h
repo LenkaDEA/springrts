@@ -1,5 +1,7 @@
-#ifndef UNITSYNC_H
-#define UNITSYNC_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _UNITSYNC_H
+#define _UNITSYNC_H
 
 #include <string>
 
@@ -14,6 +16,7 @@
 /**
  * @brief 2d vector storing a map defined starting position
  * @sa MapInfo
+ * @deprecated
  */
 struct StartPos
 {
@@ -25,6 +28,7 @@ struct StartPos
 /**
  * @brief Metadata of a map
  * @sa GetMapInfo GetMapInfoEx
+ * @deprecated
  */
 struct MapInfo
 {
@@ -59,6 +63,6 @@ enum BitmapType {
 /** @} */
 
 
-const char *GetStr(std::string str);
+const char* GetStr(std::string str);
 
-#endif // UNITSYNC_H
+#endif // _UNITSYNC_H

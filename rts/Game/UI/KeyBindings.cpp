@@ -1,15 +1,14 @@
-#include "StdAfx.h"
-// CKeyBindings.cpp: implementation of the CKeyBindings class.
-//
-//////////////////////////////////////////////////////////////////////
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 
 #include <cstdio>
 #include <cctype>
 #include <cstring>
 
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "KeyBindings.h"
+#include "KeyBindingsLog.h"
 #include "SDL_keysym.h"
 #include "KeyCodes.h"
 #include "KeySet.h"
@@ -17,11 +16,16 @@
 #include "KeyAutoBinder.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitDefHandler.h"
-#include "Platform/errorhandler.h"
-#include "FileSystem/FileHandler.h"
-#include "FileSystem/SimpleParser.h"
-#include "LogOutput.h"
-#include "Util.h"
+#include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/SimpleParser.h"
+#include "System/Log/ILog.h"
+#include "System/Log/DefaultFilter.h"
+#include "System/Util.h"
+
+#ifdef LOG_SECTION_CURRENT
+	#undef LOG_SECTION_CURRENT
+#endif
+#define LOG_SECTION_CURRENT LOG_SECTION_KEY_BINDINGS
 
 
 CKeyBindings* keyBindings = NULL;
@@ -33,11 +37,12 @@ static const struct DefaultBinding {
 }
 defaultBindings[] = {
 
-	{        "esc", "quitmenu"    },
+	{        "esc", "quitmessage"    },
+	{        "Shift+esc", "quitmenu"    },
 	{ "Ctrl+Shift+esc", "quitforce"    },
 	{  "Any+pause", "pause"       },
 
-	{ "Any+c", "controlunit"          },
+	{ "c", "controlunit"          },
 	{ "Any+h", "sharedialog"          },
 	{ "Any+l", "togglelos"            },
 	{ "Any+;", "toggleradarandjammer" },
@@ -128,8 +133,6 @@ defaultBindings[] = {
 	{ "Any+8", "group8" },
 	{ "Any+9", "group9" },
 
-	{ "Any+c", "controlunit" },
-
 	{       "[", "buildfacing inc"  },
 	{ "Shift+[", "buildfacing inc"  },
 	{       "]", "buildfacing dec"  },
@@ -142,8 +145,9 @@ defaultBindings[] = {
 	{        "Alt+a", "areaattack"   },
 	{  "Alt+Shift+a", "areaattack"   },
 	{        "Alt+b", "debug"        },
-	{            "d", "dgun"         },
-	{      "Shift+d", "dgun"         },
+	{        "Alt+v", "debugcolvol"  },
+	{            "d", "manualfire"   },
+	{      "Shift+d", "manualfire"   },
 	{       "Ctrl+d", "selfd"        },
 	{ "Ctrl+Shift+d", "selfd queued" },
 	{            "e", "reclaim"      },
@@ -187,15 +191,15 @@ defaultBindings[] = {
 	{ "Ctrl+f4", "viewrot"  },
 	{ "Ctrl+f5", "viewfree" },
 
-	{ "Any+f1",  "showElevation"  },
-	{ "Any+f2",  "ShowPathMap"    },
-	{ "Any+f3",  "LastMsgPos"     },
-	{ "Any+f4",  "ShowMetalMap"   },
-	{ "Any+f5",  "hideinterface"  },
-	{ "Any+f6",  "NoSound"        },
-	{ "Any+f7",  "dynamicSky"     },
+	{ "Any+f1",  "ShowElevation"         },
+	{ "Any+f2",  "ShowPathTraversability"},
+	{ "Any+f3",  "LastMsgPos"            },
+	{ "Any+f4",  "ShowMetalMap"          },
+	{ "Any+f5",  "HideInterface"         },
+	{ "Any+f6",  "NoSound"               },
+	{ "Any+f7",  "DynamicSky"            },
 	{ "Ctrl+Shift+f8", "savegame" },
-	{ "Any+f9",  "showhealthbars" },
+	{ "Any+f9",  "showhealthbars" }, // MT only
 	{ "Ctrl+Shift+f10", "createvideo" },
 	{ "Any+f11", "screenshot"     },
 	{ "Any+f12", "screenshot"     },
@@ -226,7 +230,18 @@ defaultBindings[] = {
 	{    "Any+ctrl",     "moveslow"     },
 	{ "Up+Any+ctrl",     "moveslow"     },
 	{    "Any+shift",    "movefast"     },
-	{ "Up+Any+shift",    "movefast"     }
+	{ "Up+Any+shift",    "movefast"     },
+
+
+	// selection keys
+	{ "Ctrl+a",    "select AllMap++_ClearSelection_SelectAll+"                                         },
+	{ "Ctrl+b",    "select AllMap+_Builder_Idle+_ClearSelection_SelectOne+"                            },
+	{ "Ctrl+c",    "select AllMap+_ManualFireUnit+_ClearSelection_SelectOne+"                          },
+	{ "Ctrl+r",    "select AllMap+_Radar+_ClearSelection_SelectAll+"                                   },
+	{ "Ctrl+v",    "select AllMap+_Not_Builder_Not_Commander_InPrevSel_Not_InHotkeyGroup+_SelectAll+"  },
+	{ "Ctrl+w",    "select AllMap+_Not_Aircraft_Weapons+_ClearSelection_SelectAll+"                    },
+	{ "Ctrl+x",    "select AllMap+_InPrevSel_Not_InHotkeyGroup+_SelectAll+"                            },
+	{ "Ctrl+z",    "select AllMap+_InPrevSel+_ClearSelection_SelectAll+"                               }
 };
 
 
@@ -237,7 +252,6 @@ defaultBindings[] = {
 
 CKeyBindings::CKeyBindings()
 {
-	debug = 0;
 	fakeMetaKey = -1;
 	userCommand = true;
 
@@ -317,21 +331,16 @@ const CKeyBindings::ActionList&
 		}
 	}
 
-	if (debug > 0) {
-		char buf[256];
-		SNPRINTF(buf, sizeof(buf), "GetAction: %s (0x%03X)",
-		         ks.GetString(false).c_str(), ks.Key());
-		if (alPtr == &empty) {
-			strncat(buf, "  EMPTY", sizeof(buf));
-			logOutput.Print("%s", buf);
-		}
-		else {
-			logOutput.Print("%s", buf);
+	if (LOG_IS_ENABLED(L_DEBUG)) {
+		const bool isEmpty = (alPtr == &empty);
+		LOG_L(L_DEBUG, "GetAction: %s (0x%03X)%s",
+				ks.GetString(false).c_str(), ks.Key(),
+				(isEmpty ? "  EMPTY" : ""));
+		if (!isEmpty) {
 			const ActionList& al = *alPtr;
-			for (int i = 0; i < (int)al.size(); ++i) {
-				SNPRINTF(buf, sizeof(buf), "  %s  \"%s\"",
-				         al[i].command.c_str(), al[i].rawline.c_str());
-				logOutput.Print("%s", buf);
+			for (size_t i = 0; i < al.size(); ++i) {
+				LOG_L(L_DEBUG, "  %s  \"%s\"",
+						al[i].command.c_str(), al[i].rawline.c_str());
 			}
 		}
 	}
@@ -359,13 +368,13 @@ bool CKeyBindings::Bind(const string& keystr, const string& line)
 {
 	CKeySet ks;
 	if (!ParseKeySet(keystr, ks)) {
-		logOutput.Print("Bind: could not parse key: %s\n", keystr.c_str());
+		LOG_L(L_WARNING, "Bind: could not parse key: %s", keystr.c_str());
 		return false;
 	}
 	Action action(line);
 	action.boundWith = keystr;
 	if (action.command.empty()) {
-		logOutput.Print("Bind: empty action: %s\n", line.c_str());
+		LOG_L(L_WARNING, "Bind: empty action: %s", line.c_str());
 		return false;
 	}
 
@@ -409,7 +418,7 @@ bool CKeyBindings::UnBind(const string& keystr, const string& command)
 {
 	CKeySet ks;
 	if (!ParseKeySet(keystr, ks)) {
-		logOutput.Print("UnBind: could not parse key: %s\n", keystr.c_str());
+		LOG_L(L_WARNING, "UnBind: could not parse key: %s", keystr.c_str());
 		return false;
 	}
 	bool success = false;
@@ -418,7 +427,7 @@ bool CKeyBindings::UnBind(const string& keystr, const string& command)
 	if (it != bindings.end()) {
 		ActionList& al = it->second;
 		success = RemoveCommandFromList(al, command);
-		if (al.size() <= 0) {
+		if (al.empty()) {
 			bindings.erase(it);
 		}
 	}
@@ -430,7 +439,7 @@ bool CKeyBindings::UnBindKeyset(const string& keystr)
 {
 	CKeySet ks;
 	if (!ParseKeySet(keystr, ks)) {
-		logOutput.Print("UnBindKeyset: could not parse key: %s\n", keystr.c_str());
+		LOG_L(L_WARNING, "UnBindKeyset: could not parse key: %s", keystr.c_str());
 		return false;
 	}
 	bool success = false;
@@ -454,13 +463,13 @@ bool CKeyBindings::UnBindAction(const string& command)
 		if (RemoveCommandFromList(al, command)) {
 			success = true;
 		}
-		if (al.size() <= 0) {
+		if (al.empty()) {
 			KeyMap::iterator it_next = it;
-			it_next++;
+			++it_next;
 			bindings.erase(it);
 			it = it_next;
 		} else {
-			it++;
+			++it;
 		}
 	}
 	return success;
@@ -475,7 +484,7 @@ bool CKeyBindings::SetFakeMetaKey(const string& keystr)
 		return true;
 	}
 	if (!ks.Parse(keystr)) {
-		logOutput.Print("SetFakeMetaKey: could not parse key: %s\n", keystr.c_str());
+		LOG_L(L_WARNING, "SetFakeMetaKey: could not parse key: %s", keystr.c_str());
 		return false;
 	}
 	fakeMetaKey = ks.Key();
@@ -486,11 +495,11 @@ bool CKeyBindings::AddKeySymbol(const string& keysym, const string& code)
 {
 	CKeySet ks;
 	if (!ks.Parse(code)) {
-		logOutput.Print("AddKeySymbol: could not parse key: %s\n", code.c_str());
+		LOG_L(L_WARNING, "AddKeySymbol: could not parse key: %s", code.c_str());
 		return false;
 	}
 	if (!keyCodes->AddKeySymbol(keysym, ks.Key())) {
-		logOutput.Print("AddKeySymbol: could not add: %s\n", keysym.c_str());
+		LOG_L(L_WARNING, "AddKeySymbol: could not add: %s", keysym.c_str());
 		return false;
 	}
 	return true;
@@ -501,11 +510,11 @@ bool CKeyBindings::AddNamedKeySet(const string& name, const string& keystr)
 {
 	CKeySet ks;
 	if (!ks.Parse(keystr)) {
-		logOutput.Print("AddNamedKeySet: could not parse keyset: %s\n", keystr.c_str());
+		LOG_L(L_WARNING, "AddNamedKeySet: could not parse keyset: %s", keystr.c_str());
 		return false;
 	}
 	if ((ks.Key() < 0) || !CKeyCodes::IsValidLabel(name)) {
-		logOutput.Print("AddNamedKeySet: bad custom keyset name: %s\n", name.c_str());
+		LOG_L(L_WARNING, "AddNamedKeySet: bad custom keyset name: %s", name.c_str());
 		return false;
 	}
 	namedKeySets[name] = ks;
@@ -562,19 +571,17 @@ void CKeyBindings::PushAction(const Action& action)
 {
 	if (action.command == "keyload") {
 		Load("uikeys.txt");
-		selectionKeys->LoadSelectionKeys();
 	}
 	else if (action.command == "keyreload") {
-		Command("unbindall");
-		Command("unbind enter chat");
+		ExecuteCommand("unbindall");
+		ExecuteCommand("unbind enter chat");
 		Load("uikeys.txt");
-		selectionKeys->LoadSelectionKeys();
 	}
 	else if (action.command == "keysave") {
 		if (Save("uikeys.tmp")) {  // tmp, not txt
-			logOutput.Print("Saved uikeys.tmp");
+			LOG("Saved uikeys.tmp");
 		} else {
-			logOutput.Print("Could not save uikeys.tmp");
+			LOG_L(L_WARNING, "Could not save uikeys.tmp");
 		}
 	}
 	else if (action.command == "keyprint") {
@@ -586,25 +593,36 @@ void CKeyBindings::PushAction(const Action& action)
 	else if (action.command == "keycodes") {
 		keyCodes->PrintCodeToName(); // move to CKeyCodes?
 	}
-	else
-		Command(action.rawline);
+	else {
+		ExecuteCommand(action.rawline);
+	}
 }
 
-bool CKeyBindings::Command(const string& line)
+bool CKeyBindings::ExecuteCommand(const string& line)
 {
 	const vector<string> words = CSimpleParser::Tokenize(line, 2);
 
-	if (words.size() <= 0) {
+	if (words.empty()) {
 		return false;
 	}
 	const string command = StringToLower(words[0]);
 
 	if (command == "keydebug") {
+		const int curLogLevel = log_filter_section_getMinLevel(LOG_SECTION_KEY_BINDINGS);
+		bool debug = (curLogLevel == LOG_LEVEL_DEBUG);
 		if (words.size() == 1) {
-			debug = (debug <= 0) ? 1 : 0;
+			// toggle
+			debug = !debug;
 		} else if (words.size() >= 2) {
+			// set
 			debug = atoi(words[1].c_str());
 		}
+		if (debug && !LOG_IS_ENABLED_STATIC(L_DEBUG)) {
+			LOG_L(L_WARNING,
+					"You have to run a DEBUG build to be able to log L_DEBUG messages");
+		}
+		log_filter_section_setMinLevel(LOG_SECTION_KEY_BINDINGS,
+				(debug ? LOG_LEVEL_DEBUG : LOG_LEVEL_INFO));
 	}
 	else if ((command == "fakemeta") && (words.size() > 1)) {
 		if (!SetFakeMetaKey(words[1])) { return false; }
@@ -661,7 +679,7 @@ bool CKeyBindings::Load(const string& filename)
 		if (line.empty()) {
 			break;
 		}
-		if (!Command(line)) {
+		if (!ExecuteCommand(line)) {
 			ParseTypeBind(parser, line);
 		}
 	}
@@ -748,7 +766,7 @@ void CKeyBindings::BuildHotkeyMap()
 		const string keystr = ks.GetString(true);
 		const ActionList& al = kit->second;
 		for (int i = 0; i < (int)al.size(); ++i) {
-			HotkeyList& hl = hotkeys[al[i].command];
+			HotkeyList& hl = hotkeys[al[i].command + ((al[i].extra == "") ? "" : " " + al[i].extra)];
 			int j;
 			for (j = 0; j < (int)hl.size(); ++j) {
 				if (hl[j] == keystr) {

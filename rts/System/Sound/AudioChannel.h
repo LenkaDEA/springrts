@@ -1,79 +1,77 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef AUDIO_CHANNEL_H
 #define AUDIO_CHANNEL_H
 
-#include "float3.h"
+#include <map>
+#include <vector>
+#include <string.h>
 
-class CWorldObject;
+#include "IAudioChannel.h"
+#include <boost/thread/recursive_mutex.hpp>
+
+struct GuiSoundSet;
+class CSoundSource;
 class CUnit;
+class CWorldObject;
 
 /**
  * @brief Channel for playing sounds
- * 
- * Has its own volume "slider", and can be enabled / disabled seperately
+ *
+ * Has its own volume "slider", and can be enabled / disabled seperately.
+ * Abstract base class.
  */
-class AudioChannel
-{
+class AudioChannel : public IAudioChannel {
 public:
 	AudioChannel();
 
-	void Enable(bool newState)
-	{
-		enabled = newState;
-	};
-	bool IsEnabled()
-	{
-		return enabled;
-	};
-
-	void SetVolume(float newVolume)
-	{
-		volume = newVolume;
-	};
-	float GetVolume()
-	{
-		return volume;
-	};
-
-protected:
-	float volume;
-	bool enabled;
-};
-
-class EffectChannel : public AudioChannel
-{
-public:
-	EffectChannel();
+	void Enable(bool newState);
+	void SetVolume(float newVolume);
 
 	void PlaySample(size_t id, float volume = 1.0f);
-	void PlaySample(size_t id, const float3& p, float volume = 1.0f);
-	void PlaySample(size_t id, const float3& p, const float3& velocity, float volume = 1.0f);
+	void PlaySample(size_t id, const float3& pos, float volume = 1.0f);
+	void PlaySample(size_t id, const float3& pos, const float3& velocity, float volume = 1.0f);
 
-	void PlaySample(size_t id, const CUnit* u, float volume = 1.0f);
-	void PlaySample(size_t id, const CWorldObject* p, float volume = 1.0f);
+	void PlaySample(size_t id, const CUnit* unit, float volume = 1.0f);
+	void PlaySample(size_t id, const CWorldObject* obj, float volume = 1.0f);
 
-	void UpdateFrame()
-	{
-		emmitsThisFrame = 0;
-	};
-	void SetMaxEmmits(unsigned max)
-	{
-		emmitsPerFrame = max;
-	};
+	void PlayRandomSample(const GuiSoundSet& soundSet, const CUnit* unit);
+	void PlayRandomSample(const GuiSoundSet& soundSet, const float3& pos);
+
+	void StreamPlay(const std::string& path, float volume = 1.0f, bool enqueue = false);
+
+	/**
+	 * @brief Stop playback
+	 * 
+	 * Do not call this if you just want to play another file (for performance).
+	 */
+	void StreamStop();
+	void StreamPause();
+	float StreamGetTime();
+	float StreamGetPlayTime();
+
+protected:
+	void FindSourceAndPlay(size_t id, const float3& pos, const float3& velocity, float volume, bool relative);
+
+	void SoundSourceFinished(CSoundSource* sndSource);
 
 private:
-	unsigned emmitsPerFrame;
-	unsigned emmitsThisFrame;
+	std::map<CSoundSource*, bool> cur_sources;
+
+	//! streams
+	struct StreamQueueItem {
+		StreamQueueItem() : volume(0.f) {}
+		StreamQueueItem(const std::string& fileName, float& volume)
+			: fileName(fileName)
+			, volume(volume)
+		{}
+		std::string fileName;
+		float volume;
+	};
+	
+	CSoundSource* curStreamSrc;
+	std::vector<StreamQueueItem> streamQueue;
+	static const size_t MAX_STREAM_QUEUESIZE;
 };
 
-/**
- * @brief If you want to play a sound, use one of these
- */
-namespace Channels
-{
-	extern EffectChannel General;
-	extern EffectChannel Battle;
-	extern EffectChannel UnitReply;
-	extern EffectChannel UserInterface;
-}
-
-#endif
+#endif // AUDIO_CHANNEL_H

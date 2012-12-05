@@ -1,5 +1,7 @@
-#ifndef __FEATURE_H__
-#define __FEATURE_H__
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef _FEATURE_H
+#define _FEATURE_H
 
 #include <vector>
 #include <list>
@@ -8,8 +10,7 @@
 
 #include "Sim/Objects/SolidObject.h"
 #include "Sim/Units/UnitHandler.h"
-#include "Rendering/UnitModels/3DModel.h"
-#include "Matrix44f.h"
+#include "System/Matrix44f.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/ModInfo.h"
 
@@ -19,7 +20,6 @@ struct FeatureDef;
 class CUnit;
 struct DamageArray;
 class CFireProjectile;
-struct CollisionVolume;
 
 
 
@@ -31,19 +31,23 @@ public:
 	CFeature();
 	~CFeature();
 
-	/** Pos of quad must not change after this. */
+	/**
+	 * Pos of quad must not change after this.
+	 * This will add this to the FeatureHandler.
+	 */
 	void Initialize(const float3& pos, const FeatureDef* def, short int heading, int facing,
-		int team, int allyteam, std::string fromUnit, const float3& speed = ZeroVector, int smokeTime = 0);
+		int team, int allyteam, const UnitDef* udef, const float3& speed = ZeroVector, int smokeTime = 0);
 	int GetBlockingMapID() const { return id + (10 * uh->MaxUnits()); }
 
-	/** Negative amount = reclaim
-	    @return true if reclaimed */
+	/**
+	 * Negative amount = reclaim
+	 * @return true if reclaimed
+	 */
 	bool AddBuildPower(float amount, CUnit* builder);
-	void DoDamage(const DamageArray& damages, CUnit* attacker, const float3& impulse);
-	void Kill(float3& impulse);
+	void DoDamage(const DamageArray& damages, const float3& impulse, CUnit* attacker, int weaponDefID);
 	void ForcedMove(const float3& newPos, bool snapToGround = true);
 	void ForcedSpin(const float3& newDir);
-	virtual bool Update(void);
+	bool Update(void);
 	bool UpdatePosition(void);
 	void StartFire(void);
 	float RemainingResource(float res) const;
@@ -72,32 +76,26 @@ public:
 		}
 	}
 
-	// should not be here
-	void DrawS3O();
+public:
+	int defID;
 
-	S3DModel* model;
-
-	std::string createdFromUnit;
-	/** This flag is used to stop a potential exploit involving tripping a unit back and forth
-	across a chunk boundary to get unlimited resources. Basically, once a corspe has been a little bit
-	reclaimed, if they start rezzing then they cannot reclaim again until the corpse has been fully
-	'repaired'. */
+	/**
+	 * This flag is used to stop a potential exploit involving tripping
+	 * a unit back and forth across a chunk boundary to get unlimited resources.
+	 * Basically, once a corspe has been a little bit reclaimed,
+	 * if they start rezzing, then they cannot reclaim again
+	 * until the corpse has been fully 'repaired'.
+	 */
 	bool isRepairingBeforeResurrect;
+
 	float resurrectProgress;
-
-	float health;
 	float reclaimLeft;
-	int allyteam;
-	int team;
-
-	bool noSelect;
 
 	int tempNum;
 	int lastReclaim;
 
 	const FeatureDef* def;
-	std::string defName;
-	CollisionVolume* collisionVolume;
+	const UnitDef* udef; /// type of unit this feature should be resurrected to
 
 	CMatrix44f transMatrix;
 
@@ -115,12 +113,11 @@ public:
 	/// the solid object that is on top of the geothermal
 	CSolidObject* solidOnTop;
 
-	// initially a copy of CUnit::speed
+	/// initially a copy of CUnit::speed
 	float3 deathSpeed;
-	float tempalpha;
 
 private:
 	void PostLoad();
 };
 
-#endif // __FEATURE_H__
+#endif // _FEATURE_H

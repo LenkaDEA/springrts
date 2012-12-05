@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // AAI
 //
-// A skirmish AI for the TA Spring engine.
+// A skirmish AI for the Spring engine.
 // Copyright Alexander Seizinger
 //
 // Released under GPL license: see LICENSE.html for more information.
@@ -15,7 +15,7 @@ AAIConfig::AAIConfig(void)
 	SIDES = 2;
 	SECTOR_SIZE = 100.0;
 	MIN_ENERGY = 18;  // min energy make value to be considered beeing a power plant
-	MAX_UNITS = 10000;
+	MAX_UNITS = 30000;
 	MAX_SCOUTS = 4;
 	MAX_SECTOR_IMPORTANCE = 6;
 	MAX_XROW = 8;
@@ -104,37 +104,74 @@ AAIConfig::~AAIConfig(void)
 {
 	for(int i = 0; i < SIDES; i++)
 	{
-		delete [] START_UNITS[i];
-		delete [] SIDE_NAMES[i];
+		SafeDeleteArray(START_UNITS[i]);
+		SafeDeleteArray(SIDE_NAMES[i]);
 	}
 
-	delete [] START_UNITS;
-	delete [] SIDE_NAMES;
+	SafeDeleteArray(START_UNITS);
+	SafeDeleteArray(SIDE_NAMES);
 }
 
 void AAIConfig::LoadConfig(AAI *ai)
 {
-	char filename[500];
+	// this size equals the one used in "AIAICallback::GetValue(AIVAL_LOCATE_FILE_..."
+	char filename[2048];
 	char buffer[500];
 
-	STRCPY(buffer, MAIN_PATH);
-	STRCAT(buffer, MOD_CFG_PATH);
-	STRCAT(buffer, ai->cb->GetModName());
-	ReplaceExtension (buffer, filename, sizeof(filename), ".cfg");
+	MAX_UNITS = ai->cb->GetMaxUnits();
 
+	FILE* file = NULL;
+
+	STRCPY_T(buffer, sizeof(buffer), MAIN_PATH);
+	STRCAT_T(buffer, sizeof(buffer), MOD_CFG_PATH);
+	const std::string modHumanName = MakeFileSystemCompatible(ai->cb->GetModHumanName());
+	STRCAT_T(buffer, sizeof(buffer), modHumanName.c_str());
+	STRCAT_T(buffer, sizeof(buffer), ".cfg");
+	STRCPY_T(filename, sizeof(filename), buffer);
 	ai->cb->GetValue(AIVAL_LOCATE_FILE_R, filename);
+	file = fopen(filename, "r");
+	if (file == NULL) {
+		fprintf(ai->file, "Mod config file %s not found\n", filename);
+		fprintf(ai->file, "Now trying with legacy mod config file name ...\n");
+		STRCPY_T(buffer, sizeof(buffer), MAIN_PATH);
+		STRCAT_T(buffer, sizeof(buffer), MOD_CFG_PATH);
+		const std::string modName = MakeFileSystemCompatible(ai->cb->GetModName());
+		STRCAT_T(buffer, sizeof(buffer), modName.c_str());
+		ReplaceExtension(buffer, filename, sizeof(filename), ".cfg");
+		ai->cb->GetValue(AIVAL_LOCATE_FILE_R, filename);
+		file = fopen(filename, "r");
+	}
+	if (file == NULL) {
+		fprintf(ai->file, "Mod config file %s not found\n", filename);
+		fprintf(ai->file, "Now trying with version independent mod config file name ...\n");
+		STRCPY_T(buffer, sizeof(buffer), MAIN_PATH);
+		STRCAT_T(buffer, sizeof(buffer), MOD_CFG_PATH);
+		const std::string modShortName = MakeFileSystemCompatible(ai->cb->GetModShortName());
+		STRCAT_T(buffer, sizeof(buffer), modShortName.c_str());
+		STRCAT_T(buffer, sizeof(buffer), ".cfg");
+		STRCPY_T(filename, sizeof(filename), buffer);
+		ai->cb->GetValue(AIVAL_LOCATE_FILE_R, filename);
+		file = fopen(filename, "r");
+	}
+	if (file == NULL) {
+		fprintf(ai->file, "Mod config file %s not found\n", filename);
+		fprintf(ai->file, "Give up trying to find mod config file (required).\n");
+		initialized = false;
+		return;
+	}
 
-	FILE *file = fopen(filename, "r");
 	char keyword[50];
 	int ival;
 	float fval;
 	const UnitDef *def;
 
 	bool error = false;
-	bool loaded = false;
+//	bool loaded = false;
 
 	if(file)
 	{
+		fprintf(ai->file, "Using mod config file %s\n", filename);
+
 		while(EOF != fscanf(file, "%s", keyword))
 		{
 			if(!strcmp(keyword,"SIDES"))
@@ -577,26 +614,18 @@ void AAIConfig::LoadConfig(AAI *ai)
 		}
 		else
 		{
-			loaded = true;
+//			loaded = true;
 			fclose(file);
 			fprintf(ai->file, "Mod config file loaded\n");
 		}
 	}
-	else
-	{
-		fprintf(ai->file, "Mod config file %s not found\n", filename);
-		initialized = false;
-		return;
-	}
 
 
 	// load general settings
-	STRCPY(buffer, MAIN_PATH);
-	STRCAT(buffer, GENERAL_CFG_FILE);
-	ReplaceExtension (buffer, filename, sizeof(filename), ".cfg");
-
+	STRCPY_T(buffer, sizeof(buffer), MAIN_PATH);
+	STRCAT_T(buffer, sizeof(buffer), GENERAL_CFG_FILE);
+	ReplaceExtension(buffer, filename, sizeof(filename), ".cfg");
 	ai->cb->GetValue(AIVAL_LOCATE_FILE_R, filename);
-
 	file = fopen(filename, "r");
 
 	if(file)

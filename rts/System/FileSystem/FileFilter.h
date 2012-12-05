@@ -1,5 +1,7 @@
-#ifndef FILEFILTER_H
-#define FILEFILTER_H
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef FILE_FILTER_H
+#define FILE_FILTER_H
 
 #include <string>
 
@@ -14,4 +16,4 @@ public:
 	virtual bool Match(const std::string& filename) const = 0;
 };
 
-#endif // !FILEFILTER_H
+#endif // !FILE_FILTER_H

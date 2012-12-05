@@ -1,46 +1,47 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef TEAM_H
 #define TEAM_H
-// Team.h: interface for the CTeam class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <string>
 #include <vector>
 #include <map>
 #include <list>
+#include <boost/utility.hpp> //! boost::noncopyable
 
 #include "TeamBase.h"
 #include "TeamStatistics.h"
 #include "Sim/Units/UnitSet.h"
 #include "ExternalAI/SkirmishAIKey.h"
+#include "Lua/LuaRulesParams.h"
+#include "System/Sync/SyncedPrimitive.h" //! SyncedFloat
 
-class CTeam : public TeamBase
+
+class CTeam : public TeamBase, private boost::noncopyable //! cannot allow shallow copying of Teams, contains pointers
 {
 	CR_DECLARE(CTeam);
 public:
 	CTeam();
-	~CTeam();
-	/**
-	 * This has to be called for every team before SlowUpdates start,
-	 * otherwise values get overwritten.
-	 */
-	void ResetFrameVariables();
+
+	void ResetResourceState();
 	void SlowUpdate();
 
-	void AddMetal(float amount, bool handicap = true);
-	void AddEnergy(float amount, bool handicap = true);
+	void AddMetal(float amount, bool useIncomeMultiplier = true);
+	void AddEnergy(float amount, bool useIncomeMultiplier = true);
 	bool UseEnergy(float amount);
 	bool UseMetal(float amount);
-	bool UseEnergyUpkeep(float amount);
-	bool UseMetalUpkeep(float amount);
+	bool AtUnitLimit() const { return (units.size() >= maxUnits); }
 
 	void GiveEverythingTo(const unsigned toTeam);
 
-	void Died();
+	void Died(bool normalDeath = true);
+	void AddPlayer(int playerNum);
+	void KillAIs();
 
-	void StartposMessage(const float3& pos);
+	void ClampStartPosInStartBox(float3* pos) const;
+	void StartposMessage(const float3& pos) { startPos = pos; }
 
-	void operator=(const TeamBase& base);
+	CTeam& operator=(const TeamBase& base);
 
 	std::string GetControllerName() const;
 
@@ -59,10 +60,12 @@ public:
 	void AddUnit(CUnit* unit, AddType type);
 	void RemoveUnit(CUnit* unit, RemoveType type);
 
+
 	int teamNum;
+	unsigned int maxUnits;
+
 	bool isDead;
 	bool gaia;
-	int lineageRoot;
 
 	/// color info is unsynced
 	unsigned char origColor[4];
@@ -75,39 +78,34 @@ public:
 	float metalPull,    prevMetalPull;
 	float metalIncome,  prevMetalIncome;
 	float metalExpense, prevMetalExpense;
-	float metalUpkeep,  prevMetalUpkeep;
 
 	float energyPull,    prevEnergyPull;
 	float energyIncome,  prevEnergyIncome;
 	float energyExpense, prevEnergyExpense;
-	float energyUpkeep,  prevEnergyUpkeep;
 
 	SyncedFloat metalStorage, energyStorage;
 
 	float metalShare, energyShare;
 	SyncedFloat delayedMetalShare, delayedEnergyShare; // excess that might be shared next SlowUpdate
 
-	float metalSent;
-	float metalReceived;
-	float energySent;
-	float energyReceived;
+	float metalSent,      prevMetalSent;
+	float metalReceived,  prevMetalReceived;
+	float energySent,     prevEnergySent;
+	float energyReceived, prevEnergyReceived;
 
-	typedef TeamStatistics Statistics;
-	Statistics currentStats;
-	/// in intervalls of this many seconds, statistics are updated
-	static const int statsPeriod = 15;
+	float prevMetalExcess;
+	float prevEnergyExcess;
 
-	int lastStatSave;
-	/// number of units with commander tag in team, if it reaches zero with cmd ends the team dies
-	int numCommanders;
-	std::list<Statistics> statHistory;
-	void CommanderDied(CUnit* commander);
-	void LeftLineage(CUnit* unit);
+	int nextHistoryEntry;
+	TeamStatistics* currentStats;
+	std::list<TeamStatistics> statHistory;
+	typedef TeamStatistics Statistics; //! for easier access via CTeam::Statistics
 
 	/// mod controlled parameters
-	std::vector<float>         modParams;
-	/// name map for mod parameters
-	std::map<std::string, int> modParamsMap;
+	LuaRulesParams::Params  modParams;
+	LuaRulesParams::HashMap modParamsMap; /// name map for mod parameters
+
+	float highlight;
 };
 
 #endif /* TEAM_H */

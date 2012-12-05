@@ -1,21 +1,20 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 /**
- * @file FBO.cpp
  * @brief EXT_framebuffer_object implementation
- *
  * EXT_framebuffer_object class implementation
- * Copyright (C) 2008.  Licensed under the terms of the
- * GNU GPL, v2 or later.
  */
-#include "StdAfx.h"
+
 #include <assert.h>
 #include <vector>
-#include "mmgr.h"
+#include "System/mmgr.h"
 
 #include "FBO.h"
-#include "LogOutput.h"
-#include "GlobalUnsynced.h"
-#include "ConfigHandler.h"
 #include "Rendering/Textures/Bitmap.h"
+#include "System/Log/ILog.h"
+#include "System/Config/ConfigHandler.h"
+
+CONFIG(bool, AtiSwapRBFix).defaultValue(false);
 
 std::vector<FBO*> FBO::fboList;
 std::map<GLuint,FBO::TexData*> FBO::texBuf;
@@ -110,7 +109,7 @@ void FBO::DownloadAttachment(const GLenum attachment)
 		glGetTexLevelParameteriv(target, 0, GL_TEXTURE_DEPTH_SIZE, &_cbits); bits += _cbits;
 	}
 
-	if (configHandler->Get("AtiSwapRBFix",false)) {
+	if (configHandler->GetBool("AtiSwapRBFix")) {
 		if (tex->format == GL_RGBA) {
 			tex->format = GL_BGRA;
 		} else if (tex->format == GL_RGB) {
@@ -156,7 +155,7 @@ void FBO::GLContextLost()
 			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, (*fi)->fboId);
 			glGetIntegerv(GL_READ_BUFFER,&oldReadBuffer);
 
-			for(int i = 0; i < 15; ++i) {
+			for(int i = 0; i <= 15; ++i) {
 				DownloadAttachment(GL_COLOR_ATTACHMENT0_EXT + i);
 			}
 			DownloadAttachment(GL_DEPTH_ATTACHMENT_EXT);
@@ -181,7 +180,7 @@ void FBO::GLContextReinit()
 
 		if (glIsTexture(tex->id)) {
 			glBindTexture(tex->target,tex->id);
-			//todo: regen mipmaps?
+			// TODO regen mipmaps?
 			switch (tex->target) {
 				case GL_TEXTURE_3D:
 					//glTexSubImage3D(tex->target, 0, 0,0,0, tex->xsize, tex->ysize, tex->zsize, /*FIXME?*/GL_RGBA, /*FIXME?*/GL_UNSIGNED_BYTE, tex->pixels);
@@ -195,8 +194,8 @@ void FBO::GLContextReinit()
 					//glTexSubImage2D(tex->target, 0, 0,0, tex->xsize, tex->ysize, /*FIXME?*/GL_RGBA, /*FIXME?*/GL_UNSIGNED_BYTE, tex->pixels);
 					glTexImage2D(tex->target, 0, tex->format, tex->xsize, tex->ysize, 0, /*FIXME?*/GL_RGBA, /*FIXME?*/GL_UNSIGNED_BYTE, tex->pixels);
 			}
-		}else if (glIsRenderbufferEXT(tex->id)) {
-			//FIXME
+		} else if (glIsRenderbufferEXT(tex->id)) {
+			// FIXME implement rendering buffer context init
 		}
 
 		delete[] tex->pixels;
@@ -221,6 +220,8 @@ FBO::FBO() : fboId(0), reloadOnAltTab(false)
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 
 	fboList.push_back(this);
+
+	valid = true;
 }
 
 
@@ -231,14 +232,14 @@ FBO::~FBO()
 {
 	if (!IsSupported()) return;
 
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-	if (fboId)
-		glDeleteFramebuffersEXT(1, &fboId);
-
 	glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
 	for (std::vector<GLuint>::iterator ri=myRBOs.begin(); ri!=myRBOs.end(); ++ri) {
 		glDeleteRenderbuffersEXT(1, &(*ri));
 	}
+
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+	if (fboId)
+		glDeleteFramebuffersEXT(1, &fboId);
 
 	for (std::vector<FBO*>::iterator fi=fboList.begin(); fi!=fboList.end(); ++fi) {
 		if (*fi==this) {
@@ -263,9 +264,9 @@ FBO::~FBO()
 /**
  * Tests whether or not if we have a valid framebuffer
  */
-bool FBO::IsValid()
+bool FBO::IsValid() const
 {
-	return (fboId!=0);
+	return (fboId!=0 && valid);
 }
 
 
@@ -296,32 +297,34 @@ bool FBO::CheckStatus(std::string name)
 	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
 	switch(status) {
 		case GL_FRAMEBUFFER_COMPLETE_EXT:
+			valid = true;
 			return true;
 		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_EXT:
-			logOutput.Print("FBO-"+name+": has no images/buffers attached!");
+			LOG_L(L_WARNING, "FBO-%s: None/Unsupported textures/buffers attached!", name.c_str());
 			break;
 		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT_EXT:
-			logOutput.Print("FBO-"+name+": missing a required image/buffer attachment!");
+			LOG_L(L_WARNING, "FBO-%s: Missing a required texture/buffer attachment!", name.c_str());
 			break;
 		case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT:
-			logOutput.Print("FBO-"+name+": has mismatched image/buffer dimensions!");
+			LOG_L(L_WARNING, "FBO-%s: Has mismatched texture/buffer dimensions!", name.c_str());
 			break;
 		case GL_FRAMEBUFFER_INCOMPLETE_FORMATS_EXT:
-			logOutput.Print("FBO-"+name+": colorbuffer attachments have different types!");
+			LOG_L(L_WARNING, "FBO-%s: Incomplete buffer formats!", name.c_str());
 			break;
 		case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER_EXT:
-			logOutput.Print("FBO-"+name+": incomplete draw buffers!");
+			LOG_L(L_WARNING, "FBO-%s: Incomplete draw buffers!", name.c_str());
 			break;
 		case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER_EXT:
-			logOutput.Print("FBO-"+name+": trying to read from a non-attached color buffer!");
+			LOG_L(L_WARNING, "FBO-%s: Incomplete read buffer!", name.c_str());
 			break;
 		case GL_FRAMEBUFFER_UNSUPPORTED_EXT:
-			logOutput.Print("FBO-"+name+" error: GL_FRAMEBUFFER_UNSUPPORTED_EXT");
+			LOG_L(L_WARNING, "FBO-%s: GL_FRAMEBUFFER_UNSUPPORTED_EXT", name.c_str());
 			break;
 		default:
-			logOutput.Print(std::string("FBO-"+name+" error: 0x%X").c_str(),status);
+			LOG_L(L_WARNING, "FBO-%s: error code 0x%X", name.c_str(), status);
 			break;
 	}
+	valid = false;
 	return false;
 }
 
@@ -360,24 +363,47 @@ void FBO::AttachRenderBuffer(const GLuint rboId, const GLenum attachment)
 
 
 /**
- * Unattaches an attachment from the framebuffer
+ * Detaches an attachment from the framebuffer
  */
-void FBO::Unattach(const GLenum attachment)
+void FBO::Detach(const GLenum attachment)
 {
-	glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, attachment, GL_TEXTURE_2D, 0, 0);
+	GLuint target = 0;
+	glGetFramebufferAttachmentParameterivEXT(GL_FRAMEBUFFER_EXT, attachment,
+		GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE_EXT,
+		(GLint*)&target);
+
+	if (target==GL_RENDERBUFFER_EXT) {
+		//! check if the RBO was created via FBO::CreateRenderBuffer()
+		GLuint id;
+		glGetFramebufferAttachmentParameterivEXT(GL_FRAMEBUFFER_EXT, attachment,
+			GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME_EXT,
+			(GLint*)&id);
+
+		glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, attachment, GL_RENDERBUFFER_EXT, 0);
+
+		for (std::vector<GLuint>::iterator ri=myRBOs.begin(); ri!=myRBOs.end(); ++ri) {
+			if (*ri == id) {
+				glDeleteRenderbuffersEXT(1, &(*ri));
+				myRBOs.erase(ri);
+				break;
+			}
+		}
+	} else {
+		glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, attachment, GL_TEXTURE_2D, 0, 0);
+	}
 }
 
 
 /**
- * Unattaches any attachments from the framebuffer
+ * Detaches any attachments from the framebuffer
  */
-void FBO::UnattachAll()
+void FBO::DetachAll()
 {
-	for(int i = 0; i < 15; ++i) {
-		Unattach(GL_COLOR_ATTACHMENT0_EXT + i);
+	for(int i = 0; i <= 15; ++i) {
+		Detach(GL_COLOR_ATTACHMENT0_EXT + i);
 	}
-	Unattach(GL_DEPTH_ATTACHMENT_EXT);
-	Unattach(GL_STENCIL_ATTACHMENT_EXT);
+	Detach(GL_DEPTH_ATTACHMENT_EXT);
+	Detach(GL_STENCIL_ATTACHMENT_EXT);
 }
 
 

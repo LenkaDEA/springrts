@@ -1,17 +1,17 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #ifndef MINIMAP_H
 #define MINIMAP_H
-// MiniMap.h: interface for the CMiniMap class.
-//
-//////////////////////////////////////////////////////////////////////
 
 #include <vector>
 #include <string>
 #include <list>
 #include "InputReceiver.h"
-#include "Rendering/GL/myGL.h"
 
 class CUnit;
-class CIconData;
+namespace icon {
+	class CIconData;
+}
 
 
 class CMiniMap : public CInputReceiver {
@@ -26,7 +26,7 @@ class CMiniMap : public CInputReceiver {
 		bool IsAbove(int x, int y);
 		std::string GetTooltip(int x, int y);
 		void Draw();
-		void DrawForReal();
+		void DrawForReal(bool use_geo = true);
 		
 		void ConfigCommand(const std::string& command);
 
@@ -63,20 +63,19 @@ class CMiniMap : public CInputReceiver {
 		void SelectUnits(int x, int y) const;
 		void ProxyMousePress(int x, int y, int button);
 		void ProxyMouseRelease(int x, int y, int button);
-		
-		void DrawNotes(void);
+
+		void DrawFrame();
+		void DrawNotes();
 		void DrawButtons();
 		void DrawMinimizedButton();
-		void DrawUnit(CUnit* unit);
-		void DrawUnitHighlight(CUnit* unit);
+		void DrawUnit(const CUnit* unit);
+		void DrawUnitHighlight(const CUnit* unit);
 		void DrawCircle(const float3& pos, float radius);
 		void DrawSquare(const float3& pos, float xsize, float zsize);
-		const CIconData* GetUnitIcon(CUnit* unit, float& scale) const;
-		void GetFrustumSide(float3& side);
+		const icon::CIconData* GetUnitIcon(const CUnit* unit, float& scale) const;
 		
 	protected:
-		static void DrawSurfaceCircle(const float3& pos, float radius,
-		                              unsigned int resolution);
+		static void DrawSurfaceCircle(const float3& pos, float radius, unsigned int resolution);
 		static void DrawSurfaceSquare(const float3& pos, float xsize, float zsize);
 	protected:
 		int xpos, ypos;
@@ -135,18 +134,9 @@ class CMiniMap : public CInputReceiver {
 		unsigned char allyColor[4];
 		unsigned char enemyColor[4];
 
-		GLuint buttonsTexture;
+		unsigned int buttonsTexture;
 		unsigned int circleLists; // 8 - 256 divs
 		static const int circleListsCount = 6;
-				
-		struct fline {
-			float base;
-			float dir;
-			int left;
-			float minz;
-			float maxz;
-		};
-		std::vector<fline> left;
 
 		struct Notification {
 			float creationTime;

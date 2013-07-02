@@ -433,13 +433,15 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 	if (builderQ->size() > 0) {
 		// builder has orders
 		const Command* c   = &builderQ->front();
-		const int      n   = c->params.size();
-		const int      cID = c->id;
+		int n = c->params.size();
+		int cID = c->id;
 
 		if (builderQ->size() == 2 && cID == CMD_MOVE) {
 			// it might have a move order before the real order,
 			// take command nr. 2 if nr. 1 is a move order
 			c = &builderQ->back();
+			n = c->params.size();
+			cID = c->id;
 		}
 
 		if (reportError) {

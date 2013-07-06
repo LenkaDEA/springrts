@@ -89,7 +89,7 @@ void CUnitHandler::IdleUnitUpdate(int frame) {
 				// two sec delay is ok
 				if ((bTracker->commandOrderPushFrame + LAG_ACCEPTANCE) < frame) {
 					if (!ans) {
-						float3 pos = ai->cb->GetUnitPos(builderID);
+						//float3 pos = ai->cb->GetUnitPos(builderID);
 
 						std::stringstream msg;
 							msg << "[CUnitHandler::IdleUnitUpdate()][frame=" << frame << "]\n";

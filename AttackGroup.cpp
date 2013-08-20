@@ -140,7 +140,7 @@ int CAttackGroup::Size() {
 	// LONG DEAD-UNIT TEST
 	int unitCounter = 0;
 	int numUnits = units.size();
-	int invalid = -2;
+	//int invalid = -2;
 
 	for (int i = 0; i < numUnits; i++) {
 		int unit = units[i];
@@ -149,7 +149,7 @@ int CAttackGroup::Size() {
 			unitCounter++;
 		}
 		else {
-			invalid = unit;
+			//invalid = unit;
 		}
 	}
 

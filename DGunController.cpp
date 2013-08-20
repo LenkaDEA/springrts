@@ -123,8 +123,8 @@ void CDGunController::TrackAttackTarget(unsigned int currentFrame) {
 		AIHCTraceRay rayData;
 		float  rayLen = maxRange * 1.1f;
 		float3 rayPos = commanderPos;
-		float3 rayDir = targetDif / targetDist;
-			rayDir.y = 0.0f;
+		//float3 rayDir = targetDif / targetDist;
+		//	rayDir.y = 0.0f;
 
 		while (haveClearShot && (rayLen >= 1.0f)) {
 			rayData.rayPos = rayPos;

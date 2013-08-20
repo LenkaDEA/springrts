@@ -557,7 +557,7 @@ bool CBuildUp::BuildUpgradeExtractor(int builderID) {
 
 	if (newMexDef != NULL) {
 		const CUNIT*  builder    = ai->GetUnit(builderID);
-		const float3& builderPos = builder->pos();
+		//const float3& builderPos = builder->pos();
 		const float3  newMexPos  = ai->mm->GetNearestMetalSpot(builderID, newMexDef);
 		// const float  oldMexDist = newMexPos.distance2D(builderPos);
 
@@ -610,7 +610,7 @@ bool CBuildUp::BuildUpgradeReactor(int builderID) {
 
 			int             oldReactorID  = -1;
 			float3          oldReactorPos = ZeroVector;
-			const  UnitDef* oldReactorDef = NULL;
+			//const  UnitDef* oldReactorDef = NULL;
 
 			std::list<int> lst = ai->uh->AllUnitsByCat[CAT_ENERGY];
 
@@ -650,7 +650,7 @@ bool CBuildUp::BuildUpgradeReactor(int builderID) {
 							if (itUpgradeRatio > 2.0f) {
 								oldReactorID  = itReactorID;
 								oldReactorPos = itReactorPos;
-								oldReactorDef = itReactorDef;
+								//oldReactorDef = itReactorDef;
 								closestDstSq  = itReactorDstSq;
 							}
 						}

@@ -14,8 +14,7 @@ std::string CLogger::GetLogName() const {
 
 	time_t now1;
 	time(&now1);
-//FIXME:compile hack for macosx
-#undef tm
+
 	struct tm* now2 = localtime(&now1);
 
 	std::stringstream ss;

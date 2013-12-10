@@ -2,10 +2,8 @@
 #define KAIK_LOGGER_HDR
 
 #include <string>
-//FIXME:compile hack for macosx
-#undef tm
 #include <fstream>
-#define tm GetThreatMap()
+#define thm GetThreatMap()
 
 namespace springLegacyAI {
 	class IAICallback;

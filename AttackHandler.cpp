@@ -829,9 +829,9 @@ void CAttackHandler::AssignTarget(CAttackGroup* group_in) {
 
 		ai->pather->micropather->SetMapData(
 			ai->pather->MoveArrays[group_in->GetWorstMoveType()],
-			ai->tm->GetThreatArray(),
-			ai->tm->GetThreatMapWidth(),
-			ai->tm->GetThreatMapHeight()
+			ai->thm->GetThreatArray(),
+			ai->thm->GetThreatMapWidth(),
+			ai->thm->GetThreatMapHeight()
 		);
 
 
@@ -930,9 +930,9 @@ void CAttackHandler::Update(int frameNr) {
 	// in each group (movement map PATHTOUSE is hack)
 	ai->pather->micropather->SetMapData(
 		ai->pather->MoveArrays[PATHTOUSE],
-		ai->tm->GetThreatArray(),
-		ai->tm->GetThreatMapWidth(),
-		ai->tm->GetThreatMapHeight()
+		ai->thm->GetThreatArray(),
+		ai->thm->GetThreatMapWidth(),
+		ai->thm->GetThreatMapHeight()
 	);
 
 	// calculate and draw k-means for the base perimeters every 10 seconds

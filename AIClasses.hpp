@@ -111,7 +111,7 @@ private:
 #define math GetMathHandler()
 #define pather GetPathFinder()
 #define ut GetUnitTable()
-#define tm GetThreatMap()
+#define thm GetThreatMap()
 #define uh GetUnitHandler()
 #define dm GetDefenseMatrix()
 #define ah GetAttackHandler()

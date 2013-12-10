@@ -166,7 +166,7 @@ void CDGunController::TrackAttackTarget(unsigned int currentFrame) {
 			if (canDGun) {
 				IssueOrder(dgunPos, CMD_DGUN, 0);
 			} else {
-				bool bDanger = ai->tm->ThreatAtThisPoint(commanderPos/*curTargetPos*/) > ai->tm->GetAverageThreat();
+				bool bDanger = ai->thm->ThreatAtThisPoint(commanderPos/*curTargetPos*/) > ai->thm->GetAverageThreat();
 
 				if (bDanger) {
 					state.Reset(currentFrame, true);

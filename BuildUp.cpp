@@ -32,7 +32,7 @@ CBuildUp::~CBuildUp() {
 void CBuildUp::Update(int frame) {
 	if (frame % 15 == 0) {
 		// update current threat map
-		ai->tm->Update();
+		ai->thm->Update();
 		ai->uh->UpdateUpgradeTasks(frame);
 
 		GetEconState(&econState);

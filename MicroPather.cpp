@@ -43,6 +43,7 @@
 #include <cstdlib>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 
 #include "MicroPather.h"
 
@@ -337,7 +338,7 @@ void MicroPather::FixStartEndNode(void** startNode, void** endNode) {
 	else if (y == mapSizeY)
 		y = mapSizeY - 1;
 
-	*startNode = (void*) (y * mapSizeX + x);
+	*startNode = (void*) static_cast<intptr_t>(y * mapSizeX + x);
 	index = (size_t) *endNode;
 	y = index / mapSizeX;
 	x = index - y * mapSizeX;
@@ -355,7 +356,7 @@ void MicroPather::FixStartEndNode(void** startNode, void** endNode) {
 
 	xEndNode = x;
 	yEndNode = y;
-	*endNode = (void*) (y * mapSizeX + x);
+	*endNode = (void*) static_cast<intptr_t>(y * mapSizeX + x);
 }
 
 void MicroPather::FixNode( void** Node) {
@@ -377,7 +378,7 @@ void MicroPather::FixNode( void** Node) {
 	else if (y == mapSizeY)
 		y = mapSizeY - 1;
 
-	*Node = (void*) (y * mapSizeX + x);
+	*Node = (void*) static_cast<intptr_t>(y * mapSizeX + x);
 }
 
 
@@ -743,7 +744,7 @@ int MicroPather::FindBestPathToPointOnRadius(void* startNode, void* endNode, std
 			if (relativeX <= xend[relativeY]) {
 				// L("Its a hit: " << counter);
 
-				GoalReached(node, startNode, (void*) (indexStart), path);
+				GoalReached(node, startNode, (void*) static_cast<intptr_t>(indexStart), path);
 
 				*cost = node->costFromStart;
 				hasStartedARun = false;

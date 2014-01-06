@@ -241,7 +241,7 @@ unsigned CPathFinder::Checksum() {
 
 
 void* CPathFinder::XY2Node(int x, int y) {
-	return (void*) (y * PathMapXSize + x);
+	return (void*) static_cast<intptr_t>(y * PathMapXSize + x);
 }
 
 void CPathFinder::Node2XY(void* node, int* x, int* y) {
@@ -261,7 +261,7 @@ float3 CPathFinder::Node2Pos(void* node) {
 }
 
 void* CPathFinder::Pos2Node(float3 pos) {
-	return ((void*) (int(pos.z / SQUARE_SIZE / THREATRES) * PathMapXSize + int((pos.x / SQUARE_SIZE / THREATRES))));
+	return (void*) static_cast<intptr_t>(int(pos.z / SQUARE_SIZE / THREATRES) * PathMapXSize + int((pos.x / SQUARE_SIZE / THREATRES)));
 }
 
 /*

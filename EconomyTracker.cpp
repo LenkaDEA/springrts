@@ -384,14 +384,14 @@ TotalEconomyState CEconomyTracker::makePrediction(int targetFrame) {
 			state2.energyUsage = constructionEnergy;
 			state2.metalStored += state2.metalMake - constructionMetal;
 			state2.metalUsage = constructionMetal;
-			bool staling = false;
+			//bool staling = false;
 
 			if (state2.energyStored <= 0) {
-				staling = true;
+				//staling = true;
 				state2.energyStored = 0;
 			}
 			if (state2.metalStored <= 0) {
-				staling = true;
+				//staling = true;
 				state2.metalStored = 0;
 			}
 			if (state2.energyStored > state2.energyStorageSize) {

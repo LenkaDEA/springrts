@@ -109,7 +109,7 @@ float3 CMetalMap::GetNearestMetalSpot(int builderid, const UnitDef* extractor) {
 }
 
 void CMetalMap::Init() {
-	const int frame = ai->cb->GetCurrentFrame();
+	//const int frame = ai->cb->GetCurrentFrame();
 
 	// leave this line if you want to use this class in your AI
 	ai->cb->SendTextMsg("KAI Metal Class by Krogothe", 0);

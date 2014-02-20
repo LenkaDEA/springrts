@@ -449,16 +449,17 @@ bool CPathFinder::IsPositionReachable(const MoveData* md, const float3& pos) con
 	bool heightOK = false;
 	bool slopeOK  = false;
 
-	switch (md->moveType) {
-		case MoveData::Ship_Move: {
+	switch (md->moveFamily) {
+		case MoveData::Ship: {
 			heightOK = (hgtMap[zh * WH + xh] < -md->depth);
 			slopeOK  = true;
 		} break;
-		case MoveData::Ground_Move: {
+		case MoveData::Tank:
+		case MoveData::KBot: {
 			heightOK = (hgtMap[zh * WH + xh] > -md->depth);
 			slopeOK  = (slpMap[zs * WS + xs] <  md->maxSlope);
 		} break;
-		case MoveData::Hover_Move: {
+		case MoveData::Hover: {
 			heightOK = true;
 			slopeOK  = (slpMap[zs * WS + xs] < md->maxSlope);
 		} break;

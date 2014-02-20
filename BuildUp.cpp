@@ -237,7 +237,7 @@ void CBuildUp::Buildup(int frame) {
 					// FIXME: not happening often enough during res. stalls
 					//
 					const bool reclaimFeature =
-						((frame & 1) && ai->GetUnit(econState.builderID)->ReclaimBestFeature(true, 4096));
+						((frame & 1) && ai->GetUnit(econState.builderID)->ReclaimBestFeature(true, 1024));
 
 					if (!reclaimFeature) {
 						const bool haveNewMex = BuildUpgradeExtractor(econState.builderID);

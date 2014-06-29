@@ -17,9 +17,8 @@ set(additionalSources      ${CUtils_SRC} ${luaSources} ${CMAKE_SOURCE_DIR}/rts/S
 ## set(additionalCompileFlags "-DUSING_CREG")
 ## set(additionalLibraries    ${LegacyCpp_Creg_AIWRAPPER_TARGET})
 set(additionalLibraries    ${LegacyCpp_AIWRAPPER_TARGET})
-set(additionalCompileFlags "${additionalCompileFlags} -I ${CMAKE_SOURCE_DIR}/rts/lib/lua/include/")
-set(additionalCompileFlags "${additionalCompileFlags} -I ${CMAKE_SOURCE_DIR}/rts/lib/lua/src/")
-set(additionalCompileFlags "${additionalCompileFlags} -I ${CMAKE_SOURCE_DIR}/rts/lib/streflop/")
-
+include_directories("${CMAKE_SOURCE_DIR}/rts/lib/lua/include/")
+include_directories("${CMAKE_SOURCE_DIR}/rts/lib/lua/src/")
+include_directories("${CMAKE_SOURCE_DIR}/rts/lib/streflop/")
 
 ConfigureNativeSkirmishAI(mySourceDirRel additionalSources additionalCompileFlags additionalLibraries)

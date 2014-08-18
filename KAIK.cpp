@@ -9,12 +9,12 @@
 #include "KAIK.h"
 #include "IncGlobalAI.h"
 
-CR_BIND(CKAIK, );
+CR_BIND(CKAIK, )
 CR_REG_METADATA(CKAIK, (
 	CR_MEMBER(ai),
 	CR_SERIALIZER(Serialize),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
 #ifdef USING_CREG
 CREX_REG_STATE_COLLECTOR(CKAIK, CKAIK);

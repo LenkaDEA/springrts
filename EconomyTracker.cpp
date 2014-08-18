@@ -24,7 +24,7 @@ CR_REG_METADATA(BuildingTracker, (
 	CR_MEMBER(factory),
 	CR_MEMBER(economyUnitTracker),
 	CR_RESERVED(16)
-));
+))
 
 CR_BIND(EconomyUnitTracker, )
 CR_REG_METADATA(EconomyUnitTracker, (
@@ -50,9 +50,9 @@ CR_REG_METADATA(EconomyUnitTracker, (
 	CR_MEMBER(estimateMetalChangeFromDefWhileOff),
 	CR_RESERVED(16),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(CEconomyTracker, (NULL));
+CR_BIND(CEconomyTracker, (NULL))
 CR_REG_METADATA(CEconomyTracker, (
 	CR_MEMBER(allTheBuildingTrackers),
 	CR_MEMBER(deadEconomyUnitTrackers),
@@ -70,7 +70,7 @@ CR_REG_METADATA(CEconomyTracker, (
 	CR_MEMBER(constructionEnergySum),
 	CR_MEMBER(constructionMetalSum),
 	CR_RESERVED(16)
-));
+))
 
 void EconomyUnitTracker::PostLoad() {
 	unitDef = KAIKStateExt->GetAI()->cb->GetUnitDef(economyUnitId);

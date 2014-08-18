@@ -13,7 +13,7 @@ CR_REG_METADATA(CUNIT, (
 	CR_MEMBER(ai),
 	CR_RESERVED(8),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
 CUNIT::CUNIT(void) {
 	ai = NULL;

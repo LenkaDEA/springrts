@@ -4,7 +4,7 @@
 #include "IncExternAI.h"
 #include "IncGlobalAI.h"
 
-CR_BIND(CBuildUp, (NULL));
+CR_BIND(CBuildUp, (NULL))
 CR_REG_METADATA(CBuildUp, (
 	CR_MEMBER(ai),
 	CR_MEMBER(factoryTimer),
@@ -12,7 +12,7 @@ CR_REG_METADATA(CBuildUp, (
 	CR_MEMBER(storageTimer),
 	CR_MEMBER(nukeSiloTimer),
 	CR_RESERVED(16)
-));
+))
 
 CBuildUp::CBuildUp(AIClasses* ai) {
 	this->ai = ai;

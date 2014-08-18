@@ -13,7 +13,7 @@ CR_REG_METADATA(CThreatMap, (
 	CR_MEMBER(ai),
 	CR_RESERVED(8),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
 CThreatMap::CThreatMap(AIClasses* aic): ai(aic) {
 	if (ai) {

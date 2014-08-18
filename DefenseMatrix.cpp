@@ -2,7 +2,7 @@
 #include "IncExternAI.h"
 #include "IncGlobalAI.h"
 
-CR_BIND(CDefenseMatrix, (NULL));
+CR_BIND(CDefenseMatrix, (NULL))
 CR_REG_METADATA(CDefenseMatrix, (
 	CR_MEMBER(ChokeMapsByMovetype),
 	CR_MEMBER(ChokePointArray),
@@ -15,7 +15,7 @@ CR_REG_METADATA(CDefenseMatrix, (
 //	CR_MEMBER(defRemoveQueue),
 	CR_RESERVED(16),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
 CDefenseMatrix::CDefenseMatrix(AIClasses* ai)
 	: spotFinder(NULL)

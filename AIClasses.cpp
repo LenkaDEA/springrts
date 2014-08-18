@@ -8,7 +8,7 @@
 #include "KAIK.h"
 extern CKAIK* KAIKStateExt;
 
-CR_BIND(AIClasses, );
+CR_BIND(AIClasses, )
 CR_REG_METADATA(AIClasses, (
 	CR_MEMBER(ecoTracker),
 	CR_MEMBER(buildupHandler),
@@ -23,9 +23,9 @@ CR_REG_METADATA(AIClasses, (
 	CR_MEMBER(initFrame),
 	CR_POSTLOAD(Load),
 	CR_RESERVED(16)
-));
+))
 
-CR_BIND(UnitType, );
+CR_BIND(UnitType, )
 CR_REG_METADATA(UnitType, (
 	CR_MEMBER(canBuildList),
 	CR_MEMBER(builtByList),
@@ -37,15 +37,15 @@ CR_REG_METADATA(UnitType, (
 	CR_MEMBER(techLevel),
 	CR_MEMBER(costMultiplier),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(integer2, );
+CR_BIND(integer2, )
 CR_REG_METADATA(integer2, (
 	CR_MEMBER(x),
 	CR_MEMBER(y)
-));
+))
 
-CR_BIND(BuilderTracker, );
+CR_BIND(BuilderTracker, )
 CR_REG_METADATA(BuilderTracker, (
 	CR_MEMBER(builderID),
 	CR_MEMBER(buildTaskId),
@@ -60,9 +60,9 @@ CR_REG_METADATA(BuilderTracker, (
 	CR_MEMBER(estimateETAforMoveingToBuildSite),
 	CR_MEMBER(distanceToSiteBeforeItCanStartBuilding),
 	CR_RESERVED(16)
-));
+))
 
-CR_BIND(BuildTask, );
+CR_BIND(BuildTask, )
 CR_REG_METADATA(BuildTask, (
 	CR_MEMBER(id),
 	CR_ENUM_MEMBER(category),
@@ -74,9 +74,9 @@ CR_REG_METADATA(BuildTask, (
 	CR_MEMBER(pos),
 	CR_RESERVED(16),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(TaskPlan, );
+CR_BIND(TaskPlan, )
 CR_REG_METADATA(TaskPlan, (
 	CR_MEMBER(id),
 	CR_MEMBER(builders),
@@ -88,9 +88,9 @@ CR_REG_METADATA(TaskPlan, (
 	CR_MEMBER(pos),
 	CR_RESERVED(8),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(UpgradeTask, );
+CR_BIND(UpgradeTask, )
 CR_REG_METADATA(UpgradeTask, (
 	CR_MEMBER(oldBuildingID),
 	CR_MEMBER(oldBuildingPos),
@@ -101,30 +101,30 @@ CR_REG_METADATA(UpgradeTask, (
 	CR_MEMBER(builderIDs),
 	CR_RESERVED(8),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(Factory, );
+CR_BIND(Factory, )
 CR_REG_METADATA(Factory, (
 	CR_MEMBER(id),
 	CR_MEMBER(supportbuilders),
 	CR_MEMBER(supportBuilderTrackers),
 	CR_RESERVED(8)
-));
+))
 
-CR_BIND(NukeSilo, );
+CR_BIND(NukeSilo, )
 CR_REG_METADATA(NukeSilo, (
 	CR_MEMBER(id),
 	CR_MEMBER(numNukesReady),
 	CR_MEMBER(numNukesQueued),
 	CR_RESERVED(8)
-));
+))
 
-CR_BIND(MetalExtractor, );
+CR_BIND(MetalExtractor, )
 CR_REG_METADATA(MetalExtractor, (
 	CR_MEMBER(id),
 	CR_MEMBER(buildFrame),
 	CR_RESERVED(8)
-));
+))
 
 
 

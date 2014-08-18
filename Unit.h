@@ -11,7 +11,7 @@ struct AIClasses;
 
 class CUNIT {
 public:
-	CR_DECLARE(CUNIT);
+	CR_DECLARE(CUNIT)
 
 	CUNIT(void);
 	CUNIT(AIClasses* ai);

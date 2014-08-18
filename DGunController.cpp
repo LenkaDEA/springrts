@@ -10,16 +10,16 @@
 
 extern CKAIK* KAIKStateExt;
 
-CR_BIND(CDGunController, (NULL));
+CR_BIND(CDGunController, (NULL))
 CR_REG_METADATA(CDGunController, (
 	CR_MEMBER(ai),
 	CR_MEMBER(state),
 	CR_MEMBER(commanderID),
 	CR_RESERVED(16),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(ControllerState, );
+CR_BIND(ControllerState, )
 CR_REG_METADATA(ControllerState, (
 	CR_MEMBER(inited),
 	CR_MEMBER(dgunOrderFrame),
@@ -29,14 +29,14 @@ CR_REG_METADATA(ControllerState, (
 	CR_MEMBER(targetID),
 	CR_MEMBER(oldTargetPos),
 	CR_RESERVED(16)
-));
+))
 
-CR_BIND(CDGunControllerHandler, (NULL));
+CR_BIND(CDGunControllerHandler, (NULL))
 CR_REG_METADATA(CDGunControllerHandler, (
 	CR_MEMBER(ai),
 	CR_MEMBER(controllers),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
 
 

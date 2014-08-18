@@ -16,7 +16,7 @@ struct UpgradeTask;
 
 class CUnitHandler {
 	public:
-		CR_DECLARE(CUnitHandler);
+		CR_DECLARE(CUnitHandler)
 
 		CUnitHandler(AIClasses* ai);
 		~CUnitHandler();

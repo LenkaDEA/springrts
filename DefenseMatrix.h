@@ -12,7 +12,7 @@ namespace springLegacyAI {
 
 class CDefenseMatrix {
 	public:
-		CR_DECLARE(CDefenseMatrix);
+		CR_DECLARE(CDefenseMatrix)
 
 		CDefenseMatrix(AIClasses* ai);
 

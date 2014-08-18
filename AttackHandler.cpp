@@ -17,7 +17,7 @@
 
 
 
-CR_BIND(CAttackHandler, (NULL));
+CR_BIND(CAttackHandler, (NULL))
 CR_REG_METADATA(CAttackHandler, (
 	CR_MEMBER(ai),
 
@@ -39,7 +39,7 @@ CR_REG_METADATA(CAttackHandler, (
 	CR_MEMBER(kMeansEnemyBase),
 	CR_MEMBER(kMeansEnemyK),
 	CR_RESERVED(16)
-));
+))
 
 
 

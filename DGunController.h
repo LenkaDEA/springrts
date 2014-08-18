@@ -19,7 +19,7 @@ namespace springLegacyAI {
 struct AIClasses;
 
 struct ControllerState {
-	CR_DECLARE_STRUCT(ControllerState);
+	CR_DECLARE_STRUCT(ControllerState)
 
 	ControllerState(void) {
 		inited              = false;
@@ -66,7 +66,7 @@ struct ControllerState {
 
 class CDGunController {
 	public:
-		CR_DECLARE(CDGunController);
+		CR_DECLARE(CDGunController)
 
 		CDGunController(AIClasses*);
 		~CDGunController(void) {}
@@ -94,7 +94,7 @@ class CDGunController {
 
 class CDGunControllerHandler {
 	public:
-		CR_DECLARE(CDGunControllerHandler);
+		CR_DECLARE(CDGunControllerHandler)
 
 		CDGunControllerHandler(AIClasses* aic) {
 			ai = aic;

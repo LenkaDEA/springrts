@@ -8,7 +8,7 @@
 struct EconomyUnitTracker;
 
 struct BuildingTracker {
-	CR_DECLARE_STRUCT(BuildingTracker);
+	CR_DECLARE_STRUCT(BuildingTracker)
 
 	int unitUnderConstruction;
 	UnitCategory category;
@@ -111,7 +111,7 @@ struct BuilderETAdata {
 };
 
 struct EconomyUnitTracker {
-	CR_DECLARE_STRUCT(EconomyUnitTracker);
+	CR_DECLARE_STRUCT(EconomyUnitTracker)
 	void PostLoad();
 
 	int economyUnitId;							// Only economyUnitId and createFrame gives a correct ID
@@ -169,7 +169,7 @@ struct EconomyBuildingPlan {
 
 class CEconomyTracker {
 	public:
-		CR_DECLARE(CEconomyTracker);
+		CR_DECLARE(CEconomyTracker)
 
 		CEconomyTracker(AIClasses* ai);
 		~CEconomyTracker();

@@ -65,7 +65,7 @@ struct EconState {
 
 class CBuildUp {
 	public:
-		CR_DECLARE(CBuildUp);
+		CR_DECLARE(CBuildUp)
 
 		CBuildUp(AIClasses* ai);
 		~CBuildUp();

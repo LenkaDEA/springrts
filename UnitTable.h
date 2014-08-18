@@ -14,7 +14,7 @@ namespace springLegacyAI {
 } // namespace springLegacyAI
 
 struct CategoryData {
-	CR_DECLARE_STRUCT(CategoryData);
+	CR_DECLARE_STRUCT(CategoryData)
 
 	bool CanBuild(UnitDefCategory c) const {
 		switch (c) {
@@ -81,7 +81,7 @@ struct CategoryData {
 
 class CUnitTable {
 	public:
-		CR_DECLARE(CUnitTable);
+		CR_DECLARE(CUnitTable)
 
 		CUnitTable() {}
 		CUnitTable(AIClasses* ai);

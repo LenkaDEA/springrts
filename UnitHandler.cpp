@@ -5,7 +5,7 @@
 #include "IncExternAI.h"
 #include "IncGlobalAI.h"
 
-CR_BIND(CUnitHandler, (NULL));
+CR_BIND(CUnitHandler, (NULL))
 CR_REG_METADATA(CUnitHandler, (
 	CR_MEMBER(IdleUnits),
 	CR_MEMBER(BuildTasks),
@@ -25,7 +25,7 @@ CR_REG_METADATA(CUnitHandler, (
 	CR_MEMBER(ai),
 	CR_MEMBER(taskPlanCounter),
 	CR_RESERVED(16)
-));
+))
 
 
 CUnitHandler::CUnitHandler(AIClasses* ai) {

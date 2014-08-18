@@ -10,7 +10,7 @@ struct AIClasses;
 
 class CAttackHandler {
 public:
-	CR_DECLARE(CAttackHandler);
+	CR_DECLARE(CAttackHandler)
 
 	CAttackHandler(AIClasses* ai);
 	~CAttackHandler(void);

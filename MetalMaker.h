@@ -7,8 +7,8 @@ struct AIClasses;
 
 class CMetalMaker {
 	public:
-		CR_DECLARE(CMetalMaker);
-		CR_DECLARE_SUB(UnitInfo);
+		CR_DECLARE(CMetalMaker)
+		CR_DECLARE_SUB(UnitInfo)
 
 		CMetalMaker(AIClasses*);
 		~CMetalMaker();
@@ -20,7 +20,7 @@ class CMetalMaker {
 		void Update(int);
 
 		struct UnitInfo {
-			CR_DECLARE_STRUCT(UnitInfo);
+			CR_DECLARE_STRUCT(UnitInfo)
 
 			int id;
 			float energyUse;

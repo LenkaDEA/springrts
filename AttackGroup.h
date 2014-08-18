@@ -10,7 +10,7 @@ struct AIClasses;
 
 class CAttackGroup {
 	public:
-		CR_DECLARE(CAttackGroup);
+		CR_DECLARE(CAttackGroup)
 
 		CAttackGroup();
 		CAttackGroup(AIClasses* ai, int groupID_in);

@@ -37,7 +37,7 @@ struct LuaParser;
 
 struct AIClasses {
 public:
-	CR_DECLARE_STRUCT(AIClasses);
+	CR_DECLARE_STRUCT(AIClasses)
 
 	AIClasses(): initialized(true) { /* CREG-only */ }
 	AIClasses(IGlobalAICallback*);
@@ -126,7 +126,7 @@ private:
 
 // NOTE: CUNIT does not know about this structure
 struct UnitType {
-	CR_DECLARE_STRUCT(UnitType);
+	CR_DECLARE_STRUCT(UnitType)
 	void PostLoad();
 
 	std::vector<int> canBuildList;
@@ -143,7 +143,7 @@ struct UnitType {
 
 class integer2 {
 	public:
-		CR_DECLARE_STRUCT(integer2);
+		CR_DECLARE_STRUCT(integer2)
 
 		integer2(): x(0), y(0) {};
 		integer2(const int x,const int y): x(x), y(y) {}
@@ -168,7 +168,7 @@ class integer2 {
  * tracking builders is easy (making asserts and tests)
  */
 struct BuilderTracker {
-	CR_DECLARE_STRUCT(BuilderTracker);
+	CR_DECLARE_STRUCT(BuilderTracker)
 
 	int builderID;
 	// if not NULL then this worker belongs to this BuildTask.
@@ -200,7 +200,7 @@ struct BuilderTracker {
 };
 
 struct BuildTask {
-	CR_DECLARE_STRUCT(BuildTask);
+	CR_DECLARE_STRUCT(BuildTask)
 	void PostLoad(void);
 
 	int id;
@@ -218,7 +218,7 @@ struct BuildTask {
 };
 
 struct TaskPlan {
-	CR_DECLARE_STRUCT(TaskPlan);
+	CR_DECLARE_STRUCT(TaskPlan)
 	void PostLoad(void);
 
 	// this will be some smart number (a counter?)
@@ -234,7 +234,7 @@ struct TaskPlan {
 };
 
 struct UpgradeTask {
-	CR_DECLARE_STRUCT(UpgradeTask);
+	CR_DECLARE_STRUCT(UpgradeTask)
 	void PostLoad(void);
 
 	UpgradeTask() {
@@ -265,7 +265,7 @@ struct UpgradeTask {
 
 
 struct Factory {
-	CR_DECLARE_STRUCT(Factory);
+	CR_DECLARE_STRUCT(Factory)
 
 	int id;
 	// temp only, for compatibility (will be removed)
@@ -274,7 +274,7 @@ struct Factory {
 };
 
 struct NukeSilo {
-	CR_DECLARE_STRUCT(NukeSilo);
+	CR_DECLARE_STRUCT(NukeSilo)
 
 	int id;
 	int numNukesReady;
@@ -282,7 +282,7 @@ struct NukeSilo {
 };
 
 struct MetalExtractor {
-	CR_DECLARE_STRUCT(MetalExtractor);
+	CR_DECLARE_STRUCT(MetalExtractor)
 
 	int id;
 	int buildFrame;

@@ -26,7 +26,7 @@
 
 
 
-CR_BIND(CAttackGroup, (NULL, 0));
+CR_BIND(CAttackGroup, (NULL, 0))
 CR_REG_METADATA(CAttackGroup, (
 	CR_MEMBER(ai),
 	CR_MEMBER(units),
@@ -38,7 +38,7 @@ CR_REG_METADATA(CAttackGroup, (
 	CR_MEMBER(isShooting),
 	CR_MEMBER(movementCounterForStuckChecking),
 	CR_RESERVED(16)
-));
+))
 
 
 

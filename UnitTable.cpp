@@ -11,7 +11,7 @@
 #include "KAIK.h"
 extern CKAIK* KAIKStateExt;
 
-CR_BIND(CUnitTable, );
+CR_BIND(CUnitTable, )
 CR_REG_METADATA(CUnitTable, (
 	CR_MEMBER(categoryData),
 
@@ -19,9 +19,9 @@ CR_REG_METADATA(CUnitTable, (
 	CR_MEMBER(unitTypes),
 
 	CR_POSTLOAD(PostLoad)
-));
+))
 
-CR_BIND(CategoryData, );
+CR_BIND(CategoryData, )
 CR_REG_METADATA(CategoryData, (
 	CR_MEMBER(groundFactories),
 	CR_MEMBER(groundBuilders),
@@ -33,7 +33,7 @@ CR_REG_METADATA(CategoryData, (
 	CR_MEMBER(metalStorages),
 	CR_MEMBER(energyStorages),
 	CR_MEMBER(nukeSilos)
-));
+))
 
 
 

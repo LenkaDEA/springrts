@@ -8,7 +8,7 @@ struct AIClasses;
 
 class CThreatMap {
 public:
-	CR_DECLARE(CThreatMap);
+	CR_DECLARE(CThreatMap)
 
 	CThreatMap(AIClasses* ai);
 	~CThreatMap();

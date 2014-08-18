@@ -10,7 +10,7 @@ struct AIClasses;
 
 class CKAIK: public IGlobalAI {
 	public:
-		CR_DECLARE(CKAIK);
+		CR_DECLARE(CKAIK)
 
 		CKAIK(): ai(NULL) {}
 		~CKAIK() {}

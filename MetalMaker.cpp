@@ -11,7 +11,7 @@ CR_REG_METADATA(CMetalMaker, (
 	CR_MEMBER(addedDelay),
 	CR_RESERVED(16),
 	CR_POSTLOAD(PostLoad)
-));
+))
 
 CR_BIND(CMetalMaker::UnitInfo, )
 CR_REG_METADATA_SUB(CMetalMaker, UnitInfo, (
@@ -20,7 +20,7 @@ CR_REG_METADATA_SUB(CMetalMaker, UnitInfo, (
 	CR_MEMBER(metalPerEnergy),
 	CR_MEMBER(turnedOn),
 	CR_RESERVED(8)
-));
+))
 
 
 

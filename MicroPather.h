@@ -282,7 +282,7 @@ namespace NSMicroPather {
 			unsigned frame;					// incremented with every solve, used to determine if cached data needs to be refreshed
 			unsigned checksum;				// the checksum of the last successful "Solve".
 	};
-};
+}
 
 
 #endif

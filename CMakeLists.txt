@@ -13,7 +13,7 @@ endif ( NOT MINGW )
 
 #qt4_automoc(${springMapConvNG_SRCS})
 
-find_package(ImageMagick COMPONENTS Magick++)
+find_package(ImageMagick REQUIRED COMPONENTS Magick++)
 find_package(DevIL REQUIRED)
 include_directories(${ImageMagick_INCLUDE_DIRS})
 

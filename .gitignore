@@ -1,0 +1,10 @@
+/CMakeFiles
+/CMakeCache.txt
+/Makefile
+/cmake_install.cmake
+
+*.swp
+*.so
+*.a
+/smfdecompiler
+/springMapConvNG

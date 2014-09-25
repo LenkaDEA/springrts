@@ -18,6 +18,7 @@ void help(char ** argv)
 }
 int main(int argc, char** argv)
 {
+    ilInit();
     Magick::InitializeMagick(*argv);
     if ( argc == 1 )
     {

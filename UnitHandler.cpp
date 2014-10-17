@@ -117,7 +117,6 @@ void CUnitHandler::IdleUnitUpdate(int frame) {
 }
 
 void CUnitHandler::UnitMoveFailed(int unitID) {
-	unitID = unitID;
 }
 
 // called when unit nanoframe first created

@@ -107,7 +107,6 @@ void CKAIK::UnitFinished(int unitID) {
 
 void CKAIK::UnitDestroyed(int unitID, int attackerUnitID) {
 	if (ai->Initialized()) {
-		attackerUnitID = attackerUnitID;
 		ai->econTracker->UnitDestroyed(unitID);
 
 		if (ai->GetUnit(unitID)->groupID != -1) {
@@ -151,10 +150,6 @@ void CKAIK::UnitDamaged(int unitID, int attackerID, float damage, float3 dir) {
 		if (ai->GetUnit(unitID)->isDead) {
 			return;
 		}
-
-		attackerID = attackerID;
-		dir = dir;
-
 		ai->econTracker->UnitDamaged(unitID, damage);
 	}
 }
@@ -169,25 +164,25 @@ void CKAIK::UnitMoveFailed(int unitID) {
 
 void CKAIK::EnemyEnterLOS(int enemyUnitID) {
 	if (ai->Initialized()) {
-		enemyUnitID = enemyUnitID;
+		//TODO
 	}
 }
 
 void CKAIK::EnemyLeaveLOS(int enemyUnitID) {
 	if (ai->Initialized()) {
-		enemyUnitID = enemyUnitID;
+		//TODO
 	}
 }
 
 void CKAIK::EnemyEnterRadar(int enemyUnitID) {
 	if (ai->Initialized()) {
-		enemyUnitID = enemyUnitID;
+		//TODO
 	}
 }
 
 void CKAIK::EnemyLeaveRadar(int enemyUnitID) {
 	if (ai->Initialized()) {
-		enemyUnitID = enemyUnitID;
+		//TODO
 	}
 }
 
@@ -201,9 +196,6 @@ void CKAIK::EnemyDestroyed(int enemyUnitID, int attackerUnitID) {
 void CKAIK::EnemyDamaged(int enemyUnitID, int attackerUnitID, float damage, float3 dir) {
 	if (ai->Initialized()) {
 		ai->thm->EnemyDamaged(enemyUnitID, attackerUnitID);
-
-		damage = damage;
-		dir = dir;
 	}
 }
 
@@ -222,7 +214,6 @@ void CKAIK::EnemyFinished(int enemyUnitID) {
 
 void CKAIK::RecvChatMessage(const char* msg, int player) {
 	if (ai->Initialized()) {
-		player = player;
 
 		if ((msg = strstr(msg, "KAIK::")) == NULL) {
 			return;

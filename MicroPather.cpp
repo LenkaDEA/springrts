@@ -60,7 +60,7 @@ using namespace NSMicroPather;
 class OpenQueueBH {
 	public:
 
-	OpenQueueBH(AIClasses* ai, PathNode** heapArray): ai(ai), size(0) {
+	OpenQueueBH(AIClasses* ai, PathNode** heapArray): size(0) {
 		this->heapArray = heapArray;
 	}
 
@@ -174,7 +174,6 @@ class OpenQueueBH {
 
 	private:
 		PathNode** heapArray;
-		AIClasses* ai;
 		int size;
 };
 

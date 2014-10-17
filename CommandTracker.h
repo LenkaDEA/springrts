@@ -15,7 +15,7 @@ class CCommandTracker {
 			ai(aic),
 			maxCmdsPerFrame(0),
 			peakCmdFrame(0),
-			avgCmdSize(0.0f),
+			//avgCmdSize(0.0f),
 			totalCmdSize(0),
 			totalNumCmds(0) {
 		}
@@ -31,7 +31,7 @@ class CCommandTracker {
 		int   maxCmdsPerFrame;
 		int   peakCmdFrame;
 
-		float avgCmdSize;
+		//float avgCmdSize;
 		int   totalCmdSize;
 		int   totalNumCmds;
 };

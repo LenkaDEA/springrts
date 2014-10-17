@@ -93,8 +93,7 @@ bool CUNIT::CanAttack(int otherUnit) const {
 	return false;
 }
 
-bool CUNIT::CanAttackMe(int otherUnit) const {
-	otherUnit = otherUnit;
+bool CUNIT::CanAttackMe(int /*otherUnit*/) const {
 	// TODO: the function above, in reverse
 	return true;
 }

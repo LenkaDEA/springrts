@@ -219,8 +219,6 @@ void CMetalMap::GetMetalPoints() {
 					}
 				}
 
-				// comment out for debug
-				TotalMetal = TotalMetal;
 			}
 
 			// set that spot's metal making ability (divide by cells to values are small)

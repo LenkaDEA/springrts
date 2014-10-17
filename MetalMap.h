@@ -36,7 +36,7 @@ class CMetalMap {
 		int TempMetal;
 		int coordx;
 		int coordy;
-		int Minradius;
+		//int Minradius;
 		int MinMetalForSpot;
 		int XtractorRadius; // in metal map units
 		int DoubleRadius; // in metal map units

@@ -530,7 +530,9 @@ CglFont::CglFont(const std::string& fontfile, int size, int _outlinewidth, float
 		g->x1 = (xbearing + slot->metrics.width * normScale);
 		g->y1 = g->y0 - g->height;
 
-		texRenderer.AddGlyph(i, slot->bitmap.width, slot->bitmap.rows, slot->bitmap.buffer, slot->bitmap.pitch);
+                // NOTE (iv at altlinux): adding cast of uint lvalue to int& is
+                // ugly, but should be safe while dimentions <= MAX_INT
+		texRenderer.AddGlyph(i, (int&)slot->bitmap.width, (int&)slot->bitmap.rows, slot->bitmap.buffer, slot->bitmap.pitch);
 	}
 
 	//! create font atlas texture

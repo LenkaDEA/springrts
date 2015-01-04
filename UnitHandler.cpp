@@ -165,8 +165,13 @@ void CUnitHandler::UnitCreated(int unitID) {
 			NukeSiloAdd(unitID);
 		}
 	}
+	bool iscommander = false;
+	auto search = udef->customParams.find("iscommander"); //udef->isCommander is deprecated and always false, use new way
+	if (search != udef->customParams.end()) {
+		iscommander = search->second == "1";
+	}
 
-	if (udef->isCommander && udef->canDGun) {
+	if ( (iscommander || udef->isCommander) && udef->canDGun) {
 		ai->dgunConHandler->AddController(unitID);
 	} else {
 		ai->GetUnit(unitID)->SetFireState(2);

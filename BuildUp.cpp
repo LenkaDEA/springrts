@@ -365,7 +365,7 @@ void CBuildUp::FactoryCycle(int frame) {
 				// factories and some other types of static buildings
 				// note: not always true, in Evolution the "commander"
 				// (starting factory unit) can construct mobile units
-				if (factDef->isCommander) {
+				if (CUNIT::IsCommander(factDef)) {
 					producedCat = CAT_BUILDER;
 					builderTimer = 0;
 				} else {

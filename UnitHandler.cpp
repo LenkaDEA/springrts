@@ -165,11 +165,7 @@ void CUnitHandler::UnitCreated(int unitID) {
 			NukeSiloAdd(unitID);
 		}
 	}
-	bool iscommander = false;
-	auto search = udef->customParams.find("iscommander");
-	if (search != udef->customParams.end()) {
-		iscommander = search->second == "1";
-	}
+	const bool iscommander = CUNIT::IsCommander(udef);
 
 	if ( iscommander && udef->canDGun) {
 		ai->dgunConHandler->AddController(unitID);

@@ -655,3 +655,14 @@ bool CUNIT::SetMaxSpeed(float speed) const {
 
 	return true;
 }
+
+bool CUNIT::IsCommander(const UnitDef* udef)
+{
+	assert(udef != NULL);
+	auto search = udef->customParams.find("iscommander");
+	if (search != udef->customParams.end()) {
+		return search->second == "1";
+	}
+	return false;
+}
+

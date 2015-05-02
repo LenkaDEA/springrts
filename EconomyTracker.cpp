@@ -609,10 +609,13 @@ void CEconomyTracker::UnitCreated(int unitID) {
 	const int frame = ai->cb->GetCurrentFrame();
 	const UnitDef* unitDef = ai->cb->GetUnitDef(unitID);
 
-	if (unitDef == NULL || unitDef->isCommander || unitDef->canDGun) {
+	const bool iscommander = CUNIT::IsCommander(unitDef);
+
+	if (unitDef == NULL || iscommander || unitDef->canDGun) {
 		// ignore the commander
 		return;
 	}
+
 
 	EconomyUnitTracker* economyUnitTracker = new EconomyUnitTracker;
 	economyUnitTracker->clear();
@@ -744,8 +747,9 @@ void CEconomyTracker::UnitFinished(int unit) {
 
 	const int frame = ai->cb->GetCurrentFrame();
 	const UnitDef* unitDef = ai->cb->GetUnitDef(unit);
+	const CUNIT* u = ai->GetUnit(unit);
 
-	if (unitDef == NULL || unitDef->isCommander || unitDef->canDGun) {
+	if (unitDef == NULL || CUNIT::IsCommander(unitDef) || unitDef->canDGun) {
 		// add the commander to an EconomyUnitTracker
 		EconomyUnitTracker * economyUnitTracker = new EconomyUnitTracker;
 		economyUnitTracker->clear();

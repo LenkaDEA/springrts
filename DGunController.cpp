@@ -152,7 +152,7 @@ void CDGunController::TrackAttackTarget(unsigned int currentFrame) {
 			}
 
 			// make sure we always terminate
-			rayLen -= rayData.rayLen;
+			rayLen -= 1.0f;
 		}
 
 

@@ -747,7 +747,6 @@ void CEconomyTracker::UnitFinished(int unit) {
 
 	const int frame = ai->cb->GetCurrentFrame();
 	const UnitDef* unitDef = ai->cb->GetUnitDef(unit);
-	const CUNIT* u = ai->GetUnit(unit);
 
 	if (unitDef == NULL || CUNIT::IsCommander(unitDef) || unitDef->canDGun) {
 		// add the commander to an EconomyUnitTracker

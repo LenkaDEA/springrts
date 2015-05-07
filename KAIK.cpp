@@ -66,7 +66,7 @@ void CKAIK::InitAI(IGlobalAICallback* callback, int team) {
 	ai = new AIClasses(callback); ai->Init();
 
 	std::string verMsg =
-		std::string(AI_VERSION) + (ai->Initialized()? " initialized successfully!": " failed to initialize");
+		std::string(AI_NAME) + (ai->Initialized()? " initialized successfully!": " failed to initialize");
 	std::string logMsg =
 		ai->Initialized()? ("logging events to " + ai->GetLogger()->GetLogName()): "not logging events";
 

@@ -84,12 +84,12 @@
 				"${myBuildDir}/${myLoaderBinJarFile}"
 			COMMAND "${CMAKE_COMMAND}"
 				"-E" "make_directory" "${myJavaLoaderBuildDir}"
-			COMMAND "${JAVA_COMPILE}"
+			COMMAND "${Java_JAVAC_EXECUTABLE}"
 				"${JAVA_COMPILE_FLAG_CONDITIONAL}"
 				"-cp" "${myClassPath}"
 				"-d" "${myJavaLoaderBuildDir}"
 				${myLoaderSources}
-			COMMAND "${JAVA_ARCHIVE}"
+			COMMAND "${Java_JAR_EXECUTABLE}"
 				"cmf" "${myDir}/manifest.mf" "${myBuildDir}/${myLoaderBinJarFile}"
 				"-C" "${myJavaLoaderBuildDir}" "${myJavaPkgFirstPart}"
 			DEPENDS
@@ -107,12 +107,12 @@
 				"${myBuildDir}/${myAiBinJarFile}"
 			COMMAND "${CMAKE_COMMAND}"
 				"-E" "make_directory" "${myJavaAiBuildDir}"
-			COMMAND "${JAVA_COMPILE}"
+			COMMAND "${Java_JAVAC_EXECUTABLE}"
 				"${JAVA_COMPILE_FLAG_CONDITIONAL}"
 				"-cp" "${myClassPath}"
 				"-d" "${myJavaAiBuildDir}"
 				${myAiSources}
-			COMMAND "${JAVA_ARCHIVE}"
+			COMMAND "${Java_JAR_EXECUTABLE}"
 				"cmf" "${myDir}/manifest.mf" "${myBuildDir}/${myAiBinJarFile}"
 				"-C" "${myJavaAiBuildDir}" "${myJavaPkgFirstPart}"
 			DEPENDS
@@ -128,7 +128,7 @@
 		add_custom_command(
 			OUTPUT
 				"${myBuildDir}/${myLoaderSrcJarFile}"
-			COMMAND "${JAVA_ARCHIVE}"
+			COMMAND "${Java_JAR_EXECUTABLE}"
 				"cf" "${myBuildDir}/${myLoaderSrcJarFile}"
 				"-C" "${myLoaderSourceDir}" "${myJavaPkgFirstPart}"
 			DEPENDS
@@ -143,7 +143,7 @@
 		add_custom_command(
 			OUTPUT
 				"${myBuildDir}/${myAiSrcJarFile}"
-			COMMAND "${JAVA_ARCHIVE}"
+			COMMAND "${Java_JAR_EXECUTABLE}"
 				"cf" "${myBuildDir}/${myAiSrcJarFile}"
 				"-C" "${myAiSourceDir}" "${myJavaPkgFirstPart}"
 			DEPENDS

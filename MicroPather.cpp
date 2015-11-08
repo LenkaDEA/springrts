@@ -329,13 +329,13 @@ void MicroPather::FixStartEndNode(void** startNode, void** endNode) {
 	// no node can be at the edge!
 	if (x == 0)
 		x = 1;
-	else if (x == mapSizeX)
-		x = mapSizeX - 1;
+	else if (x == mapSizeX - 1)
+		x = mapSizeX - 2;
 
 	if (y == 0)
 		y = 1;
-	else if (y == mapSizeY)
-		y = mapSizeY - 1;
+	else if (y == mapSizeY - 1)
+		y = mapSizeY - 2;
 
 	*startNode = (void*) static_cast<intptr_t>(y * mapSizeX + x);
 	index = (size_t) *endNode;
@@ -345,13 +345,13 @@ void MicroPather::FixStartEndNode(void** startNode, void** endNode) {
 	// no node can be at the edge!
 	if (x == 0)
 		x = 1;
-	else if (x == mapSizeX)
-		x = mapSizeX - 1;
+	else if (x == mapSizeX - 1)
+		x = mapSizeX - 2;
 
 	if (y == 0)
 		y = 1;
-	else if (y == mapSizeY)
-		y = mapSizeY - 1;
+	else if (y == mapSizeY - 1)
+		y = mapSizeY - 2;
 
 	xEndNode = x;
 	yEndNode = y;
@@ -369,13 +369,13 @@ void MicroPather::FixNode( void** Node) {
 	// no node can be at the edge!
 	if (x == 0)
 		x = 1;
-	else if (x == mapSizeX)
-		x = mapSizeX - 1;
+	else if (x == mapSizeX - 1)
+		x = mapSizeX - 2;
 
 	if (y == 0)
 		y = 1;
-	else if (y == mapSizeY)
-		y = mapSizeY - 1;
+	else if (y == mapSizeY - 1)
+		y = mapSizeY - 2;
 
 	*Node = (void*) static_cast<intptr_t>(y * mapSizeX + x);
 }

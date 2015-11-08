@@ -101,7 +101,7 @@ void CDGunController::TrackAttackTarget(unsigned int currentFrame) {
 		const float3 curTargetPos = ai->cb->GetUnitPos(state.targetID);              // current target position
 		const float3 commanderPos = ai->cb->GetUnitPos(commanderID);                 // current commander position
 
-		const float3 targetDif    = (commanderPos - curTargetPos);
+		const float3 targetDif    = (curTargetPos - commanderPos);
 		const float  targetDist   = targetDif.Length();                              // distance to target
 		const float3 targetVel    = (curTargetPos - state.oldTargetPos);
 

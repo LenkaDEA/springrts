@@ -254,8 +254,8 @@ float3 CPathFinder::Node2Pos(void* node) {
 	const size_t index = (size_t)node;
 
 	float3 pos;
-	pos.z = (index / PathMapXSize) * squareSize;
-	pos.x = (index - ((index / PathMapXSize) * PathMapXSize)) * squareSize;
+	pos.z = (index / PathMapXSize) * squareSize + squareSize / 2;
+	pos.x = (index - ((index / PathMapXSize) * PathMapXSize)) * squareSize + squareSize / 2;
 
 	return pos;
 }

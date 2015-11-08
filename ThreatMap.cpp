@@ -164,22 +164,19 @@ void CThreatMap::AddEnemyUnit(const EnemyUnit& e, const float scale) {
 	}
 
 	const float threat = e.threat * scale;
-	const float rangeSq = e.range * e.range;
+	const int rangeSq = (e.range * e.range + 0.5);
 
-	for (int myx = int(posx - e.range); myx < (posx + e.range); myx++) {
-		if (myx < 0 || myx >= width) {
-			continue;
-		}
+	const int beginX = std::max(int(posx - e.range    ),      0);
+	const int endX   = std::min(int(posx + e.range + 1),  width);
+	const int beginY = std::max(int(posy - e.range    ),      0);
+	const int endY   = std::min(int(posy + e.range + 1), height);
 
-		for (int myy = int(posy - e.range); myy < (posy + e.range); myy++) {
-			if (myy < 0 || myy >= height) {
-				continue;
-			}
-
-			const int dxSq = (posx - myx) * (posx - myx);
+	for (int myx = beginX; myx < endX; myx++) {
+		const int dxSq = (posx - myx) * (posx - myx);
+		for (int myy = beginY; myy < endY; myy++) {
 			const int dySq = (posy - myy) * (posy - myy);
 
-			if ((dxSq + dySq - 0.5) <= rangeSq) {
+			if (dxSq + dySq <= rangeSq) {
 				assert((myy * width + myx) < threatCellsRaw.size());
 				assert((myy * width + myx) < threatCellsVis.size());
 
@@ -264,8 +261,12 @@ float CThreatMap::GetEnemyUnitThreat(const EnemyUnit& e) const {
 		return 0.0f;
 	}
 
+	const float health = ai->ccb->GetUnitHealth(e.id);
+	if (health <= .0f) {
+		return .0f;
+	}
 	const float dps = std::min(ai->ut->GetDPS(ud), 2000.0f);
-	const float dpsMod = ai->ccb->GetUnitHealth(e.id) / ai->ccb->GetUnitMaxHealth(e.id);
+	const float dpsMod = health / ai->ccb->GetUnitMaxHealth(e.id);
 
 	return (dps * dpsMod);
 }

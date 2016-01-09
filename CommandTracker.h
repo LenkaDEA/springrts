@@ -4,10 +4,7 @@
 #include <map>
 
 struct AIClasses;
-
-namespace springLegacyAI {
-	struct Command;
-} // namespace springLegacyAI
+struct Command;
 
 class CCommandTracker {
 	public:

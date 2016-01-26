@@ -20,6 +20,9 @@ CCommandTracker::~CCommandTracker() {
 }
 
 void CCommandTracker::Update(int currFrame) {
+	if (currFrame <= 0)
+		return;
+
 	if ((currFrame % 1800) == 0 && !cmdsPerFrame.empty()) {
 		const int   numFrames        = cmdsPerFrame.size();
 		const float avgCmdsRegFrames = totalNumCmds / float(numFrames);

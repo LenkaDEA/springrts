@@ -52,9 +52,9 @@ bool CMetalMaker::Add(int unit) {
 
 	// analyse the command
 	UnitInfo info;
-	const std::vector<CommandDescription>* cd = ai->cb->GetUnitCommands(unit);
+	const std::vector<SCommandDescription>* cd = ai->cb->GetUnitCommands(unit);
 
-	for (std::vector<CommandDescription>::const_iterator cdi = cd->begin(); cdi != cd->end(); ++cdi) {
+	for (std::vector<SCommandDescription>::const_iterator cdi = cd->begin(); cdi != cd->end(); ++cdi) {
 		if (cdi->id == CMD_ONOFF) {
 			int on = atoi(cdi->params[0].c_str());
 			if (on)

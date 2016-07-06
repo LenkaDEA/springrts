@@ -26,7 +26,7 @@ local infos = {
 	},
 	{
 		key    = 'url',
-		value  = 'http://springrts.com/wiki/AI:HughAI',
+		value  = 'https://springrts.com/wiki/AI:HughAI',
 		desc   = 'URL with more detailed info about the AI',
 	},
 	{

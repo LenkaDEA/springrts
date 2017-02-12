@@ -351,7 +351,7 @@ float CUnitTable::GetDPSvsUnit(const UnitDef* unitDef, const UnitDef* victim) {
 						firingangle = asin(sinoid) / 2;
 
 						if (unitDef->highTrajectoryType == 1) {
-							firingangle = math::HALFPI - firingangle;
+							firingangle = (3.14159265358979323846f * 0.5f) - firingangle;
 						}
 
 						float heightreached = pow(u * sin(firingangle), 2) / (2 * gravity);

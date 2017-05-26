@@ -583,12 +583,7 @@ float CUnitTable::GetScore(const UnitDef* udef, UnitCategory cat) {
 		} break;
 
 		case CAT_MEX: {
-			auto search = udef->customParams.find("metal_extractor");
-			if (search != udef->customParams.end()) {
-				benefit = pow(atof(search->second.c_str()), 4.0f);
-			} else {
-				benefit = pow(udef->extractsMetal, 4.0f);
-			}
+			benefit = pow(udef->extractsMetal, 4.0f);
 		} break;
 		case CAT_MMAKER: {
 			benefit = (udef->makesMetal - udef->metalUpkeep) / (udef->energyUpkeep + 0.01f);
@@ -910,12 +905,6 @@ void CUnitTable::Init() {
 						categoryData.metalMakers.push_back(i);
 						uType->category = CAT_MMAKER;
 					}
-					auto search = uDef->customParams.find("metal_extractor");
-					if (search != uDef->customParams.end()) {
-						categoryData.metalExtractors.push_back(i);
-						uType->category = CAT_MEX;
-					}
-
 					if (uDef->extractsMetal > 0.0f) {
 						categoryData.metalExtractors.push_back(i);
 						uType->category = CAT_MEX;

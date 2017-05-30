@@ -3,7 +3,7 @@
 
 #include "Logger.h"
 #include "Defines.h"
-#include "Util.h"
+#include "StringUtil.h"
 #include "IncExternAI.h"
 #include "System/StringUtil.h"
 

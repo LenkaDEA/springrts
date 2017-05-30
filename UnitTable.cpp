@@ -1,7 +1,7 @@
 #include <sstream>
 
 #include "Sim/Misc/GlobalConstants.h"
-#include "System/Util.h"
+#include "System/StringUtil.h"
 
 #include "IncCREG.h"
 #include "IncEngine.h"

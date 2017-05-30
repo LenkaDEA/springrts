@@ -8,7 +8,7 @@ endif()
 GetNativeSourcesRecursive(luaSources "${CMAKE_SOURCE_DIR}/rts/lib/lua/src" "")
 
 set(mySourceDirRel         "") # Common values are "" or "src"
-set(additionalSources      ${luaSources} ${CMAKE_SOURCE_DIR}/rts/System/Util)
+set(additionalSources      ${luaSources} ${CMAKE_SOURCE_DIR}/rts/System/StringUtil)
 ## FIXME:
 ##     "undefined symbol: _ZTIN4creg18IMemberRegistratorE"
 ##     ("typeinfo for creg::IMemberRegistrator") on dlopen

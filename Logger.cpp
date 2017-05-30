@@ -5,7 +5,7 @@
 #include "Defines.h"
 #include "Util.h"
 #include "IncExternAI.h"
-#include "System/Util.h"
+#include "System/StringUtil.h"
 
 std::string CLogger::GetLogName() const {
 	if (name.size() > 0) {

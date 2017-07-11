@@ -10,5 +10,5 @@ for details see http://springrts.com/wiki/MapConvNG
 
 to compile install g++/clang, cmake, DevIL-dev. then run
 
-   cmake .
-   make
+    cmake .
+    make

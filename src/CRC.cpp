@@ -1,3 +1,5 @@
+/* This file is part of SpringMapConvNG (GPL v2 or later), see the LICENSE file */
+
 #include "CRC.h"
 
 static const uint32_t kCrc32Table[256] = {

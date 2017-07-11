@@ -1,4 +1,4 @@
-
+/* This file is part of SpringMapConvNG (GPL v2 or later), see the LICENSE file */
 
 #include "SMFMap.h"
 #include "TileStorage.h"

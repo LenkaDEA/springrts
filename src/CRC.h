@@ -1,3 +1,5 @@
+/* This file is part of SpringMapConvNG (GPL v2 or later), see the LICENSE file */
+
 #ifndef CRC_H
 #define CRC_H
 

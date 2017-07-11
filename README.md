@@ -4,7 +4,7 @@ SpringMapConvNG is a map compiler for the spring rts engine.
 
 it also contains a decompiler, smfdecompiler.
 
-for details see http://springrts.com/wiki/MapConvNG
+for details see https://springrts.com/wiki/MapConvNG
 
 # compile
 

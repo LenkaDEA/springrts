@@ -68,27 +68,23 @@ static const uint32_t kCrc32Table[256] = {
 }; // kCrc32Table
 void Crc32::AddData(const uint8_t* pData, const uint32_t length)
 {
-    uint8_t* pCur = (uint8_t*)pData;
-    uint32_t remaining = length;
-    for (; remaining--; ++pCur)
-        _crc = ( _crc >> 8 ) ^ kCrc32Table[(_crc ^ *pCur) & 0xff];
+	uint8_t* pCur = (uint8_t*)pData;
+	uint32_t remaining = length;
+	for (; remaining--; ++pCur)
+		_crc = (_crc >> 8) ^ kCrc32Table[(_crc ^ *pCur) & 0xff];
 }
 void Crc32::Reset()
 {
-    _crc = (uint32_t)~0;
+	_crc = (uint32_t)~0;
 }
 const uint32_t Crc32::GetCrc32()
 {
-    return ~_crc;
+	return ~_crc;
 }
 Crc32::Crc32()
 {
-    Reset();
+	Reset();
 }
 Crc32::~Crc32()
 {
-
 }
-
-
-

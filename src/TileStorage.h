@@ -24,20 +24,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <vector>
-inline uint64_t tilechecksum(uint8_t* data)
-{
-	uint64_t r = 0;
-	for (int x = 0; x < 32 * 32 * 4; x++) {
-		r += data[x] * 63018038201L * x * x;
-		r ^= 13091204281L;
-		r *= 13091204281L * x;
-		r *= 108086391056891903ULL * data[x];
-	}
-	Crc32 c;
-	c.AddData(data, 32 * 32 * 4);
-	r *= c.GetCrc32();
-	return r;
-}
+
 class InvalidTileIndexException
 {
 };

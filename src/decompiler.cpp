@@ -1,6 +1,7 @@
 #include "SMFMap.h"
 #include <iostream>
 #include <string.h>
+#include <IL/il.h>
 
 #include <stdlib.h>
 #ifdef WIN32

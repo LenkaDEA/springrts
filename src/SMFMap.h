@@ -19,9 +19,13 @@
 
 #ifndef SMFMAP_H
 #define SMFMAP_H
-#include "Image.h"
-#include "TileStorage.h"
 #include <string>
+#include <vector>
+#include <map>
+#include <list>
+
+class Image;
+class TileStorage;
 
 typedef struct {
 	char magic[16]; ///< "spring map file\0"

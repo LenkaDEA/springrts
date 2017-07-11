@@ -1,6 +1,7 @@
 
 
 #include "SMFMap.h"
+#include "TileStorage.h"
 #include <IL/il.h>
 #include <iostream>
 #include <string.h>

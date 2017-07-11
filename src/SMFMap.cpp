@@ -18,11 +18,15 @@
 
 
 #include "SMFMap.h"
+#include "Image.h"
+#include "TileStorage.h"
 #include <cstring>
 #include <iostream>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+
 #ifndef bzero
 #define bzero(ptr, len) memset(ptr, 0, len)
 

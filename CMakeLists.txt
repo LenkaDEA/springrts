@@ -8,10 +8,15 @@ find_package(DevIL REQUIRED)
 
 include_directories(${IL_INCLUDE_DIR})
 
-set(MAPCONV_FILES CRC.cpp Image.cpp SMFMap.cpp TileStorage.cpp)
+set(MAPCONV_FILES
+	src/CRC.cpp
+	src/Image.cpp
+	src/SMFMap.cpp
+	src/TileStorage.cpp
+)
 
-add_executable(springMapConvNG main.cpp ${MAPCONV_FILES})
-add_executable(smfdecompiler decompiler.cpp ${MAPCONV_FILES})
+add_executable(springMapConvNG src/main.cpp ${MAPCONV_FILES})
+add_executable(smfdecompiler src/decompiler.cpp ${MAPCONV_FILES})
 
 target_link_libraries(springMapConvNG ${IL_LIBRARIES})
 target_link_libraries(smfdecompiler ${IL_LIBRARIES})

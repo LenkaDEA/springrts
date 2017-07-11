@@ -18,7 +18,6 @@
 
 #ifndef TILESTORAGE_H
 #define TILESTORAGE_H
-#include "CRC.h"
 #include <list>
 #include <map>
 #include <stdint.h>

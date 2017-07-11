@@ -18,6 +18,8 @@
 
 
 #include "TileStorage.h"
+#include "CRC.h"
+
 #include <IL/il.h>
 #include <IL/ilu.h>
 #include <cstring>

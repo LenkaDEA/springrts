@@ -11,19 +11,14 @@ else ( NOT MINGW )
         link_directories( ${PROJECT_SOURCE_DIR}/winlibs/Devil_${ARCH}/lib ${PROJECT_SOURCE_DIR}/winlibs/Devil_${ARCH} )
 endif ( NOT MINGW )
 
-#qt4_automoc(${springMapConvNG_SRCS})
-
-find_package(ImageMagick REQUIRED COMPONENTS Magick++)
 find_package(DevIL REQUIRED)
-include_directories(${ImageMagick_INCLUDE_DIRS})
-
 
 add_library(mapconv SHARED CRC.cpp Image.cpp SMFMap.cpp TileStorage.cpp )
 add_library(mapconv_static STATIC CRC.cpp Image.cpp SMFMap.cpp TileStorage.cpp )
 add_executable(springMapConvNG main.cpp)
 add_executable(smfdecompiler decompiler.cpp)
 
-set(MAPCONV_LIBS ${IL_LIBRARIES} ${ImageMagick_LIBRARIES})
+set(MAPCONV_LIBS ${IL_LIBRARIES})
 
 if (NOT MINGW )
 	target_link_libraries(springMapConvNG mapconv_static ${MAPCONV_LIBS})

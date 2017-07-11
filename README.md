@@ -8,7 +8,7 @@ for details see http://springrts.com/wiki/MapConvNG
 
 # compile
 
-to compile install g++/clang, cmake, ImageMagick-devel and DevIL-dev. then run
+to compile install g++/clang, cmake, DevIL-dev. then run
 
    cmake .
    make

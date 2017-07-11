@@ -23,6 +23,7 @@
 #include <vector>
 #include <map>
 #include <list>
+#include <cstdint>
 
 class Image;
 class TileStorage;

@@ -19,11 +19,11 @@
 
 #ifndef SMFMAP_H
 #define SMFMAP_H
+#include <cstdint>
+#include <list>
+#include <map>
 #include <string>
 #include <vector>
-#include <map>
-#include <list>
-#include <cstdint>
 
 class Image;
 class TileStorage;

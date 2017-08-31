@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 
-import javax.activation.FileTypeMap;
 import javax.swing.*;
 import javax.script.*;
 import javax.xml.transform.stream.StreamResult;

@@ -3,117 +3,87 @@
 #ifndef _BASE_GROUND_DRAWER_H
 #define _BASE_GROUND_DRAWER_H
 
-#include <map>
 #include "MapDrawPassTypes.h"
-#include "Rendering/GL/myGL.h"
-#include "Rendering/GL/LightHandler.h"
-#include "Rendering/GL/PBO.h"
-#include "System/float3.h"
 
-class CMetalMap;
-class CHeightLinePalette;
+
 class CBaseGroundTextures;
 class CCamera;
+
+namespace GL {
+	struct GeometryBuffer;
+	struct LightHandler;
+}
+
+struct LuaMapShaderData {
+	// [0] := standard program from gl.CreateShader
+	// [1] := deferred program from gl.CreateShader
+	unsigned int shaderIDs[2];
+};
 
 class CBaseGroundDrawer
 {
 public:
-	enum {
-		COLOR_R = 2,
-		COLOR_G = 1,
-		COLOR_B = 0,
-		COLOR_A = 3,
-	};
-	enum BaseGroundDrawMode {
-		drawNormal,
-		drawLos,
-		drawMetal,
-		drawHeight,
-		drawPathTraversability,
-		drawPathHeat,
-		drawPathCost,
-	};
-
 	CBaseGroundDrawer();
 	virtual ~CBaseGroundDrawer();
+	CBaseGroundDrawer(const CBaseGroundDrawer&) = delete; // no-copy
 
 	virtual void Draw(const DrawPass::e& drawPass) = 0;
-	virtual void DrawShadowPass();
-
-	virtual void SetupBaseDrawPass() {}
-	virtual void SetupReflDrawPass() {}
-	virtual void SetupRefrDrawPass() {}
+	virtual void DrawShadowPass() {}
 
 	virtual void Update() = 0;
-	virtual void UpdateSunDir() = 0;
+	virtual void UpdateRenderState() = 0;
 
 	virtual void IncreaseDetail() = 0;
 	virtual void DecreaseDetail() = 0;
+	virtual void SetDetail(int newGroundDetail) = 0;
 	virtual int GetGroundDetail(const DrawPass::e& drawPass = DrawPass::Normal) const = 0;
 
-	virtual void SetDrawMode(BaseGroundDrawMode dm) { drawMode = dm; }
-	virtual GL::LightHandler* GetLightHandler() { return NULL; }
+	virtual void SetLuaShader(const LuaMapShaderData*) {}
+	virtual void SetDrawForwardPass(bool b) { drawForward = b; }
+	virtual void SetDrawDeferredPass(bool) {}
+
+	virtual bool ToggleMapBorder() { drawMapEdges = !drawMapEdges; return drawMapEdges; }
+
+	virtual const GL::LightHandler* GetLightHandler() const { return nullptr; }
+	virtual       GL::LightHandler* GetLightHandler()       { return nullptr; }
+	virtual const GL::GeometryBuffer* GetGeometryBuffer() const { return nullptr; }
+	virtual       GL::GeometryBuffer* GetGeometryBuffer()       { return nullptr; }
 
 	void DrawTrees(bool drawReflection = false) const;
 
-	// Everything that deals with drawing extra textures on top
-	void DisableExtraTexture();
-	void SetHeightTexture();
-	void SetMetalTexture(const CMetalMap*);
-	void TogglePathTraversabilityTexture();
-	void TogglePathHeatTexture();
-	void TogglePathCostTexture();
-	void ToggleLosTexture();
-	void ToggleRadarAndJammer();
-	bool UpdateExtraTexture();
-	bool DrawExtraTex() const { return drawMode != drawNormal; }
+	bool DrawForward() const { return drawForward; }
+	bool DrawDeferred() const { return drawDeferred; }
+
+	bool UseAdvShading() const { return advShading; }
+	bool WireFrameMode() const { return wireframe; }
+
+	bool& UseAdvShadingRef() { return advShading; }
+	bool& WireFrameModeRef() { return wireframe; }
 
 	CBaseGroundTextures* GetGroundTextures() { return groundTextures; }
 
-	void UpdateCamRestraints(CCamera* camera);
-
 public:
-	bool wireframe;
-	bool advShading;
-
 	float LODScaleReflection;
 	float LODScaleRefraction;
-	float LODScaleUnitReflection;
-
-	BaseGroundDrawMode drawMode;
-
-	bool drawRadarAndJammer;
-	bool drawLineOfSight;
-
-	int updateTextureState;
-
-	GLuint infoTex;
-	PBO extraTexPBO;
-	bool highResInfoTex;
-	bool highResInfoTexWanted;
-
-	const unsigned char* extraTex;
-	const unsigned char* extraTexPal;
-	const float* extractDepthMap;
-
-	float infoTexAlpha;
+	float LODScaleTerrainReflection;
 
 	int jamColor[3];
 	int losColor[3];
 	int radarColor[3];
 	int alwaysColor[3];
+	int radarColor2[3]; // Color of inner radar edge.
+
 	static const int losColorScale = 10000;
 
-	bool highResLosTex;
-	int extraTextureUpdateRate;
-
-#ifdef USE_GML
-	bool multiThreadDrawGround;
-	bool multiThreadDrawGroundShadow;
-#endif
-
-	CHeightLinePalette* heightLinePal;
+protected:
 	CBaseGroundTextures* groundTextures;
+
+	bool drawForward;
+	bool drawDeferred;
+	bool drawMapEdges;
+
+	bool wireframe;
+	bool advShading;
 };
 
 #endif // _BASE_GROUND_DRAWER_H

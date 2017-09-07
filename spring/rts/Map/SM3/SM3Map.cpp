@@ -12,6 +12,7 @@
 #include "Map/MapParser.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/ShadowHandler.h"
+#include "Rendering/Env/SunLighting.h"
 #include "Rendering/GL/myGL.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
@@ -41,6 +42,18 @@ static const TdfParser& GetMapDefParser()
 
 
 CR_BIND_DERIVED(CSM3ReadMap, CReadMap, (""))
+CR_REG_METADATA(CSM3ReadMap, (
+	//FIXME save unsynced heightmap?
+	CR_IGNORED(groundDrawer),
+	CR_IGNORED(renderer),
+	CR_IGNORED(minimapTexture),
+	CR_IGNORED(infoMaps),
+	CR_IGNORED(featureTypes),
+	CR_IGNORED(featureInfo),
+	CR_IGNORED(numFeatures),
+	CR_IGNORED(tmpFrustum)
+));
+
 
 CSM3ReadMap::CSM3ReadMap(const std::string& mapName)
 	: groundDrawer(NULL)
@@ -52,7 +65,7 @@ CSM3ReadMap::CSM3ReadMap(const std::string& mapName)
 	if (!mapInfo->sm3.minimap.empty()) {
 		CBitmap bmp;
 		if (bmp.Load(mapInfo->sm3.minimap)) {
-			minimapTexture = bmp.CreateTexture(true);
+			minimapTexture = bmp.CreateMipMapTexture();
 		}
 	}
 
@@ -63,11 +76,11 @@ CSM3ReadMap::CSM3ReadMap(const std::string& mapName)
 		Sm3LoadCB cb;
 		renderer->LoadHeightMap(GetMapDefParser(), &cb);
 
-		heightMapSynced   = renderer->GetCornerHeightMapSynced();
-		heightMapUnsynced = renderer->GetCornerHeightMapUnsynced();
+		heightMapSyncedPtr   = &renderer->GetCornerHeightMapSynced();
+		heightMapUnsyncedPtr = &renderer->GetCornerHeightMapUnsynced();
 
-		width  = renderer->GetHeightmapWidth() - 1;
-		height = renderer->GetHeightmapWidth() - 1; // note: not height (SM3 only supports square maps!)
+		mapDims.mapx = renderer->GetHeightmapWidth() - 1;
+		mapDims.mapy = renderer->GetHeightmapWidth() - 1; // note: not height (SM3 only supports square maps!)
 	}
 
 	CReadMap::Initialize();
@@ -86,6 +99,7 @@ CSM3ReadMap::CSM3ReadMap(const std::string& mapName)
 
 CSM3ReadMap::~CSM3ReadMap()
 {
+	configHandler->RemoveObserver(this);
 	delete groundDrawer;
 	delete renderer;
 
@@ -112,7 +126,7 @@ void CSM3ReadMap::ConfigNotify(const std::string& key, const std::string& value)
 
 
 CBaseGroundDrawer* CSM3ReadMap::GetGroundDrawer() { return groundDrawer; }
-void CSM3ReadMap::NewGroundDrawer() {
+void CSM3ReadMap::InitGroundDrawer() {
 	renderer->config.cacheTextures = false;
 	renderer->config.forceFallbackTexturing = configHandler->GetBool("SM3ForceFallbackTex");
 
@@ -122,7 +136,7 @@ void CSM3ReadMap::NewGroundDrawer() {
 	}
 
 	renderer->config.useStaticShadow = false;
-	renderer->config.useShadowMaps = shadowHandler->shadowsLoaded;
+	renderer->config.useShadowMaps = shadowHandler->ShadowsLoaded();
 	renderer->config.terrainNormalMaps = false;
 	renderer->config.normalMapLevel = 3;
 
@@ -138,11 +152,11 @@ void CSM3ReadMap::NewGroundDrawer() {
 
 	Sm3LoadCB loadcb;
 	terrain::LightingInfo lightInfo;
-		lightInfo.ambient = mapInfo->light.groundAmbientColor;
+		lightInfo.ambient = sunLighting->groundAmbientColor;
 	terrain::StaticLight light;
-		light.color = mapInfo->light.groundSunColor;
+		light.color = sunLighting->groundDiffuseColor;
 		light.directional = false;
-		light.position = mapInfo->light.sunDir * 1000000.0f;
+		light.position = sunLighting->sunDir * 1000000.0f;
 	lightInfo.staticLights.push_back(light);
 
 	renderer->Load(GetMapDefParser(), &lightInfo, &loadcb);
@@ -150,6 +164,10 @@ void CSM3ReadMap::NewGroundDrawer() {
 	groundDrawer = new CSM3GroundDrawer(this);
 
 	configHandler->NotifyOnChange(this);
+}
+
+void CSM3ReadMap::KillGroundDrawer() {
+	SafeDelete(groundDrawer);
 }
 
 
@@ -162,15 +180,15 @@ void CSM3ReadMap::UpdateHeightMapUnsynced(const SRectangle& update)
 	x1 -= 2; x2 += 2;
 	y1 -= 2; y2 += 2;
 
-	if (x1 <     0) x1 =     0;
-	if (x1 > width) x1 = width;
-	if (x2 <     0) x2 =     0;
-	if (x2 > width) x2 = width;
+	if (x1 <        0) x1 =        0;
+	if (x2 <        0) x2 =        0;
+	if (x1 > mapDims.mapx) x1 = mapDims.mapx;
+	if (x2 > mapDims.mapx) x2 = mapDims.mapx;
 
-	if (y1 <     0) y1 =      0;
-	if (y1 > width) y1 = height;
-	if (y2 <     0) y2 =      0;
-	if (y2 > width) y2 = height;
+	if (y1 <        0) y1 =        0;
+	if (y2 <        0) y2 =        0;
+	if (y1 > mapDims.mapy) y1 = mapDims.mapy;
+	if (y2 > mapDims.mapy) y2 = mapDims.mapy;
 
 	renderer->HeightMapUpdatedUnsynced(x1, y1, x2 - x1, y2 - y1);
 }
@@ -189,17 +207,17 @@ void CSM3ReadMap::DrawMinimap() const
 	glBindTexture(GL_TEXTURE_2D, minimapTexture);
 	glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_REPLACE);
 
-	if(groundDrawer->DrawExtraTex()){
+	if (groundDrawer->DrawExtraTex()) {
 		glActiveTextureARB(GL_TEXTURE1_ARB);
 		glEnable(GL_TEXTURE_2D);
 		glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_RGB_ARB,GL_ADD_SIGNED_ARB);
 		glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE_ARB);
-		glBindTexture(GL_TEXTURE_2D, groundDrawer->infoTex);
+		glBindTexture(GL_TEXTURE_2D, groundDrawer->GetActiveInfoTexture());
 		glActiveTextureARB(GL_TEXTURE0_ARB);
 	}
 
-	float isx=gs->mapx/float(gs->pwr2mapx);
-	float isy=gs->mapy/float(gs->pwr2mapy);
+	const float isx = mapDims.mapx / float(mapDims.pwr2mapx);
+	const float isy = mapDims.mapy / float(mapDims.pwr2mapy);
 
 	glBegin(GL_QUADS);
 		glTexCoord2f(0,isy);
@@ -292,8 +310,8 @@ void CSM3ReadMap::LoadFeatureData()
 		for (int a=0;a<numFeatures;a++) {
 			MapFeatureInfo& fi = featureInfo[a];
 			fi.featureType = featureTypes.size()-1;
-			fi.pos.x = gs->randFloat() * width * SQUARE_SIZE;
-			fi.pos.z = gs->randFloat() * height * SQUARE_SIZE;
+			fi.pos.x = gs->randFloat() * mapDims.mapx * SQUARE_SIZE;
+			fi.pos.z = gs->randFloat() * mapDims.mapy * SQUARE_SIZE;
 			fi.rotation = 0.0f;
 		}
 	}*/
@@ -357,19 +375,19 @@ static void DrawGrid(terrain::TQuad* tq, DrawGridParms* param)
 			return;
 		else {
 			for (int a=0;a<4;a++)
-				DrawGrid(tq->childs[a],param);
+				DrawGrid(tq->children[a],param);
 		}
 	}
 }
 
-void CSM3ReadMap::GridVisibility(CCamera* cam, int quadSize, float maxdist, IQuadDrawer* cb, int extraSize)
+void CSM3ReadMap::GridVisibility(CCamera* cam, IQuadDrawer* cb, float maxDist, int quadSize, int extraSize)
 {
 	float aspect = cam->viewport[2]/(float)cam->viewport[3];
-	tmpFrustum.CalcCameraPlanes(&cam->pos, &cam->right, &cam->up, &cam->forward, cam->GetTanHalfFov(), aspect);
+	tmpFrustum.CalcCameraPlanes(&cam->SetPos(), &cam->right, &cam->up, &cam->forward, cam->GetTanHalfFov(), aspect);
 
 	DrawGridParms dgp;
 	dgp.cb = cb;
-	dgp.maxdist = maxdist;
+	dgp.maxdist = maxDist;
 	dgp.quadSize = quadSize;
 	dgp.frustum = &tmpFrustum;
 	DrawGrid(renderer->GetQuadTree(), &dgp);

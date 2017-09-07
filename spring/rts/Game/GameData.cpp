@@ -3,11 +3,9 @@
 #include <assert.h>
 #include <zlib.h>
 
-#include "System/mmgr.h"
-
 #include "GameData.h"
 
-#include "System/BaseNetProtocol.h"
+#include "Net/Protocol/BaseNetProtocol.h"
 #include "System/Net/PackPacket.h"
 #include "System/Net/UnpackPacket.h"
 
@@ -19,6 +17,16 @@ GameData::GameData()
 	, randomSeed(0)
 {
 }
+
+
+GameData::GameData(const std::string& setup)
+	: setupText(setup)
+	, mapChecksum(0)
+	, modChecksum(0)
+	, randomSeed(0)
+{
+}
+
 
 GameData::GameData(boost::shared_ptr<const RawPacket> pckt)
 {
@@ -59,9 +67,8 @@ GameData::GameData(boost::shared_ptr<const RawPacket> pckt)
 
 const netcode::RawPacket* GameData::Pack() const
 {
-	if (compressed.empty())
-	{
-		long unsigned bufsize = (setupText.size() * 1.02) + 32;
+	if (compressed.empty()) {
+		long unsigned bufsize = compressBound(setupText.size());
 		compressed.resize(bufsize);
 		const int error = compress(&compressed[0], &bufsize, reinterpret_cast<const boost::uint8_t*>(setupText.c_str()), setupText.length());
 		compressed.resize(bufsize);
@@ -79,7 +86,7 @@ const netcode::RawPacket* GameData::Pack() const
 	return buffer;
 }
 
-void GameData::SetSetup(const std::string& newSetup)
+void GameData::SetSetupText(const std::string& newSetup)
 {
 	setupText = newSetup;
 	compressed.clear();

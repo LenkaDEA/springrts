@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "VFSHandler.h"
 
@@ -9,7 +8,7 @@
 #include <cstring>
 
 #include "ArchiveLoader.h"
-#include "IArchive.h"
+#include "System/FileSystem/Archives/IArchive.h"
 #include "FileSystem.h"
 #include "ArchiveScanner.h"
 #include "System/Exceptions.h"
@@ -26,6 +25,7 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_VFS)
 #endif
 #define LOG_SECTION_CURRENT LOG_SECTION_VFS
 
+
 CVFSHandler* vfsHandler = NULL;
 
 
@@ -38,23 +38,21 @@ CVFSHandler::CVFSHandler()
 bool CVFSHandler::AddArchive(const std::string& archiveName, bool override, const std::string& type)
 {
 	LOG_L(L_DEBUG,
-			"AddArchive(arName = \"%s\", override = %s, type = \"%s\")",
-			archiveName.c_str(), override ? "true" : "false", type.c_str());
+		"AddArchive(arName = \"%s\", override = %s, type = \"%s\")",
+		archiveName.c_str(), override ? "true" : "false", type.c_str());
 
 	IArchive* ar = archives[archiveName];
-	if (!ar) {
+
+	if (ar == NULL) {
 		ar = archiveLoader.OpenArchive(archiveName, type);
 		if (!ar) {
-			LOG_L(L_ERROR,
-					"AddArchive: Failed to open archive '%s'.",
-					archiveName.c_str());
+			LOG_L(L_ERROR, "AddArchive: Failed to open archive '%s'.", archiveName.c_str());
 			return false;
 		}
 		archives[archiveName] = ar;
 	}
 
-	for (unsigned fid = 0; fid != ar->NumFiles(); ++fid)
-	{
+	for (unsigned fid = 0; fid != ar->NumFiles(); ++fid) {
 		std::string name;
 		int size;
 		ar->FileInfo(fid, name, size);
@@ -76,20 +74,24 @@ bool CVFSHandler::AddArchive(const std::string& archiveName, bool override, cons
 		d.size = size;
 		files[name] = d;
 	}
+
 	return true;
 }
 
 bool CVFSHandler::AddArchiveWithDeps(const std::string& archiveName, bool override, const std::string& type)
 {
-	const std::vector<std::string> &ars = archiveScanner->GetArchives(archiveName);
+	const std::vector<std::string> &ars = archiveScanner->GetAllArchivesUsedBy(archiveName);
+
 	if (ars.empty())
 		throw content_error("Could not find any archives for '" + archiveName + "'.");
+
 	std::vector<std::string>::const_iterator it;
-	for (it = ars.begin(); it != ars.end(); ++it)
-	{
+
+	for (it = ars.begin(); it != ars.end(); ++it) {
 		if (!AddArchive(*it, override, type))
 			throw content_error("Failed loading archive '" + *it + "', dependency of '" + archiveName + "'.");
 	}
+
 	return true;
 }
 
@@ -97,17 +99,23 @@ bool CVFSHandler::RemoveArchive(const std::string& archiveName)
 {
 	LOG_L(L_DEBUG, "RemoveArchive(archiveName = \"%s\")", archiveName.c_str());
 
-	IArchive* ar = archives[archiveName];
+	const auto it = archives.find(archiveName);
+
+	if (it == archives.end())
+		return true;
+
+	IArchive* ar = it->second;
+
 	if (ar == NULL) {
 		// archive is not loaded
 		return true;
 	}
-	
+
 	// remove the files loaded from the archive-to-remove
 	for (std::map<std::string, FileData>::iterator f = files.begin(); f != files.end();) {
 		if (f->second.ar == ar) {
 			LOG_L(L_DEBUG, "%s (removing)", f->first.c_str());
-			f = set_erase(files, f);
+			f = files.erase(f);
 		} else {
 			 ++f;
 		}
@@ -120,9 +128,10 @@ bool CVFSHandler::RemoveArchive(const std::string& archiveName)
 
 CVFSHandler::~CVFSHandler()
 {
-	LOG_L(L_DEBUG, "CVFSHandler::~CVFSHandler()");
+	LOG_L(L_INFO, "[%s] #archives=%lu", __FUNCTION__, (long unsigned) archives.size());
 
 	for (std::map<std::string, IArchive*>::iterator i = archives.begin(); i != archives.end(); ++i) {
+		LOG_L(L_INFO, "\tarchive=%s (%p)", (i->first).c_str(), i->second);
 		delete i->second;
 	}
 }
@@ -281,3 +290,4 @@ std::vector<std::string> CVFSHandler::GetDirsInDir(const std::string& rawDir)
 
 	return ret;
 }
+

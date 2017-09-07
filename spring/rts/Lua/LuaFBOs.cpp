@@ -1,8 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 
-#include "System/mmgr.h"
-
 #include "LuaFBOs.h"
 
 #include "LuaInclude.h"
@@ -18,7 +16,6 @@
 #include "System/Log/ILog.h"
 
 #include <map>
-using std::map;
 
 
 /******************************************************************************/
@@ -31,9 +28,7 @@ LuaFBOs::LuaFBOs()
 
 LuaFBOs::~LuaFBOs()
 {
-	set<FBO*>::const_iterator it;
-	for (it = fbos.begin(); it != fbos.end(); ++it) {
-		const FBO* fbo = *it;
+	for (FBO* fbo: fbos) {
 		glDeleteFramebuffersEXT(1, &fbo->id);
 	}
 }
@@ -104,6 +99,8 @@ void LuaFBOs::FBO::Init(lua_State* L)
 	id     = 0;
 	target = GL_FRAMEBUFFER_EXT;
 	luaRef = LUA_NOREF;
+	xsize = 0;
+	ysize = 0;
 }
 
 
@@ -157,7 +154,7 @@ int LuaFBOs::meta_newindex(lua_State* L)
 	}
 
 	if (lua_israwstring(L, 2)) {
-		const string key = lua_tostring(L, 2);
+		const std::string key = lua_tostring(L, 2);
 		const GLenum type = ParseAttachment(key);
 		if (type != 0) {
 			GLint currentFBO;
@@ -217,9 +214,9 @@ static GLenum GetBindingEnum(GLenum target)
 /******************************************************************************/
 /******************************************************************************/
 
-GLenum LuaFBOs::ParseAttachment(const string& name)
+GLenum LuaFBOs::ParseAttachment(const std::string& name)
 {
-	static map<string, GLenum> attachMap;
+	static std::map<std::string, GLenum> attachMap;
 	if (attachMap.empty()) {
 		attachMap["depth"]   = GL_DEPTH_ATTACHMENT_EXT; 
 		attachMap["stencil"] = GL_STENCIL_ATTACHMENT_EXT;
@@ -240,7 +237,7 @@ GLenum LuaFBOs::ParseAttachment(const string& name)
 		attachMap["color14"] = GL_COLOR_ATTACHMENT14_EXT;
 		attachMap["color15"] = GL_COLOR_ATTACHMENT15_EXT;
 	}
-	map<string, GLenum>::const_iterator it = attachMap.find(name);
+	std::map<string, GLenum>::const_iterator it = attachMap.find(name);
 	if (it != attachMap.end()) {
 		return it->second;
 	}
@@ -349,14 +346,7 @@ bool LuaFBOs::ApplyDrawBuffers(lua_State* L, int index)
 			buffers.push_back(buffer);
 		}
 
-		GLenum* bufArray = new GLenum[buffers.size()];
-		for (int d = 0; d < (int)buffers.size(); d++) {
-			bufArray[d] = buffers[d];
-		}
-
-		glDrawBuffersARB(buffers.size(), bufArray);
-
-		delete[] bufArray;
+		glDrawBuffersARB(buffers.size(), &buffers.front());
 
 		return true;
 	}
@@ -412,7 +402,7 @@ int LuaFBOs::CreateFBO(lua_State* L)
 	if (lua_istable(L, table)) {
 		for (lua_pushnil(L); lua_next(L, table) != 0; lua_pop(L, 1)) {
 			if (lua_israwstring(L, -2)) {
-				const string key = lua_tostring(L, -2);
+				const std::string key = lua_tostring(L, -2);
 				const GLenum type = ParseAttachment(key);
 				if (type != 0) {
 					ApplyAttachment(L, -1, fboPtr, type);

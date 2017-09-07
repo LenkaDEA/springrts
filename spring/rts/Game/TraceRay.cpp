@@ -1,13 +1,11 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
+#include "TraceRay.h"
 #include "Camera.h"
 #include "GlobalUnsynced.h"
-#include "TraceRay.h"
 #include "Map/Ground.h"
-#include "Map/ReadMap.h"
-#include "Rendering/Models/3DModel.h"
+#include "Rendering/GlobalRendering.h"
 #include "Sim/Features/Feature.h"
 #include "Sim/Misc/CollisionHandler.h"
 #include "Sim/Misc/CollisionVolume.h"
@@ -15,10 +13,14 @@
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/QuadField.h"
 #include "Sim/Misc/TeamHandler.h"
-#include "Sim/Misc/RadarHandler.h"
+#include "Sim/Units/UnitHandler.h"
 #include "Sim/Units/UnitTypes/Factory.h"
+#include "Sim/Weapons/PlasmaRepulser.h"
+#include "Sim/Weapons/WeaponDef.h"
 #include "System/myMath.h"
 
+#include <algorithm>
+#include <vector>
 
 //////////////////////////////////////////////////////////////////////
 // Local/Helper functions
@@ -28,81 +30,128 @@
  * helper for TestCone
  * @return true if object <o> is in the firing cone, false otherwise
  */
-inline bool TestConeHelper(const float3& from, const float3& weaponDir, float length, float spread, const CSolidObject* obj)
+inline static bool TestConeHelper(
+	const float3& pos3D,
+	const float3& dir3D,
+	const float length,
+	const float spread,
+	const CSolidObject* obj)
 {
-	// account for any offset, since we want to know if our shots might hit
-	const float3 objDir = (obj->midPos + obj->collisionVolume->GetOffsets()) - from;
+	const CollisionVolume* cv = &obj->collisionVolume;
 
-	// weaponDir defines the center of the cone
-	float closeLength = objDir.dot(weaponDir);
+	const float3 objVec3D = cv->GetWorldSpacePos(obj) - pos3D;
+	const float  objDst1D = Clamp(objVec3D.dot(dir3D), 0.0f, length);
+	const float  coneSize = math::fabs(objDst1D) * spread + 1.0f;
 
-	if (closeLength <= 0)
-		return false;
-	if (closeLength > length)
-		closeLength = length;
+	// theoretical impact position assuming no spread
+	const float3 expVec3D = dir3D * objDst1D;
+	const float3 expPos3D = pos3D + expVec3D;
 
-	const float3 closeVect = objDir - weaponDir * closeLength;
+	bool ret = false;
 
-	// NOTE: same caveat wrt. use of volumeBoundingRadius
-	// as for ::Explosion(), this will result in somewhat
-	// over-conservative tests for non-spherical volumes
-	const float r = obj->collisionVolume->GetBoundingRadius() + spread * closeLength + 1;
+	if (obj->GetBlockingMapID() < unitHandler->MaxUnits()) {
+		// obj is a unit
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CUnit*>(obj), NULL,    pos3D) - coneSize) <= 0.0f); }
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CUnit*>(obj), NULL, expPos3D) - coneSize) <= 0.0f); }
+	} else {
+		// obj is a feature
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CFeature*>(obj), NULL,    pos3D) - coneSize) <= 0.0f); }
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CFeature*>(obj), NULL, expPos3D) - coneSize) <= 0.0f); }
+	}
 
-	return (closeVect.SqLength() < r * r);
+	if (globalRendering->drawdebugtraceray) {
+		#define go geometricObjects
+
+		if (ret) {
+			go->SetColor(go->AddLine(expPos3D - (UpVector * expPos3D.dot(UpVector)), expPos3D, 3, 1, GAME_SPEED), 1.0f, 0.0f, 0.0f, 1.0f);
+		} else {
+			go->SetColor(go->AddLine(expPos3D - (UpVector * expPos3D.dot(UpVector)), expPos3D, 3, 1, GAME_SPEED), 0.0f, 1.0f, 0.0f, 1.0f);
+		}
+
+		#undef go
+	}
+
+	return ret;
 }
 
 /**
  * helper for TestTrajectoryCone
  * @return true if object <o> is in the firing trajectory, false otherwise
  */
-inline bool TestTrajectoryConeHelper(
-	const float3& from,
-	const float3& flatdir,
+inline static bool TestTrajectoryConeHelper(
+	const float3& pos3D,
+	const float3& dir2D,
 	float length,
 	float linear,
 	float quadratic,
 	float spread,
 	float baseSize,
-	const CSolidObject* o)
+	const CSolidObject* obj)
 {
-	const CollisionVolume* cv = o->collisionVolume;
-	float3 dif = (o->midPos + cv->GetOffsets()) - from;
-	const float3 flatdif(dif.x, 0, dif.z);
-	float closeFlatLength = flatdif.dot(flatdir);
+	// trajectory is a parabola f(x)=a*x*x + b*x with
+	// parameters a = quadratic, b = linear, and c = 0
+	// (x = objDst1D, negative values represent objects
+	// "behind" the testee whose collision volumes might
+	// still be intersected by its trajectory arc)
+	//
+	// firing-cone is centered along dir2D with radius
+	// <x * spread + baseSize> (usually baseSize != 0
+	// so weapons with spread = 0 will test against a
+	// cylinder, not an infinitely thin line as safety
+	// measure against friendly-fire damage in tightly
+	// packed unit groups)
+	//
+	// return true iff the world-space point <x, f(x)>
+	// lies on or inside the object's collision volume
+	// (where 'x' is actually the projected xz-distance
+	// to the object's colvol-center along dir2D)
+	//
+	// !NOTE!:
+	//   THE TRAJECTORY CURVE MIGHT STILL INTERSECT
+	//   EVEN WHEN <x, f(x)> DOES NOT LIE INSIDE CV
+	//   SO THIS CAN GENERATE FALSE NEGATIVES
+	const CollisionVolume* cv = &obj->collisionVolume;
 
-	if (closeFlatLength <= 0)
-		return false;
-	if (closeFlatLength > length)
-		closeFlatLength = length;
+	const float3 objVec3D = cv->GetWorldSpacePos(obj) - pos3D;
+	const float  objDst1D = Clamp(objVec3D.dot(dir2D), 0.0f, length);
+	const float  coneSize = math::fabs(objDst1D) * spread + baseSize;
 
-	if (math::fabs(linear - quadratic * closeFlatLength) < 0.15f) {
-		// relatively flat region -> use approximation
-		dif.y -= (linear + quadratic * closeFlatLength) * closeFlatLength;
+	// theoretical impact position assuming no spread
+	// note that unlike TestConeHelper these positions
+	// lie along curve f(x) here, not a straight line
+	// (if 1D object-distance is 0, pos3D == expPos3D)
+	const float3 expVec2D = dir2D * objDst1D;
+	const float3 expPos2D = pos3D + expVec2D;
+	const float3 expPos3D = expPos2D + (UpVector * (quadratic * objDst1D * objDst1D + linear * objDst1D));
 
-		// NOTE: overly conservative for non-spherical volumes
-		const float3 closeVect = dif - flatdir * closeFlatLength;
-		const float r = cv->GetBoundingRadius() + spread * closeFlatLength + baseSize;
-		if (closeVect.SqLength() < r * r) {
-			return true;
-		}
+	bool ret = false;
+
+	if (obj->GetBlockingMapID() < unitHandler->MaxUnits()) {
+		// first test the muzzle-position, then the impact-position
+		// (if neither is inside obstacle's CV, the weapon can fire)
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CUnit*>(obj), NULL,    pos3D) - coneSize) <= 0.0f); }
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CUnit*>(obj), NULL, expPos3D) - coneSize) <= 0.0f); }
 	} else {
-		float3 newfrom = from + flatdir * closeFlatLength;
-		newfrom.y += (linear + quadratic * closeFlatLength) * closeFlatLength;
-		float3 dir = flatdir;
-		dir.y = linear + quadratic * closeFlatLength;
-		dir.Normalize();
-
-		dif = (o->midPos + cv->GetOffsets()) - newfrom;
-		const float closeLength = dif.dot(dir);
-
-		// NOTE: overly conservative for non-spherical volumes
-		const float3 closeVect = dif - dir * closeLength;
-		const float r = cv->GetBoundingRadius() + spread * closeFlatLength + baseSize;
-		if (closeVect.SqLength() < r * r) {
-			return true;
-		}
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CFeature*>(obj), NULL,    pos3D) - coneSize) <= 0.0f); }
+		if (!ret) { ret = ((cv->GetPointSurfaceDistance(static_cast<const CFeature*>(obj), NULL, expPos3D) - coneSize) <= 0.0f); }
 	}
-	return false;
+
+
+	if (globalRendering->drawdebugtraceray) {
+		// FIXME? seems to under-estimate gravity near edge of range
+		// (place objects along trajectory of a cannon to visualize)
+		#define go geometricObjects
+
+		if (ret) {
+			go->SetColor(go->AddLine(expPos2D, expPos3D, 3, 1, GAME_SPEED), 1.0f, 0.0f, 0.0f, 1.0f);
+		} else {
+			go->SetColor(go->AddLine(expPos2D, expPos3D, 3, 1, GAME_SPEED), 0.0f, 1.0f, 0.0f, 1.0f);
+		}
+
+		#undef go
+	}
+
+	return ret;
 }
 
 
@@ -118,57 +167,57 @@ float TraceRay(
 	const float3& start,
 	const float3& dir,
 	float length,
-	int collisionFlags,
+	int avoidFlags,
 	const CUnit* owner,
 	CUnit*& hitUnit,
-	CFeature*& hitFeature
+	CFeature*& hitFeature,
+	CollisionQuery* hitColQuery
 ) {
-	const bool ignoreEnemies  = ((collisionFlags & Collision::NOENEMIES   ) != 0);
-	const bool ignoreAllies   = ((collisionFlags & Collision::NOFRIENDLIES) != 0);
-	const bool ignoreFeatures = ((collisionFlags & Collision::NOFEATURES  ) != 0);
-	const bool ignoreNeutrals = ((collisionFlags & Collision::NONEUTRALS  ) != 0);
-	const bool ignoreGround   = ((collisionFlags & Collision::NOGROUND    ) != 0);
+	const bool ignoreEnemies  = ((avoidFlags & Collision::NOENEMIES   ) != 0);
+	const bool ignoreAllies   = ((avoidFlags & Collision::NOFRIENDLIES) != 0);
+	const bool ignoreFeatures = ((avoidFlags & Collision::NOFEATURES  ) != 0);
+	const bool ignoreNeutrals = ((avoidFlags & Collision::NONEUTRALS  ) != 0);
+	const bool ignoreGround   = ((avoidFlags & Collision::NOGROUND    ) != 0);
+	const bool ignoreCloaked  = ((avoidFlags & Collision::NOCLOAKED   ) != 0);
 
 	const bool ignoreUnits = ignoreEnemies && ignoreAllies && ignoreNeutrals;
 
 	hitFeature = NULL;
 	hitUnit = NULL;
 
-	if (dir == ZeroVector) {
+	if (dir == ZeroVector)
 		return -1.0f;
-	}
 
 	if (!ignoreFeatures || !ignoreUnits) {
-		GML_RECMUTEX_LOCK(quad); // TraceRay
 		CollisionQuery cq;
 
-		int* begQuad = NULL;
-		int* endQuad = NULL;
+		const auto& quads = quadField->GetQuadsOnRay(start, dir, length);
 
-		qf->GetQuadsOnRay(start, dir, length, begQuad, endQuad);
+		// locally point somewhere non-NULL; we cannot pass hitColQuery
+		// to DetectHit directly because each call resets it internally
+		if (hitColQuery == NULL)
+			hitColQuery = &cq;
 
 		// feature intersection
 		if (!ignoreFeatures) {
-			for (int* quadPtr = begQuad; quadPtr != endQuad; ++quadPtr) {
-				const CQuadField::Quad& quad = qf->GetQuad(*quadPtr);
+			for (const int quadIdx: quads) {
+				const CQuadField::Quad& quad = quadField->GetQuad(quadIdx);
 
-				for (std::list<CFeature*>::const_iterator ui = quad.features.begin(); ui != quad.features.end(); ++ui) {
-					CFeature* f = *ui;
-
+				for (CFeature* f: quad.features) {
 					// NOTE:
 					//     if f is non-blocking, ProjectileHandler will not test
 					//     for collisions with projectiles so we can skip it here
-					if (!f->blocking)
+					if (!f->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
 						continue;
 
-					if (CCollisionHandler::DetectHit(f, start, start + dir * length, &cq, true)) {
-						const float3& intPos = (cq.b0)? cq.p0: cq.p1;
-						const float len = (intPos - start).dot(dir); // same as (intPos - start).Length()
+					if (CCollisionHandler::DetectHit(f, f->GetTransformMatrix(true), start, start + dir * length, &cq, true)) {
+						const float len = cq.GetHitPosDist(start, dir);
 
 						// we want the closest feature (intersection point) on the ray
 						if (len < length) {
 							length = len;
 							hitFeature = f;
+							*hitColQuery = cq;
 						}
 					}
 				}
@@ -177,42 +226,47 @@ float TraceRay(
 
 		// unit intersection
 		if (!ignoreUnits) {
-			for (int* quadPtr = begQuad; quadPtr != endQuad; ++quadPtr) {
-				const CQuadField::Quad& quad = qf->GetQuad(*quadPtr);
+			for (const int quadIdx: quads) {
+				const CQuadField::Quad& quad = quadField->GetQuad(quadIdx);
 
-				for (std::list<CUnit*>::const_iterator ui = quad.units.begin(); ui != quad.units.end(); ++ui) {
-					CUnit* u = *ui;
-
+				for (CUnit* u: quad.units) {
 					if (u == owner)
+						continue;
+					if (!u->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
 						continue;
 					if (ignoreAllies && u->allyteam == owner->allyteam)
 						continue;
-					if (ignoreNeutrals && u->IsNeutral())
-						continue;
 					if (ignoreEnemies && u->allyteam != owner->allyteam)
 						continue;
+					if (ignoreNeutrals && u->IsNeutral())
+						continue;
+					if (ignoreCloaked && u->IsCloaked())
+						continue;
 
-					if (CCollisionHandler::DetectHit(u, start, start + dir * length, &cq, true)) {
-						const float3& intPos = (cq.b0)? cq.p0: cq.p1;
-						const float len = (intPos - start).dot(dir); // same as (intPos - start).Length()
+					if (CCollisionHandler::DetectHit(u, u->GetTransformMatrix(true), start, start + dir * length, &cq, true)) {
+						const float len = cq.GetHitPosDist(start, dir);
 
 						// we want the closest unit (intersection point) on the ray
 						if (len < length) {
 							length = len;
 							hitUnit = u;
+							*hitColQuery = cq;
 						}
 					}
 				}
 			}
-			if (hitUnit)
+
+			if (hitUnit != NULL) {
 				hitFeature = NULL;
+			}
 		}
 	}
 
 	if (!ignoreGround) {
 		// ground intersection
-		const float groundLength = ground->LineGroundCol(start, start + dir * length);
-		if (length > groundLength && groundLength > 0) {
+		const float groundLength = CGround::LineGroundCol(start, start + dir * length);
+
+		if (length > groundLength && groundLength > 0.0f) {
 			length = groundLength;
 			hitUnit = NULL;
 			hitFeature = NULL;
@@ -223,161 +277,170 @@ float TraceRay(
 }
 
 
-float GuiTraceRay(
+void TraceRayShields(
+	const CWeapon* emitter,
 	const float3& start,
 	const float3& dir,
 	float length,
-	bool useRadar,
-	const CUnit* exclude,
-	CUnit*& hitUnit,
-	CFeature*& hitFeature,
-	bool groundOnly
+	std::vector<SShieldDist>& hitShields
 ) {
-	hitUnit = NULL;
-	hitFeature = NULL;
+	CollisionQuery cq;
+
+	const auto& quads = quadField->GetQuadsOnRay(start, dir, length);
+	for (const int quadIdx: quads) {
+		const CQuadField::Quad& quad = quadField->GetQuad(quadIdx);
+
+		for (CPlasmaRepulser* r: quad.repulsers) {
+			if (!r->CanIntercept(emitter->weaponDef->interceptedByShieldType, emitter->owner->allyteam))
+				continue;
+
+			if (CCollisionHandler::DetectHit(r->owner, &r->collisionVolume, r->owner->GetTransformMatrix(true), start, start + dir * length, &cq, true)) {
+				if (cq.InsideHit() && r->weaponDef->exteriorShield)
+					continue;
+
+				const float len = cq.GetHitPosDist(start, dir);
+				if (len <= 0.0f)
+					continue;
+
+				const auto hitCmp = [](const float a, const SShieldDist& b) { return (a < b.dist); };
+				const auto insPos = std::upper_bound(hitShields.begin(), hitShields.end(), len, hitCmp);
+
+				hitShields.insert(insPos, {r, len});
+			}
+		}
+	}
+}
+
+
+float GuiTraceRay(
+	const float3& start,
+	const float3& dir,
+	const float length,
+	const CUnit* exclude,
+	const CUnit*& hitUnit,
+	const CFeature*& hitFeature,
+	bool useRadar,
+	bool groundOnly,
+	bool ignoreWater
+) {
+	hitUnit = nullptr;
+	hitFeature = nullptr;
 
 	if (dir == ZeroVector)
 		return -1.0f;
 
-	// ground intersection
-	const float origlength = length;
-	const float groundLength = ground->LineGroundCol(start, start + dir * origlength, false);
-	float length2 = length;
+	// ground and water-plane intersection
+	const float    guiRayLength = length;
+	const float groundRayLength = CGround::LineGroundCol(start, dir, guiRayLength, false);
+	const float  waterRayLength = CGround::LinePlaneCol(start, dir, guiRayLength, 0.0f);
 
-	if (groundOnly)
-		return groundLength;
+	float minRayLength = groundRayLength;
+	float minIngressDist = length;
+	float minEgressDist = length;
 
-	GML_RECMUTEX_LOCK(quad); // GuiTraceRay
-
-	int* begQuad = NULL;
-	int* endQuad = NULL;
 	bool hitFactory = false;
+
+	// if ray cares about water, take minimum
+	// of distance to ground and water surface
+	if (!ignoreWater)
+		minRayLength = std::min(groundRayLength, waterRayLength);
+	if (groundOnly)
+		return minRayLength;
+
 	CollisionQuery cq;
 
-	qf->GetQuadsOnRay(start, dir, length, begQuad, endQuad);
-
-	std::list<CUnit*>::const_iterator ui;
-	std::list<CFeature*>::const_iterator fi;
-
-	for (int* quadPtr = begQuad; quadPtr != endQuad; ++quadPtr) {
-		const CQuadField::Quad& quad = qf->GetQuad(*quadPtr);
+	const auto& quads = quadField->GetQuadsOnRay(start, dir, length);
+	for (const int quadIdx: quads) {
+		const CQuadField::Quad& quad = quadField->GetQuad(quadIdx);
 
 		// Unit Intersection
-		for (ui = quad.units.begin(); ui != quad.units.end(); ++ui) {
-			CUnit* unit = *ui;
+		for (const CUnit* u: quad.units) {
+			const bool unitIsEnemy = !teamHandler->Ally(u->allyteam, gu->myAllyTeam);
+			const bool unitOnRadar = (useRadar && losHandler->InRadar(u, gu->myAllyTeam));
+			const bool unitInSight = (u->losStatus[gu->myAllyTeam] & (LOS_INLOS | LOS_CONTRADAR));
+			const bool unitVisible = !unitIsEnemy || unitOnRadar || unitInSight || gu->spectatingFullView;
 
-			const bool unitHostile = (unit->allyteam != gu->myAllyTeam);
-			const bool unitOnRadar = (useRadar && radarhandler->InRadar(unit, gu->myAllyTeam));
-			const bool unitInSight = (unit->losStatus[gu->myAllyTeam] & (LOS_INLOS | LOS_CONTRADAR));
-			const bool unitVisible = !unitHostile || unitOnRadar || unitInSight || gu->spectatingFullView;
-
-			if (unit == exclude)
+			if (u == exclude)
+				continue;
+			// test this bit only in synced traces, rely on noSelect here
+			if (false && !u->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
+				continue;
+			if (u->noSelect)
 				continue;
 			if (!unitVisible)
 				continue;
 
-			CollisionVolume cv(unit->collisionVolume);
+			CollisionVolume cv = u->collisionVolume;
 
-			if (unit->isIcon || (!unitInSight && unitOnRadar && unitHostile)) {
+			if (u->isIcon || (!unitInSight && unitOnRadar && unitIsEnemy)) {
 				// for iconified units, just pretend the collision
 				// volume is a sphere of radius <unit->IconRadius>
 				// (count radar blips as such too)
-				cv.Init(unit->iconRadius);
+				cv.InitSphere(u->iconRadius);
 			}
 
-			if (CCollisionHandler::MouseHit(unit, start, start + dir * origlength, &cv, &cq)) {
+			if (CCollisionHandler::MouseHit(u, u->GetTransformMatrix(false), start, start + dir * guiRayLength, &cv, &cq)) {
 				// get the distance to the ray-volume ingress point
-				const float3& ingressPos = (cq.b0)? cq.p0 : cq.p1;
-				const float3&  egressPos = (cq.b1)? cq.p1 : cq.p0;
-				const float ingressDist  = (ingressPos - start).dot(dir); // same as (intPos  - start).Length()
-				const float  egressDist  = ( egressPos - start).dot(dir); // same as (intPos2 - start).Length()
-				const bool isFactory = unit->unitDef->IsFactoryUnit();
+				// (not likely to generate inside-hit special cases)
+				const float ingressDist = cq.GetIngressPosDist(start, dir);
+				const float  egressDist = cq.GetEgressPosDist(start, dir);
+
+				const bool factoryUnderCursor = u->unitDef->IsFactoryUnit();
+				const bool factoryHitBeforeUnit = ((hitFactory && ingressDist < minIngressDist) || (!hitFactory &&  egressDist < minIngressDist));
+				const bool unitHitInsideFactory = ((hitFactory && ingressDist <  minEgressDist) || (!hitFactory && ingressDist < minIngressDist));
 
 				// give units in a factory higher priority than the factory itself
-				if (!hitUnit ||
-					(isFactory && ((hitFactory && ingressDist < length) || (!hitFactory && egressDist < length))) ||
-					(!isFactory && ((hitFactory && ingressDist < length2) || (!hitFactory && ingressDist < length)))) {
-						hitFactory = isFactory;
-						length = ingressDist;
-						length2 = egressDist;
-						hitUnit = unit;
-						hitFeature = NULL;
+				if (hitUnit == nullptr || (factoryUnderCursor && factoryHitBeforeUnit) || (!factoryUnderCursor && unitHitInsideFactory)) {
+					hitFactory = factoryUnderCursor;
+					minIngressDist = ingressDist;
+					minEgressDist = egressDist;
+
+					hitUnit = u;
+					hitFeature = nullptr;
 				}
 			}
 		}
 
 		// Feature Intersection
-		// NOTE: switch this to custom volumes fully?
-		// (not used for any LOF checks, maybe wasteful)
-		for (fi = quad.features.begin(); fi != quad.features.end(); ++fi) {
-			CFeature* f = *fi;
-
-			// FIXME add useradar?
+		for (const CFeature* f: quad.features) {
 			if (!gu->spectatingFullView && !f->IsInLosForAllyTeam(gu->myAllyTeam))
+				continue;
+			// test this bit only in synced traces, rely on noSelect here
+			if (false && !f->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
 				continue;
 			if (f->noSelect)
 				continue;
 
-			if (CCollisionHandler::DetectHit(f, start, start + dir * origlength, &cq, true)) {
-				const float3& ingressPos = (cq.b0)? cq.p0 : cq.p1;
-				const float ingressDist = (ingressPos - start).dot(dir); // same as (intPos - start).Length()
+			CollisionVolume cv = f->collisionVolume;
+
+			if (CCollisionHandler::MouseHit(f, f->GetTransformMatrix(false), start, start + dir * guiRayLength, &cv, &cq)) {
+				const float hitDist = cq.GetHitPosDist(start, dir);
+
+				const bool factoryHitBeforeUnit = ( hitFactory && hitDist <  minEgressDist);
+				const bool unitHitInsideFactory = (!hitFactory && hitDist < minIngressDist);
 
 				// we want the closest feature (intersection point) on the ray
 				// give features in a factory (?) higher priority than the factory itself
-				if (!hitUnit ||
-					((hitFactory && ingressDist < length2) || (!hitFactory && ingressDist < length))) {
+				if (hitUnit == nullptr || factoryHitBeforeUnit || unitHitInsideFactory) {
 					hitFactory = false;
-					length = ingressDist;
+					minIngressDist = hitDist;
+
 					hitFeature = f;
-					hitUnit = NULL;
+					hitUnit = nullptr;
 				}
 			}
 		}
 	}
 
-	if ((groundLength > 0.0f) && ((groundLength + 200.0f) < length)) {
-		length     = groundLength;
-		hitUnit    = NULL;
-		hitFeature = NULL;
+	if ((minRayLength > 0.0f) && ((minRayLength + 200.0f) < minIngressDist)) {
+		minIngressDist = minRayLength;
+
+		hitUnit    = nullptr;
+		hitFeature = nullptr;
 	}
 
-	return length;
+	return minIngressDist;
 }
-
-
-
-
-// called by CWeapon::TryTarget()
-bool LineFeatureCol(const float3& start, const float3& dir, float length)
-{
-	GML_RECMUTEX_LOCK(quad); // LineFeatureCol
-
-	int* begQuad = NULL;
-	int* endQuad = NULL;
-
-	if (qf->GetQuadsOnRay(start, dir, length, begQuad, endQuad) == 0)
-		return false;
-
-	CollisionQuery cq;
-
-	for (int* quadPtr = begQuad; quadPtr != endQuad; ++quadPtr) {
-		const CQuadField::Quad& quad = qf->GetQuad(*quadPtr);
-
-		for (std::list<CFeature*>::const_iterator ui = quad.features.begin(); ui != quad.features.end(); ++ui) {
-			const CFeature* f = *ui;
-
-			if (!f->blocking)
-				continue;
-
-			if (CCollisionHandler::DetectHit(f, start, start + dir * length, &cq, true)) {
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
 
 
 bool TestCone(
@@ -386,30 +449,25 @@ bool TestCone(
 	float length,
 	float spread,
 	int allyteam,
-	bool testFriendly,
-	bool testNeutral,
-	bool testFeatures,
+	int avoidFlags,
 	CUnit* owner)
 {
-	GML_RECMUTEX_LOCK(quad); // TestCone
-
-	int* begQuad = NULL;
-	int* endQuad = NULL;
-
-	if (qf->GetQuadsOnRay(from, dir, length, begQuad, endQuad) == 0)
+	const auto& quads = quadField->GetQuadsOnRay(from, dir, length);
+	if (quads.empty())
 		return true;
 
-	for (int* quadPtr = begQuad; quadPtr != endQuad; ++quadPtr) {
-		const CQuadField::Quad& quad = qf->GetQuad(*quadPtr);
+	const bool ignoreAllies   = ((avoidFlags & Collision::NOFRIENDLIES) != 0);
+	const bool ignoreNeutrals = ((avoidFlags & Collision::NONEUTRALS  ) != 0);
+	const bool ignoreFeatures = ((avoidFlags & Collision::NOFEATURES  ) != 0);
 
-		if (testFriendly) {
-			const std::list<CUnit*>& units = quad.teamUnits[allyteam];
-			      std::list<CUnit*>::const_iterator unitsIt;
+	for (const int quadIdx: quads) {
+		const CQuadField::Quad& quad = quadField->GetQuad(quadIdx);
 
-			for (unitsIt = units.begin(); unitsIt != units.end(); ++unitsIt) {
-				const CUnit* u = *unitsIt;
-
+		if (!ignoreAllies) {
+			for (const CUnit* u: quad.teamUnits[allyteam]) {
 				if (u == owner)
+					continue;
+				if (!u->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
 					continue;
 
 				if (TestConeHelper(from, dir, length, spread, u))
@@ -417,31 +475,23 @@ bool TestCone(
 			}
 		}
 
-		if (testNeutral) {
-			const std::list<CUnit*>& units = quad.units;
-			      std::list<CUnit*>::const_iterator unitsIt;
-
-			for (unitsIt = units.begin(); unitsIt != units.end(); ++unitsIt) {
-				const CUnit* u = *unitsIt;
-
-				if (u == owner)
-					continue;
+		if (!ignoreNeutrals) {
+			for (const CUnit* u: quad.units) {
 				if (!u->IsNeutral())
 					continue;
+				if (u == owner)
+					continue;
+				if (!u->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
+					continue;
 
 				if (TestConeHelper(from, dir, length, spread, u))
 					return true;
 			}
 		}
 
-		if (testFeatures) {
-			const std::list<CFeature*>& features = quad.features;
-			      std::list<CFeature*>::const_iterator featuresIt;
-
-			for (featuresIt = features.begin(); featuresIt != features.end(); ++featuresIt) {
-				const CFeature* f = *featuresIt;
-
-				if (!f->blocking)
+		if (!ignoreFeatures) {
+			for (const CFeature* f: quad.features) {
+				if (!f->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
 					continue;
 
 				if (TestConeHelper(from, dir, length, spread, f))
@@ -462,70 +512,57 @@ bool TestTrajectoryCone(
 	float linear,
 	float quadratic,
 	float spread,
-	float baseSize,
 	int allyteam,
-	bool testFriendly,
-	bool testNeutral,
-	bool testFeatures,
+	int avoidFlags,
 	CUnit* owner)
 {
-	GML_RECMUTEX_LOCK(quad); // TestTrajectoryCone
-
-	int* begQuad = NULL;
-	int* endQuad = NULL;
-
-	if (qf->GetQuadsOnRay(from, dir, length, begQuad, endQuad) == 0)
+	const auto& quads = quadField->GetQuadsOnRay(from, dir, length);
+	if (quads.empty())
 		return true;
 
-	for (int* quadPtr = begQuad; quadPtr != endQuad; ++quadPtr) {
-		const CQuadField::Quad& quad = qf->GetQuad(*quadPtr);
+	const bool ignoreAllies   = ((avoidFlags & Collision::NOFRIENDLIES) != 0);
+	const bool ignoreNeutrals = ((avoidFlags & Collision::NONEUTRALS  ) != 0);
+	const bool ignoreFeatures = ((avoidFlags & Collision::NOFEATURES  ) != 0);
+
+	for (const int quadIdx: quads) {
+		const CQuadField::Quad& quad = quadField->GetQuad(quadIdx);
 
 		// friendly units in this quad
-		if (testFriendly) {
-			const std::list<CUnit*>& units = quad.teamUnits[allyteam];
-			      std::list<CUnit*>::const_iterator unitsIt;
-
-			for (unitsIt = units.begin(); unitsIt != units.end(); ++unitsIt) {
-				const CUnit* u = *unitsIt;
-
+		if (!ignoreAllies) {
+			for (const CUnit* u: quad.teamUnits[allyteam]) {
 				if (u == owner)
 					continue;
+				if (!u->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
+					continue;
 
-				if (TestTrajectoryConeHelper(from, dir, length, linear, quadratic, spread, baseSize, u))
+				if (TestTrajectoryConeHelper(from, dir, length, linear, quadratic, spread, 0.0f, u)) {
 					return true;
+				}
 			}
 		}
 
 		// neutral units in this quad
-		if (testNeutral) {
-			const std::list<CUnit*>& units = quad.units;
-			      std::list<CUnit*>::const_iterator unitsIt;
-
-			for (unitsIt = units.begin(); unitsIt != units.end(); ++unitsIt) {
-				const CUnit* u = *unitsIt;
-
-				if (u == owner)
-					continue;
+		if (!ignoreNeutrals) {
+			for (const CUnit* u: quad.units) {
 				if (!u->IsNeutral())
 					continue;
+				if (u == owner)
+					continue;
+				if (!u->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
+					continue;
 
-				if (TestTrajectoryConeHelper(from, dir, length, linear, quadratic, spread, baseSize, u))
+				if (TestTrajectoryConeHelper(from, dir, length, linear, quadratic, spread, 0.0f, u))
 					return true;
 			}
 		}
 
 		// features in this quad
-		if (testFeatures) {
-			const std::list<CFeature*>& features = quad.features;
-			      std::list<CFeature*>::const_iterator featuresIt;
-
-			for (featuresIt = features.begin(); featuresIt != features.end(); ++featuresIt) {
-				const CFeature* f = *featuresIt;
-
-				if (!f->blocking)
+		if (!ignoreFeatures) {
+			for (const CFeature* f: quad.features) {
+				if (!f->HasCollidableStateBit(CSolidObject::CSTATE_BIT_QUADMAPRAYS))
 					continue;
 
-				if (TestTrajectoryConeHelper(from, dir, length, linear, quadratic, spread, baseSize, f))
+				if (TestTrajectoryConeHelper(from, dir, length, linear, quadratic, spread, 0.0f, f))
 					return true;
 			}
 		}

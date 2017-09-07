@@ -33,6 +33,7 @@
 	#if __BYTE_ORDER == __BIG_ENDIAN
 		#define swabWord(w)  (bswap_16(w))
 		#define swabDWord(w) (bswap_32(w))
+		#define swab64(w)    (bswap_64(w))
 		/*
 		 * My brother tells me that a C compiler must store floats in memory
 		 * by a particular standard, except for the endianness; hence, this
@@ -64,6 +65,7 @@
 
 	#define swabWord(w)  (htole16(w))
 	#define swabDWord(w) (htole32(w))
+	#define swab64(w)    (htole64(w))
 	static inline float swabFloat(float w) {
 		// compile time assertion to validate sizeof(int) == sizeof(float)
 		typedef int sizeof_long_equals_sizeof_float[sizeof(int) == sizeof(float) ? 1 : -1];
@@ -75,8 +77,9 @@
 
 	#include <CoreFoundation/CFByteOrder.h>
 
-	#define swabWord(w)  (CFSwapInt32(w))
-	#define swabDWord(w) (CFSwapInt64(w))
+	#define swabWord(w)  (CFSwapInt16(w))
+	#define swabDWord(w) (CFSwapInt32(w))
+	#define swab64(w)    (CFSwapInt64(w))
 	// swabFloat(w) do not swab
 
 #else
@@ -104,6 +107,14 @@
 	#define swabDWordInPlace(w)
 #endif // defined(swabDWord)
 
+#if       defined(swab64)
+	#define swab64InPlace(w) (w = swab64(w))
+#else  // defined(swab64)
+	// do nothing
+	#define swab64(w)        (w)
+	#define swab64InPlace(w)
+#endif // defined(swab64)
+
 #if       defined(swabFloat)
 	#define swabFloatInPlace(w) (w = swabFloat(w))
 #else  // defined(swabFloat)
@@ -111,10 +122,5 @@
 	#define swabFloat(w)        (w)
 	#define swabFloatInPlace(w)
 #endif // defined(swabFloat)
-
-// backwards compatibility (used until 19. July 2011)
-#define swabword(w)  swabWord(w)
-#define swabdword(w) swabDWord(w)
-#define swabfloat(w) swabFloat(w)
 
 #endif // BYTE_ORDER_H

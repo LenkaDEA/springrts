@@ -11,8 +11,7 @@
 #include <string>
 #include <sstream>
 #include <boost/bind.hpp>
-
-#include "Game/GameServer.h"
+#include <boost/thread.hpp>
 #include "Game/GlobalUnsynced.h"
 #include "System/Log/ILog.h"
 #include "System/Log/LogSinkHandler.h"
@@ -26,16 +25,18 @@
 #if !defined(DEDICATED) && !defined(HEADLESS)
 	#include "System/Platform/MessageBox.h"
 #endif
-
+#ifdef DEDICATED
+	#include "Net/GameServer.h"
+#endif
 
 static void ExitMessage(const std::string& msg, const std::string& caption, unsigned int flags, bool forced)
 {
 	logSinkHandler.SetSinking(false);
 	if (forced) {
-		LOG_L(L_ERROR, "failed to shutdown normally, exit forced");
+		LOG_L(L_ERROR, "[%s] failed to shutdown normally, exit forced", __FUNCTION__);
 	}
-	LOG_L(L_ERROR, "%s %s", caption.c_str(), msg.c_str());
-	
+	LOG_L(L_FATAL, "%s\n%s", caption.c_str(), msg.c_str());
+
 	if (!forced) {
 	#if !defined(DEDICATED) && !defined(HEADLESS)
 		Platform::MsgBox(msg, caption, flags);
@@ -45,15 +46,16 @@ static void ExitMessage(const std::string& msg, const std::string& caption, unsi
 	}
 
 #ifdef _MSC_VER
-	TerminateProcess(GetCurrentProcess(), -1);
-#else
-	exit(-1);
+	if (forced)
+		TerminateProcess(GetCurrentProcess(), -1);
 #endif
+	exit(-1);
 }
 
 
 volatile bool shutdownSucceeded = false;
 
+__FORCE_ALIGN_STACK__
 void ForcedExit(const std::string& msg, const std::string& caption, unsigned int flags) {
 
 	for (unsigned int n = 0; !shutdownSucceeded && (n < 10); ++n) {
@@ -65,46 +67,58 @@ void ForcedExit(const std::string& msg, const std::string& caption, unsigned int
 	}
 }
 
-void ErrorMessageBox(const std::string& msg, const std::string& caption, unsigned int flags)
+void ErrorMessageBox(const std::string& msg, const std::string& caption, unsigned int flags, bool fromMain)
 {
 #ifdef DEDICATED
 	SafeDelete(gameServer);
 	ExitMessage(msg, caption, flags, false);
-
+	return;
 #else
-	//! SpringApp::Shutdown is extremely likely to deadlock or end up waiting indefinitely if any 
-	//! MT thread has crashed or deviated from its normal execution path by throwing an exception
+	LOG_L(L_ERROR, "[%s][1] msg=\"%s\" IsMainThread()=%d fromMain=%d", __FUNCTION__, msg.c_str(), Threading::IsMainThread(), fromMain);
+
+
+	// SpringApp::Shutdown is extremely likely to deadlock or end up waiting indefinitely if any
+	// MT thread has crashed or deviated from its normal execution path by throwing an exception
 	boost::thread* forcedExitThread = new boost::thread(boost::bind(&ForcedExit, msg, caption, flags));
 
-	//! Non-MainThread. Inform main one and then interrupt it.
+	// not the main thread (ie. not called from main::Run)
+	// --> leave a message for main and then interrupt it
 	if (!Threading::IsMainThread()) {
-		gu->globalQuit = true;
+		assert(!fromMain);
+
+		if (gu != NULL) {
+			// gu can be already deleted or not yet created!
+			gu->globalQuit = true;
+		}
+
 		Threading::Error err(caption, msg, flags);
 		Threading::SetThreadError(err);
 
-		//! terminate thread // FIXME: only the (separate) loading thread can catch thread_interrupted
+		// terminate thread
+		// FIXME: only the (separate) loading thread can catch thread_interrupted
 		throw boost::thread_interrupted();
 	}
 
+	LOG_L(L_ERROR, "[%s][2]", __FUNCTION__);
+
+	// exit any possibly threads (otherwise they would
+	// still run while the error messagebox is shown)
 	Watchdog::ClearTimer();
-	
-	//! exiting any possibly threads
-	//! (else they would still run while the error messagebox is shown)
-	SpringApp::Shutdown();
+	SpringApp::ShutDown();
+
+	LOG_L(L_ERROR, "[%s][3]", __FUNCTION__);
 
 	shutdownSucceeded = true;
 	forcedExitThread->join();
 	delete forcedExitThread;
 
+	LOG_L(L_ERROR, "[%s][4]", __FUNCTION__);
+
 	ExitMessage(msg, caption, flags, false);
-#endif // defined(DEDICATED)
+#endif
 }
 
 static int exitcode = 0;
-void SetExitCode(int code) {
-	exitcode = code;
-}
+void SetExitCode(int code) { exitcode = code; }
+int GetExitCode() { return exitcode; }
 
-int GetExitCode(){
-	return exitcode;
-}

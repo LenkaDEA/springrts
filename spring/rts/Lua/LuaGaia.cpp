@@ -2,9 +2,8 @@
 
 
 #include <set>
-#include <cctype>
-
-#include "System/mmgr.h"
+#include <mutex>
+#include <boost/thread/mutex.hpp>
 
 #include "LuaGaia.h"
 
@@ -37,27 +36,10 @@ static const char* LuaGaiaUnsyncedFilename = "LuaGaia/draw.lua";
 /******************************************************************************/
 /******************************************************************************/
 
-void CLuaGaia::LoadHandler()
-{
-	//FIXME GML: this needs a mutex!!!
+static boost::mutex m_singleton;
 
-	if (luaGaia) {
-		return;
-	}
-
-	new CLuaGaia();
-
-	if (!luaGaia->IsValid()) {
-		delete luaGaia;
-	}
-}
-
-
-void CLuaGaia::FreeHandler()
-{
-	//FIXME GML: this needs a mutex!!!
-	delete luaGaia;
-}
+DECL_LOAD_HANDLER(CLuaGaia, luaGaia)
+DECL_FREE_HANDLER(CLuaGaia, luaGaia)
 
 
 /******************************************************************************/
@@ -66,20 +48,15 @@ void CLuaGaia::FreeHandler()
 CLuaGaia::CLuaGaia()
 : CLuaHandleSynced("LuaGaia", LUA_HANDLE_ORDER_GAIA)
 {
-	luaGaia = this;
-
-	if (!IsValid()) {
+	if (!IsValid())
 		return;
-	}
 
-	teamsLocked = true;
-
-	SetFullCtrl(true, true);
-	SetFullRead(true, true);
-	SetCtrlTeam(AllAccessTeam, true); //teamHandler->GaiaTeamID();
-	SetReadTeam(AllAccessTeam, true);
-	SetReadAllyTeam(AllAccessTeam, true);
-	SetSelectTeam(teamHandler->GaiaTeamID(), true);
+	SetFullCtrl(true);
+	SetFullRead(true);
+	SetCtrlTeam(CEventClient::AllAccessTeam);
+	SetReadTeam(CEventClient::AllAccessTeam);
+	SetReadAllyTeam(CEventClient::AllAccessTeam);
+	SetSelectTeam(teamHandler->GaiaTeamID());
 
 	Init(LuaGaiaSyncedFilename, LuaGaiaUnsyncedFilename, SPRING_VFS_MAP);
 }
@@ -87,25 +64,18 @@ CLuaGaia::CLuaGaia()
 
 CLuaGaia::~CLuaGaia()
 {
-	if (L_Sim != NULL || L_Draw != NULL) {
-		Shutdown();
-		KillLua();
-	}
 	luaGaia = NULL;
 }
 
 
-bool CLuaGaia::AddSyncedCode(lua_State *L)
+bool CLuaGaia::AddSyncedCode(lua_State* L)
 {
 	return true;
 }
 
 
-bool CLuaGaia::AddUnsyncedCode(lua_State *L)
+bool CLuaGaia::AddUnsyncedCode(lua_State* L)
 {
-	/*lua_pushliteral(L, "UNSYNCED");
-	lua_gettable(L, LUA_REGISTRYINDEX);*/
-
 	return true;
 }
 

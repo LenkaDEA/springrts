@@ -46,13 +46,13 @@ SetCompressor /FINAL /SOLID lzma
 
 ; Finish page
 
-!define MUI_FINISHPAGE_SHOWREADME "http://springrts.com/wiki/Read_Me_First"
+!define MUI_FINISHPAGE_SHOWREADME "https://springrts.com/wiki/Read_Me_First"
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Open $\"Read Me First$\" Webpage"
-!define MUI_FINISHPAGE_RUN "$INSTDIR\springsettings.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Configure ${PRODUCT_NAME} settings now"
+;!define MUI_FINISHPAGE_RUN "$INSTDIR\spring.exe"
+;!define MUI_FINISHPAGE_RUN_TEXT "Configure ${PRODUCT_NAME} settings now"
 !define MUI_FINISHPAGE_TEXT "${PRODUCT_NAME} version ${PRODUCT_VERSION} has been successfully installed or updated from a previous version.  You should configure Spring settings now if this is a fresh installation.  If you did not install spring to C:\Program Files\Spring you will need to point the settings program to the install location."
 
-!define MUI_FINISHPAGE_LINK "The ${PRODUCT_NAME} website"
+!define MUI_FINISHPAGE_LINK "The Spring RTS Project website"
 !define MUI_FINISHPAGE_LINK_LOCATION ${PRODUCT_WEB_SITE}
 !define MUI_FINISHPAGE_NOREBOOTSUPPORT
 
@@ -70,9 +70,6 @@ Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 
 !define SP_OUTSUFFIX1 ""
 
-; if present this should hold defines with custom mingwlibs location, etc.
-!include /NONFATAL "custom_defines.nsi"
-
 ; set output filename for installer
 OutFile "${SP_BASENAME}${SP_OUTSUFFIX1}.exe"
 InstallDir "$PROGRAMFILES\Spring"
@@ -85,7 +82,6 @@ VAR REGISTRY ; if 1 registry values are written
 !include "include\fileExistChecks.nsh"
 !include "include\fileMisc.nsh"
 !include "include\extractFile.nsh"
-!include "include\checkrunning.nsh"
 !include "include\getParameterValue.nsh"
 
 
@@ -96,12 +92,6 @@ ${!echonow} "Base dir:   <engine-source-root>/installer/"
 	!error "MIN_PORTABLE_ARCHIVE undefined: please specifiy where minimal-portable 7z-archive which contains the spring-engine is"
 !else
 	${!echonow} "Using MIN_PORTABLE_ARCHIVE: ${MIN_PORTABLE_ARCHIVE}"
-!endif
-
-!ifndef RAPID_ARCHIVE
-	!warning "RAPID_ARCHIVE not defined"
-!else
-	${!echonow} "Using RAPID_ARCHIVE:        ${RAPID_ARCHIVE}"
 !endif
 
 !ifndef NSI_UNINSTALL_FILES
@@ -124,49 +114,17 @@ Section "Engine" SEC_MAIN
 	!define INSTALL
 		${!echonow} "Processing: main"
 		!include "sections\main.nsh"
-		${!echonow} "Processing: springsettings"
-		!include "sections\springsettings.nsh"
 		${!echonow} "Processing: deprecated"
 	        !include "sections\deprecated.nsh"
 	!undef INSTALL
 SectionEnd
 
-SectionGroup "Multiplayer battlerooms"
-	Section "SpringLobby" SEC_SPRINGLOBBY
-		!define INSTALL
-			${!echonow} "Processing: springlobby"
-			!include "sections\springlobby.nsh"
-		!undef INSTALL
-	SectionEnd
-
-	Section "Zero-K lobby" SEC_ZERO_K_LOBBY
-		!define INSTALL
-			${!echonow} "Processing: zeroK"
-			!include "sections\zeroK.nsh"
-		!undef INSTALL
-	SectionEnd
-SectionGroupEnd
-
 Section "Desktop shortcuts" SEC_DESKTOP
-	${If} ${SectionIsSelected} ${SEC_SPRINGLOBBY}
-		!define INSTALL
-			${!echonow} "Processing: shortcuts - Desktop"
-			!include "sections\shortcuts_desktop.nsh"
-		!undef INSTALL
-	${EndIf}
+	!define INSTALL
+		${!echonow} "Processing: shortcuts - Desktop"
+		!include "sections\shortcuts_desktop.nsh"
+	!undef INSTALL
 SectionEnd
-
-SectionGroup "Tools"
-!ifdef RAPID_ARCHIVE
-	Section "Simple spring-rapid downloader" SEC_RAPID
-		!define INSTALL
-			${!echonow} "Processing: rapid"
-			!insertmacro extractFile "${RAPID_ARCHIVE}" "rapid-spring-latest-win32.7z" rapid
-		!undef INSTALL
-	SectionEnd
-!endif
-SectionGroupEnd
-
 
 Section "Start menu shortcuts" SEC_START
 	!define INSTALL
@@ -214,15 +172,6 @@ SectionEnd
 
 Function .onInit
 	${!echonow} ""
-	IfSilent skiprunchecks ; don't check for running apps, the calling app has to do it
-	; check if we need to exit some processes which may be using unitsync
-	${CheckExecutableRunning} "TASClient.exe" "TASClient"
-	${CheckExecutableRunning} "springlobby.exe" "Spring Lobby"
-	${CheckExecutableRunning} "Zero-K.exe" "Zero-K Lobby"
-	${CheckExecutableRunning} "CADownloader.exe" "CA Downloader"
-	${CheckExecutableRunning} "springsettings.exe" "Spring Settings"
-	skiprunchecks:
-
 	; enable/disable sections depending on parameters
 	!include "sections/setupSections.nsh"
 FunctionEnd
@@ -245,18 +194,16 @@ Section Uninstall
 
 	!include "sections\main.nsh"
 	!include "sections\deprecated.nsh"
-	!include "sections\springsettings.nsh"
 
-	Delete "$INSTDIR\spring-multithreaded.exe"
+	# FIXME workaround part2
+	Delete "$INSTDIR\pthreadGC2.dll"
 
 	!include "sections\shortcuts_startMenu.nsh"
 	!include "sections\shortcuts_desktop.nsh"
 	!include "sections\portable.nsh"
-	!include "sections\zeroK.nsh"
 	!ifdef NSI_UNINSTALL_FILES
 	!include "${NSI_UNINSTALL_FILES}"
 	!endif
-	!include "sections\springlobby.nsh"
 	; All done
 	RMDir "$INSTDIR"
 

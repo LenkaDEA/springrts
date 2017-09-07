@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "BasicWater.h"
 #include "ISky.h"
@@ -22,16 +21,11 @@ CBasicWater::CBasicWater()
 		LOG_L(L_WARNING, "[%s] could not read water texture from file \"%s\"", __FUNCTION__, mapInfo->water.texture.c_str());
 
 		// fallback
-		waterTexBM.channels = 4;
-		waterTexBM.Alloc(1, 1);
-		waterTexBM.mem[0] =   0;
-		waterTexBM.mem[1] =   0;
-		waterTexBM.mem[2] = 255;
-		waterTexBM.mem[3] = 255;
+		waterTexBM.AllocDummy(SColor(0,0,255,255));
 	}
 
 	// create mipmapped texture
-	textureID = waterTexBM.CreateTexture(true);
+	textureID = waterTexBM.CreateMipMapTexture();
 	displistID = GenWaterQuadsList(waterTexBM.xsize, waterTexBM.ysize);
 }
 
@@ -53,13 +47,13 @@ unsigned int CBasicWater::GenWaterQuadsList(unsigned int textureWidth, unsigned 
 	glBindTexture(GL_TEXTURE_2D, textureID);
 	glBegin(GL_QUADS);
 
-	const float mapSizeX = gs->mapx * SQUARE_SIZE;
-	const float mapSizeY = gs->mapy * SQUARE_SIZE;
+	const float mapSizeX = mapDims.mapx * SQUARE_SIZE;
+	const float mapSizeY = mapDims.mapy * SQUARE_SIZE;
 
 	// Calculate number of times texture should repeat over the map,
 	// taking aspect ratio into account.
-	float repeatX = 65536.0f / gs->mapx;
-	float repeatY = 65536.0f / gs->mapy * textureWidth / textureHeight;
+	float repeatX = 65536.0f / mapDims.mapx;
+	float repeatY = 65536.0f / mapDims.mapy * textureWidth / textureHeight;
 
 	// Use better repeat setting of 1 repeat per 4096 mapx/mapy for the new
 	// ocean.jpg while retaining backward compatibility with old maps relying
@@ -93,12 +87,11 @@ unsigned int CBasicWater::GenWaterQuadsList(unsigned int textureWidth, unsigned 
 
 void CBasicWater::Draw()
 {
-	if (!mapInfo->water.forceRendering && (readmap->currMinHeight > 1.0f)) {
+	if (!mapInfo->water.forceRendering && !readMap->HasVisibleWater())
 		return;
-	}
 
 	glPushAttrib(GL_FOG_BIT);
-	ISky::SetupFog();
+	sky->SetupFog();
 	glCallList(displistID);
 	glPopAttrib();
 }

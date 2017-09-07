@@ -1,153 +1,168 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "BombDropper.h"
+#include "WeaponDef.h"
 #include "Game/GameHelper.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/Team.h"
 #include "Map/MapInfo.h"
-#include "Sim/MoveTypes/HoverAirMoveType.h"
-#include "Sim/Projectiles/WeaponProjectiles/ExplosiveProjectile.h"
-#include "Sim/Projectiles/WeaponProjectiles/TorpedoProjectile.h"
-#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectile.h"
+#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectileFactory.h"
 #include "Sim/Units/Unit.h"
-#include "WeaponDefHandler.h"
+#include "Sim/Units/UnitDef.h"
 #include "System/myMath.h"
-#include "System/mmgr.h"
+#include "System/Log/ILog.h"
 
-CR_BIND_DERIVED(CBombDropper, CWeapon, (NULL, false));
+
+CR_BIND_DERIVED(CBombDropper, CWeapon, (NULL, NULL, false))
 
 CR_REG_METADATA(CBombDropper,(
 	CR_MEMBER(dropTorpedoes),
-	CR_MEMBER(bombMoveRange),
-	CR_MEMBER(tracking),
-	CR_RESERVED(16)
-	));
+	CR_MEMBER(torpMoveRange),
+	CR_MEMBER(tracking)
+))
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CBombDropper::CBombDropper(CUnit* owner, bool useTorps)
-	: CWeapon(owner)
+CBombDropper::CBombDropper(CUnit* owner, const WeaponDef* def, bool useTorps)
+	: CWeapon(owner, def)
 	, dropTorpedoes(useTorps)
-	, bombMoveRange(3)
-	, tracking(0)
 {
+	//happens when loading
+	if (def != nullptr) {
+		torpMoveRange = def->range * useTorps;
+		tracking = def->turnrate * def->tracks;
+	}
+
 	onlyForward = true;
-
-	if (useTorps && owner) {
-		owner->hasUWWeapons = true;
-	}
-}
-
-CBombDropper::~CBombDropper()
-{
-
-}
-
-void CBombDropper::Update()
-{
-	if (targetType != Target_None) {
-		weaponPos = owner->pos
-				+ (owner->frontdir * relWeaponPos.z)
-				+ (owner->updir * relWeaponPos.y)
-				+ (owner->rightdir * relWeaponPos.x);
-		subClassReady = false;
-		if (targetType == Target_Unit) {
-			// aim at base of unit instead of middle and ignore uncertainity
-			targetPos = targetUnit->pos;
-		}
-		if (weaponPos.y > targetPos.y) {
-			const float d = targetPos.y - weaponPos.y;
-			const float s = -owner->speed.y;
-			const float sq = (s - 2*d) / -((weaponDef->myGravity == 0) ? mapInfo->map.gravity : -(weaponDef->myGravity));
-			if (sq > 0) {
-				predict = s / ((weaponDef->myGravity == 0) ? mapInfo->map.gravity : -(weaponDef->myGravity)) + math::sqrt(sq);
-			} else {
-				predict = 0;
-			}
-			const float3 hitpos = owner->pos+owner->speed*predict;
-			const float speedf = owner->speed.Length();
-			if (hitpos.SqDistance2D(targetPos) < Square((std::max(1, (salvoSize - 1)) * speedf * salvoDelay * 0.5f) + bombMoveRange))
-			{
-				subClassReady = true;
-			}
-		}
-	}
-	CWeapon::Update();
-}
-
-bool CBombDropper::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
-{
-	if (unit) {
-		if (unit->isUnderWater && !dropTorpedoes) {
-			return false;
-		}
-	} else {
-		if (pos.y < 0) {
-			return false;
-		}
-	}
-	return true;
-}
-
-void CBombDropper::FireImpl()
-{
-	if (targetType == Target_Unit) {
-		// aim at base of unit instead of middle and ignore uncertainity
-		targetPos = targetUnit->pos;
-	}
-
-	if (dropTorpedoes) {
-		float3 speed = owner->speed;
-		if (dynamic_cast<CHoverAirMoveType*>(owner->moveType)) {
-			speed = targetPos - weaponPos;
-			speed.Normalize();
-			speed *= 5;
-		}
-		int ttl;
-		if (weaponDef->flighttime == 0) {
-			ttl = (int)((range / projectileSpeed) + 15 + predict);
-		} else {
-			ttl = weaponDef->flighttime;
-		}
-		new CTorpedoProjectile(weaponPos, speed, owner, damageAreaOfEffect,
-				projectileSpeed, tracking, ttl, targetUnit, weaponDef);
-	} else {
-		// fudge a bit better lateral aim to compensate for imprecise aircraft steering
-		float3 dif = targetPos-weaponPos;
-		dif.y = 0;
-		float3 dir = owner->speed;
-		dir.SafeNormalize();
-		// add a random spray
-		dir += (gs->randVector() * sprayAngle+salvoError) * (1 - (owner->limExperience * 0.9f));
-		dir.y = std::min(0.0f, dir.y);
-		dir.SafeNormalize();
-		dif -= dir * dif.dot(dir);
-		dif /= std::max(0.01f,predict);
-		const float size = dif.Length();
-		if (size > 1.0f) {
-			dif /= size * 1.0f;
-		}
-		new CExplosiveProjectile(weaponPos, owner->speed + dif, owner,
-				weaponDef, 1000, damageAreaOfEffect,
-				((weaponDef->myGravity == 0) ? mapInfo->map.gravity : -(weaponDef->myGravity)));
-	}
-}
-
-void CBombDropper::Init()
-{
-	CWeapon::Init();
+	doTargetGroundPos = true;
+	noAutoTarget = true;
 	maxForwardAngleDif = -1.0f;
 }
 
-/**
- * pass true for noAutoTargetOverride to make sure this weapon
- * does not generate its own targets (to save CPU mostly), only
- * allow user- or CAI-picked units (the latter for fight orders)
- */
-void CBombDropper::SlowUpdate()
+
+float CBombDropper::GetPredictedImpactTime(float3 impactPos) const
 {
-	CWeapon::SlowUpdate(true);
+	if (weaponMuzzlePos.y <= impactPos.y)
+		return 0.0f;
+
+	// Definitions:
+	// d := (mostly negative) distance from plane to explosion position
+	// v := vertical plane speed (bomb starts with it)
+	// g := myGravity (negative)
+	//
+	// We want to solve:    d = v * t + 0.5 * g * t^2
+	//                  <=> 0 = t^2 + (2v/g) * t - (2d/g)
+	//                             -> a=2v/g    b=-(2d/g)
+	// Using pq-formula there are 2 solutions (we want the t>0 +solution):
+	//                 x(+,-) = -p +- sqrt((p^2 - q)  with p=a/2   q=b
+	//             =>         = -v/g + sqrt(v^2/g^2 + 2d/g)
+	//            <=>         = -v/g + sqrt( (v^2 + 2dg)/g^2 )
+	//            <=>         = -v/g + sqrt(v^2 + 2dg) / |g|
+	// Now we use (g is negative!):  +1/|g| = +1/(-g) = -1/g
+	//             =>         = (-v - sqrt(v^2 + 2dg)) / g
+	//            <=>         = -(v + sqrt(v^2 + 2dg)) / g
+
+	const float d = impactPos.y - weaponMuzzlePos.y;
+	const float v = owner->speed.y;
+	const float g = (weaponDef->myGravity == 0) ? mapInfo->map.gravity: -weaponDef->myGravity;
+
+	const float tt = v*v + 2.f * d * g;
+
+	return ((tt >= 0.0f)? ((-v - math::sqrt(tt)) / g) : 0.0f);
+}
+
+
+bool CBombDropper::TestTarget(const float3 pos, const SWeaponTarget& trg) const
+{
+	// assume we can still drop bombs on *partially* submerged targets
+	if (!dropTorpedoes && TargetUnderWater(pos, trg))
+		return false;
+	// assume we can drop torpedoes on any partially or fully submerged target
+	if (dropTorpedoes && !TargetInWater(pos, trg))
+		return false;
+
+	return CWeapon::TestTarget(pos, trg);
+}
+
+bool CBombDropper::HaveFreeLineOfFire(const float3 pos, const SWeaponTarget& trg, bool useMuzzle) const
+{
+	// TODO: requires sampling parabola from aimFromPos down to dropPos
+	return true;
+}
+
+
+bool CBombDropper::TestRange(const float3 pos, const SWeaponTarget& trg) const
+{
+	// bombs always fall down
+	if (aimFromPos.y < pos.y)
+		return false;
+
+	const float fallTime = GetPredictedImpactTime(pos);
+	const float dropDist = std::max(1, salvoSize - 1) * salvoDelay * owner->speed.Length2D() * 0.5f;
+
+	// torpedoes especially should not be dropped if the
+	// target position is already behind owner's position
+	const float torpDist = torpMoveRange * (owner->frontdir.dot(pos - aimFromPos) > 0.0f);
+
+	return (pos.SqDistance2D(aimFromPos + owner->speed * fallTime) < Square(dropDist + torpDist));
+}
+
+
+bool CBombDropper::CanFire(bool ignoreAngleGood, bool ignoreTargetType, bool ignoreRequestedDir) const
+{
+	return CWeapon::CanFire(true, ignoreTargetType, true);
+}
+
+
+void CBombDropper::FireImpl(const bool scriptCall)
+{
+	const float predict = GetPredictedImpactTime(currentTargetPos);
+
+	if (dropTorpedoes) {
+		float3 launchSpeed = owner->speed;
+
+		// if owner is a hovering aircraft, use a fixed launching speed [?? WTF]
+		if (owner->unitDef->IsHoveringAirUnit()) {
+			launchSpeed = wantedDir * 5.0f;
+		}
+
+		ProjectileParams params = GetProjectileParams();
+		params.pos = weaponMuzzlePos;
+		params.end = currentTargetPos;
+		params.speed = launchSpeed;
+		params.ttl = (weaponDef->flighttime == 0)? ((range / projectileSpeed) + 15 + predict): weaponDef->flighttime;
+		params.tracking = tracking;
+
+		assert(weaponDef->projectileType == WEAPON_TORPEDO_PROJECTILE);
+		WeaponProjectileFactory::LoadProjectile(params);
+	} else {
+		// fudge a bit better lateral aim to compensate for imprecise aircraft steering
+		float3 dif = (currentTargetPos - weaponMuzzlePos) * XZVector;
+		float3 dir = owner->speed;
+
+		dir = dir.SafeNormalize();
+		// add a random spray
+		dir += (gs->randVector() * SprayAngleExperience() + SalvoErrorExperience());
+		dir.y = std::min(0.0f, dir.y);
+		dir = dir.SafeNormalize();
+
+		dif -= (dir * dif.dot(dir));
+		dif /= std::max(0.01f, predict);
+
+		if (dif.SqLength() > 1.0f) {
+			dif /= dif.Length();
+		}
+
+		ProjectileParams params = GetProjectileParams();
+		params.pos = weaponMuzzlePos;
+		params.speed = owner->speed + dif;
+		params.ttl = 1000;
+		params.gravity = (weaponDef->myGravity == 0)? mapInfo->map.gravity: -weaponDef->myGravity;
+
+		assert(weaponDef->projectileType == WEAPON_EXPLOSIVE_PROJECTILE);
+		WeaponProjectileFactory::LoadProjectile(params);
+	}
 }
 

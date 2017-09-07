@@ -5,9 +5,9 @@
 
 #include "Weapon.h"
 
-class CCannon : public CWeapon
+class CCannon: public CWeapon
 {
-	CR_DECLARE(CCannon);
+	CR_DECLARE_DERIVED(CCannon)
 protected:
 	/// this is used to keep range true to range tag
 	float rangeFactor;
@@ -17,33 +17,29 @@ protected:
 	float3 lastDir;
 
 public:
-	CCannon(CUnit* owner);
-	~CCannon();
+	CCannon(CUnit* owner, const WeaponDef* def);
 
-	void Init();
-	void UpdateRange(float val);
-	bool TryTarget(const float3& pos, bool userTarget, CUnit* unit);
-	void Update();
-	bool AttackGround(float3 pos, bool userTarget);
-	float GetRange2D(float yDiff) const;
+	void Init() override final;
+	void UpdateRange(const float val) override final;
+	void UpdateWantedDir() override final;
+	void SlowUpdate() override final;
 
-	void SlowUpdate();
-	/// tells where to point the gun to hit the point at pos+diff
-	float3 GetWantedDir(const float3& diff);
+	float GetRange2D(float yDiff, float rFact) const;
+	float GetRange2D(const float yDiff) const override final;
 
-	/// unused?
-	float maxPredict;
-	/// unused?
-	float minPredict;
+
 	/// indicates high trajectory on/off state
 	bool highTrajectory;
-	/// burnblow tag. defines flakker-like behaviour
-	bool selfExplode;
 	/// projectile gravity
 	float gravity;
 
 private:
-	void FireImpl();
+	/// tells where to point the gun to hit the point at pos+diff
+	float3 GetWantedDir(const float3& diff);
+	float3 GetWantedDir2(const float3& diff) const;
+
+	bool HaveFreeLineOfFire(const float3 pos, const SWeaponTarget& trg, bool useMuzzle = false) const override final;
+	void FireImpl(const bool scriptCall) override final;
 };
 
 #endif // _CANNON_H

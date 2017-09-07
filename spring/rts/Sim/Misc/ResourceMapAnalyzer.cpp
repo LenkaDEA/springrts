@@ -20,6 +20,7 @@ using std::fclose;
 #include "Map/MetalMap.h"
 #include "System/FileSystem/DataDirsAccess.h"
 #include "System/FileSystem/FileQueryFlags.h"
+#include "System/FileSystem/FileSystem.h"
 #include "System/Log/ILog.h"
 
 #include <stdexcept>
@@ -49,13 +50,9 @@ CResourceMapAnalyzer::CResourceMapAnalyzer(int resourceId)
 	, minIncomeForSpot(0)
 	, xtractorRadius(0)
 	, doubleRadius(0)
-	, rexArrayA(NULL)
-	, rexArrayB(NULL)
-	, rexArrayC(NULL)
-	, tempAverage(NULL)
 {
 	if (CACHE_BASE.empty()) {
-		CACHE_BASE = dataDirsAccess.LocateDir("cache/analyzedResourceMaps/", FileQueryFlags::WRITE | FileQueryFlags::CREATE_DIRS);
+		CACHE_BASE = dataDirsAccess.LocateDir(FileSystem::GetCacheDir() + "/analyzedResourceMaps/", FileQueryFlags::WRITE | FileQueryFlags::CREATE_DIRS);
 	}
 
 	// from 0-255, the minimum percentage of resources a spot needs to have from
@@ -65,7 +62,7 @@ CResourceMapAnalyzer::CResourceMapAnalyzer(int resourceId)
 	// if more spots than that are found the map is considered a resource-map (eg. speed-metal), tweak this as needed
 	maxSpots = 10000;
 
-	const CResource* resource = resourceHandler->GetResource(resourceId);
+	const CResourceDescription* resource = resourceHandler->GetResource(resourceId);
 	extractorRadius = resource->extractorRadius;
 
 	// resource-map has 1/2 resolution of normal map
@@ -78,29 +75,21 @@ CResourceMapAnalyzer::CResourceMapAnalyzer(int resourceId)
 	squareRadius = xtractorRadius * xtractorRadius;
 	doubleSquareRadius = doubleRadius * doubleRadius;
 
-	rexArrayA = new unsigned char[totalCells];
-	rexArrayB = new unsigned char[totalCells];
+	rexArrayA.resize(totalCells);
+	rexArrayB.resize(totalCells);
 	// used for drawing the TGA, not really needed with a couple of changes
-	rexArrayC = new unsigned char[totalCells];
+	rexArrayC.resize(totalCells);
 
-	tempAverage = new int[totalCells];
+	tempAverage.resize(totalCells);
 
 	Init();
-}
-
-CResourceMapAnalyzer::~CResourceMapAnalyzer() {
-
-	delete[] rexArrayA;
-	delete[] rexArrayB;
-	delete[] rexArrayC;
-	delete[] tempAverage;
 }
 
 
 
 float3 CResourceMapAnalyzer::GetNearestSpot(int builderUnitId, const UnitDef* extractor) const {
 
-	CUnit* builder = uh->units[builderUnitId];
+	CUnit* builder = unitHandler->units[builderUnitId];
 
 	if (builder == NULL) {
 		LOG_L(L_WARNING, "GetNearestSpot: Invalid unit ID: %i", builderUnitId);
@@ -119,7 +108,7 @@ float3 CResourceMapAnalyzer::GetNearestSpot(float3 fromPos, int team, const Unit
 
 	for (size_t i = 0; i < vectoredSpots.size(); ++i) {
 		if (extractor != NULL) {
-			spotCoords = helper->ClosestBuildSite(team, extractor, vectoredSpots[i], maxDivergence, 2);
+			spotCoords = CGameHelper::ClosestBuildSite(team, extractor, vectoredSpots[i], maxDivergence, 2);
 		} else {
 			spotCoords = vectoredSpots[i];
 		}
@@ -135,7 +124,7 @@ float3 CResourceMapAnalyzer::GetNearestSpot(float3 fromPos, int team, const Unit
 			bool b1 = (tempScore < spotScore);
 // 			bool b2 = (numEnemies == 0);
 // 			bool b3 = (myThreat <= (ai->tm->GetAverageThreat() * 1.5));
-// 			bool b4 = (ai->uh->TaskPlanExist(spotCoords, extractor));
+// 			bool b4 = (ai->unitHandler->TaskPlanExist(spotCoords, extractor));
 
 			if (b1/* && b2 && b3 && !b4*/) {
 				tempScore = spotScore;
@@ -153,7 +142,7 @@ float3 CResourceMapAnalyzer::GetNearestSpot(float3 fromPos, int team, const Unit
 void CResourceMapAnalyzer::Init() {
 
 	// Leave this line if you want to use this class
-	const CResource* resource = resourceHandler->GetResource(resourceId);
+	const CResourceDescription* resource = resourceHandler->GetResource(resourceId);
 	LOG("ResourceMapAnalyzer by Krogothe, initialized for resource %i(%s)",
 			resourceId, resource->name.c_str());
 
@@ -173,7 +162,7 @@ const std::vector<float3>& CResourceMapAnalyzer::GetSpots() const {
 }
 
 void CResourceMapAnalyzer::GetResourcePoints() {
-	int* xend = new int[doubleRadius + 1];
+	std::vector<int> xend(doubleRadius + 1);
 
 	for (int a = 0; a < doubleRadius + 1; a++) {
 		float z = a - xtractorRadius;
@@ -198,7 +187,6 @@ void CResourceMapAnalyzer::GetResourcePoints() {
 	if (totalResourcesDouble < 0.9) {
 		// the map does not have any resource, just stop
 		numSpotsFound = 0;
-		delete[] xend;
 		return;
 	}
 
@@ -279,12 +267,7 @@ void CResourceMapAnalyzer::GetResourcePoints() {
 	}
 
 	// make a list for the distribution of values
-	int* valueDist = new int[256];
-
-	for (int i = 0; i < 256; i++) {
-		// clear the array (useless?)
-		valueDist[i] = 0;
-	}
+	std::vector<int> valueDist(256, 0);
 
 	// this will get the total resources a rex placed at each spot would make
 	for (int i = 0; i < totalCells; i++) {
@@ -317,7 +300,7 @@ void CResourceMapAnalyzer::GetResourcePoints() {
 		numberOfValues = 256;
 	}
 
-	int* bestSpotList = new int[numberOfValues];
+	std::vector<int> bestSpotList(numberOfValues);
 
 	for (int i = 0; i < totalCells; i++) {
 		if (rexArrayB[i] == bestValue) {
@@ -378,8 +361,8 @@ void CResourceMapAnalyzer::GetResourcePoints() {
 						numberOfValues = 256;
 					}
 
-					delete[] bestSpotList;
-					bestSpotList = new int[numberOfValues];
+					bestSpotList.clear();
+					bestSpotList.resize(numberOfValues);
 
 					for (int i = 0; i < totalCells; i++) {
 						if (rexArrayB[i] == bestValue) {
@@ -426,7 +409,7 @@ void CResourceMapAnalyzer::GetResourcePoints() {
 			bufferSpot.x = coordX * 16 + 8;
 			bufferSpot.z = coordZ * 16 + 8;
 			// gets the actual amount of resource an extractor can make
-			const CResource* resource = resourceHandler->GetResource(resourceId);
+			const CResourceDescription* resource = resourceHandler->GetResource(resourceId);
 			bufferSpot.y = tempResources * (resource->maxWorth) * maxResource / 255;
 			vectoredSpots.push_back(bufferSpot);
 
@@ -534,11 +517,6 @@ void CResourceMapAnalyzer::GetResourcePoints() {
 		}
 	}
 
-	// kill the lists
-	delete[] bestSpotList;
-	delete[] valueDist;
-	delete[] xend;
-
 	// 0.95 used for reliability
 	// bool isResourceMap = (numSpotsFound > maxSpots * 0.95);
 }
@@ -614,7 +592,7 @@ bool CResourceMapAnalyzer::LoadResourceMap() {
 
 std::string CResourceMapAnalyzer::GetCacheFileName() const {
 
-	const CResource* resource = resourceHandler->GetResource(resourceId);
+	const CResourceDescription* resource = resourceHandler->GetResource(resourceId);
 	std::string absFile = CACHE_BASE + gameSetup->mapName + resource->name;
 
 	return absFile;

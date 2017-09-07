@@ -3,36 +3,20 @@
 #ifndef UNITDEF_H
 #define UNITDEF_H
 
-#include <string>
 #include <vector>
-#include <map>
 
 #include "Rendering/Icon.h"
 #include "Sim/Misc/GuiSoundSet.h"
 #include "Sim/Objects/SolidObject.h"
+#include "Sim/Objects/SolidObjectDef.h"
 #include "System/float3.h"
 
 
 struct Command;
-struct MoveDef;
 struct WeaponDef;
-struct S3DModel;
+struct MoveDef;
 struct UnitDefImage;
-struct CollisionVolume;
-class IExplosionGenerator;
 class LuaTable;
-
-
-struct UnitModelDef
-{
-	UnitModelDef(): model(NULL) {}
-
-	S3DModel* model;
-
-	std::string modelPath;
-	std::string modelName;
-	std::map<std::string, std::string> modelTextures;
-};
 
 
 struct UnitDefWeapon {
@@ -47,7 +31,6 @@ struct UnitDefWeapon {
 	const WeaponDef* def;
 	int slavedTo;
 
-	float fuelUsage; /// How many seconds of fuel it costs for the owning unit to fire this weapon
 	float maxMainDirAngleDif;
 
 	unsigned int badTargetCat;
@@ -57,69 +40,53 @@ struct UnitDefWeapon {
 };
 
 
-struct UnitDef
+struct UnitDef: public SolidObjectDef
 {
 public:
 	UnitDef(const LuaTable& udTable, const std::string& unitName, int id);
 	UnitDef();
 	~UnitDef();
 
-	S3DModel* LoadModel() const;
-	float GetModelRadius() const;
-
 	bool DontLand() const { return dlHoverFactor >= 0.0f; }
 	void SetNoCost(bool noCost);
-	bool IsAllowedTerrainHeight(float rawHeight, float* clampedHeight = NULL) const;
+	bool CheckTerrainConstraints(const MoveDef* moveDef, float rawHeight, float* clampedHeight = NULL) const;
 
-	bool IsTransportUnit()      const { return (transportCapacity > 0 && transportMass > 0.0f); }
-	bool IsImmobileUnit()       const { return (moveDef == NULL && !canfly && speed <= 0.0f); }
-	bool IsBuildingUnit()       const { return (IsImmobileUnit() && !yardmap.empty()); }
-	bool IsMobileBuilderUnit()  const { return (builder && !IsImmobileUnit()); }
-	bool IsStaticBuilderUnit()  const { return (builder &&  IsImmobileUnit()); }
-	bool IsFactoryUnit()        const { return (builder &&  IsBuildingUnit()); }
-	bool IsExtractorUnit()      const { return (extractsMetal > 0.0f); }
-	bool IsGroundUnit()         const { return (moveDef != NULL && !canfly); }
-	bool IsAirUnit()            const { return (moveDef == NULL &&  canfly); }
-	bool IsNonHoveringAirUnit() const { return (IsAirUnit() && !hoverAttack); }
-	bool IsFighterUnit()        const { return (IsNonHoveringAirUnit() && !HasBomberWeapon()); }
-	bool IsBomberUnit()         const { return (IsNonHoveringAirUnit() &&  HasBomberWeapon()); }
+	bool IsTransportUnit()     const { return (transportCapacity > 0 && transportMass > 0.0f); }
+	bool IsImmobileUnit()      const { return (pathType == -1U && !canfly && speed <= 0.0f); }
+	bool IsBuildingUnit()      const { return (IsImmobileUnit() && !yardmap.empty()); }
+	bool IsBuilderUnit()       const { return (builder && buildSpeed > 0.0f && buildDistance > 0.0f); }
+	bool IsMobileBuilderUnit() const { return (IsBuilderUnit() && !IsImmobileUnit()); }
+	bool IsStaticBuilderUnit() const { return (IsBuilderUnit() &&  IsImmobileUnit()); }
+	bool IsFactoryUnit()       const { return (IsBuilderUnit() &&  IsBuildingUnit()); }
+	bool IsExtractorUnit()     const { return (extractsMetal > 0.0f && extractRange > 0.0f); }
+	bool IsGroundUnit()        const { return (pathType != -1U && !canfly); }
+	bool IsAirUnit()           const { return (pathType == -1U &&  canfly); }
+	bool IsStrafingAirUnit()   const { return (IsAirUnit() && !(IsBuilderUnit() || IsTransportUnit() || hoverAttack)); }
+	bool IsHoveringAirUnit()   const { return (IsAirUnit() &&  (IsBuilderUnit() || IsTransportUnit() || hoverAttack)); }
+	bool IsFighterAirUnit()    const { return (IsStrafingAirUnit() && !weapons.empty() && !HasBomberWeapon()); }
+	bool IsBomberAirUnit()     const { return (IsStrafingAirUnit() && !weapons.empty() &&  HasBomberWeapon()); }
 
-	bool WantsMoveDef() const { return (canmove && speed > 0.0f && !canfly); }
+	bool RequireMoveDef() const { return (canmove && speed > 0.0f && !canfly); }
 	bool HasBomberWeapon() const;
 	const std::vector<YardMapStatus>& GetYardMap() const { return yardmap; }
 
-	// NOTE: deprecated, only used by LuaUnitDefs.cpp
-	const char* GetTypeString() const {
-		if (IsTransportUnit()) { return "Transport"; }
+	void SetModelExplosionGeneratorID(unsigned int idx, unsigned int egID) { modelExplGenIDs[idx] = egID; }
+	void SetPieceExplosionGeneratorID(unsigned int idx, unsigned int egID) { pieceExplGenIDs[idx] = egID; }
 
-		if (IsBuildingUnit()) {
-			if (IsFactoryUnit()) { return "Factory"; }
-			if (IsExtractorUnit()) { return "MetalExtractor"; }
-			return "Building";
-		}
-
-		if (IsMobileBuilderUnit() || IsStaticBuilderUnit()) { return "Builder"; }
-
-		if (IsGroundUnit()) { return "GroundUnit"; }
-		if (IsAirUnit()) {
-			if (IsFighterUnit()) { return "Fighter"; }
-			if (IsBomberUnit()) { return "Bomber"; }
-			return "Aircraft";
-		}
-
-		return "Unknown";
+	unsigned int GetModelExplosionGeneratorID(unsigned int idx) const {
+		if (modelExplGenIDs.empty())
+			return -1u;
+		return (modelExplGenIDs[idx % modelExplGenIDs.size()]);
+	}
+	unsigned int GetPieceExplosionGeneratorID(unsigned int idx) const {
+		if (pieceExplGenIDs.empty())
+			return -1u;
+		return (pieceExplGenIDs[idx % pieceExplGenIDs.size()]);
 	}
 
-	std::string name;
-	std::string humanName;
-
-
-	int id;                 ///< unique id for this type of unit
+public:
 	int cobID;              ///< associated with the COB \<GET COB_ID unitID\> call
 
-	CollisionVolume* collisionVolume;
-
-	std::string decoyName;
 	const UnitDef* decoyDef;
 
 	int techLevel;
@@ -129,8 +96,6 @@ public:
 	float metalMake;		///< metal will always be created
 	float makesMetal;		///< metal will be created when unit is on and enough energy can be drained
 	float energyMake;
-	float metalCost;
-	float energyCost;
 	float buildTime;
 	float extractsMetal;
 	float extractRange;
@@ -138,15 +103,14 @@ public:
 	float tidalGenerator;
 	float metalStorage;
 	float energyStorage;
-
-	bool extractSquare;
+	float harvestMetalStorage;
+	float harvestEnergyStorage;
 
 	float autoHeal;     ///< amount autohealed
 	float idleAutoHeal; ///< amount autohealed only during idling
 	int idleTime;       ///< time a unit needs to idle before its considered idling
 
 	float power;
-	float health;
 	unsigned int category;
 
 	float speed;        ///< maximum forward speed the unit can attain (elmos/sec)
@@ -162,8 +126,6 @@ public:
 	///< without slowing down
 	float turnInPlaceAngleLimit;
 
-	bool upright;
-	bool blocking;
 	bool collide;
 
 	float losHeight;
@@ -190,9 +152,6 @@ public:
 	float captureSpeed;
 	float terraformSpeed;
 
-	float mass;
-	float crushResistance;
-
 	bool canSubmerge;
 	bool canfly;
 	bool floatOnWater;
@@ -204,6 +163,8 @@ public:
 	float waterline;
 	float minWaterDepth;
 	float maxWaterDepth;
+
+	unsigned int pathType;
 
 	float armoredMultiple;
 	int armorType;
@@ -220,33 +181,41 @@ public:
 	float  flankingBonusMin; ///< damage factor for the most protected direction
 	float  flankingBonusMobilityAdd; ///< how much the ability of the flanking bonus direction to move builds up each frame
 
-	std::string objectName;     ///< raw name of the unit's model without objects3d prefix, eg. "armjeth.s3o"
+	std::string humanName;
+	std::string decoyName;
 	std::string scriptName;     ///< the name of the unit's script, e.g. "armjeth.cob"
-	std::string scriptPath;     ///< the path of the unit's script, e.g. "scripts/armjeth.cob"
-
-	mutable UnitModelDef modelDef;
-
-	bool usePieceCollisionVolumes;		///< if true, projectile collisions are checked per-piece
+	std::string tooltip;
+	std::string wreckName;
+	std::string categoryString;
+	std::string buildPicName;
 
 	std::vector<UnitDefWeapon> weapons;
+
+	///< The unrotated yardmap for buildings
+	///< (only non-mobile ground units can have these)
+	std::vector<YardMapStatus> yardmap;
+
+	///< buildingMask used to disallow construction on certain map squares
+	boost::uint16_t buildingMask;
+
+	std::vector<std::string> modelCEGTags;
+	std::vector<std::string> pieceCEGTags;
+
+	// TODO: privatize
+	std::vector<unsigned int> modelExplGenIDs;
+	std::vector<unsigned int> pieceExplGenIDs;
+
+	std::map<int, std::string> buildOptions;
+
 	const WeaponDef* shieldWeaponDef;
 	const WeaponDef* stockpileWeaponDef;
 	float maxWeaponRange;
 	float maxCoverage;
 
-	std::map<int, std::string> buildOptions;
+	const WeaponDef* deathExpWeaponDef;
+	const WeaponDef* selfdExpWeaponDef;
 
-	std::string tooltip;
-	std::string wreckName;
-
-	std::string deathExplosion;
-	std::string selfDExplosion;
-
-	std::string categoryString;
-
-	std::string buildPicName;
 	mutable UnitDefImage* buildPic;
-
 	mutable icon::CIcon iconType;
 
 	int selfDCountdown;
@@ -257,13 +226,11 @@ public:
 	bool fullHealthFactory;
 	bool factoryHeadingTakeoff;
 
-	bool reclaimable;
 	bool capturable;
 	bool repairable;
 
 	// order-capabilities for CommandAI
 	bool canmove;
-	bool canHover;
 	bool canAttack;
 	bool canFight;
 	bool canPatrol;
@@ -292,7 +259,6 @@ public:
 	//aircraft stuff
 	float wingDrag;
 	float wingAngle;
-	float drag;
 	float frontToSpeed;
 	float speedToFront;
 	float myGravity;
@@ -315,17 +281,6 @@ public:
 	float maxElevator;
 	float maxRudder;
 	float crashDrag;
-
-	MoveDef* moveDef;
-
-	///< The unrotated yardmap for buildings
-	///< (only non-mobile ground units can have these)
-	std::vector<YardMapStatus> yardmap;
-
-	///< both sizes expressed in heightmap coordinates; M x N
-	///< footprint covers M*SQUARE_SIZE x N*SQUARE_SIZE elmos
-	int xsize;
-	int zsize;
 
 	float loadingRadius;							///< for transports
 	float unloadSpread;
@@ -379,14 +334,6 @@ public:
 	};
 	SoundStruct sounds;
 
-	bool leaveTracks;
-	std::string trackTypeName;
-	float trackWidth;
-	float trackOffset;
-	float trackStrength;
-	float trackStretch;
-	int trackType;
-
 	bool canDropFlare;
 	float flareReloadTime;
 	float flareEfficiency;
@@ -396,31 +343,14 @@ public:
 	int flareSalvoSize;
 	int flareSalvoDelay;
 
-	bool canLoopbackAttack;  ///< only matters for fighter aircraft
-	bool levelGround;        ///< only matters for buildings
-
-	bool useBuildingGroundDecal;
-	std::string buildingDecalTypeName;
-	int buildingDecalType;
-	int buildingDecalSizeX;
-	int buildingDecalSizeY;
-	float buildingDecalDecaySpeed;
+	bool canLoopbackAttack;                         ///< only matters for fighter aircraft
+	bool levelGround;                               ///< only matters for buildings
 
 	bool showNanoFrame;								///< Does the nano frame animation get shown during construction?
 	bool showNanoSpray;								///< Does nano spray get shown at all?
 	float3 nanoColor;								///< If nano spray is displayed what color is it?
 
-	float maxFuel;									///< max flight time in seconds before the aircraft needs to return to a air repair bay to refuel
-	float refuelTime;								///< time to fully refuel unit
-	float minAirBasePower;							///< min build power for airbases that this aircraft can land on
-
-	std::vector<std::string> pieceCEGTags;
-	std::vector<std::string> modelCEGTags;
-	std::vector<IExplosionGenerator*> sfxExplGens;	///< list of explosion generators for use in scripts
-
-	int maxThisUnit;								///< number of units of this type allowed simultaneously in the game
-
-	std::map<std::string, std::string> customParams;
+	int maxThisUnit;                                ///< number of units of this type allowed simultaneously in the game
 
 private:
 	void ParseWeaponsTable(const LuaTable& weaponsTable);

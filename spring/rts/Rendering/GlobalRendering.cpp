@@ -6,20 +6,21 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/FBO.h"
 #include "Sim/Misc/GlobalConstants.h"
-#include "System/mmgr.h"
 #include "System/Util.h"
-#include "System/Vec2.h"
+#include "System/type2.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
 #include "System/creg/creg_cond.h"
 
 #include <string>
+#include <SDL_video.h>
 
-CONFIG(bool, CompressTextures).defaultValue(false).safemodeValue(true); // in safemode enabled, cause it ways more likely the gpu runs out of memory than this extension cause crashes!
-CONFIG(int, AtiHacks).defaultValue(-1);
-CONFIG(bool, DualScreenMode).defaultValue(false);
-CONFIG(bool, DualScreenMiniMapOnLeft).defaultValue(false);
-CONFIG(bool, TeamNanoSpray).defaultValue(true);
+CONFIG(bool, CompressTextures).defaultValue(false).safemodeValue(true).description("Runtime compress most textures to save VideoRAM."); // in safemode enabled, cause it ways more likely the gpu runs out of memory than this extension cause crashes!
+CONFIG(int, ForceShaders).defaultValue(-1).minimumValue(-1).maximumValue(1);
+CONFIG(int, AtiHacks).defaultValue(-1).headlessValue(0).minimumValue(-1).maximumValue(1).description("Enables graphics drivers workarounds for users with ATI video cards.\n -1:=runtime detect, 0:=off, 1:=on");
+CONFIG(bool, DualScreenMode).defaultValue(false).description("Sets whether to split the screen in half, with one half for minimap and one for main screen. Right side is for minimap unless DualScreenMiniMapOnLeft is set.");
+CONFIG(bool, DualScreenMiniMapOnLeft).defaultValue(false).description("When set, will make the left half of the screen the minimap when DualScreenMode is set.");
+CONFIG(bool, TeamNanoSpray).defaultValue(true).headlessValue(false);
 
 /**
  * @brief global rendering
@@ -28,34 +29,83 @@ CONFIG(bool, TeamNanoSpray).defaultValue(true);
  */
 CGlobalRendering* globalRendering;
 
-const float CGlobalRendering::MAX_VIEW_RANGE = 8000.0f;
-const float CGlobalRendering::NEAR_PLANE     =    2.8f;
+const float CGlobalRendering::MAX_VIEW_RANGE     = 8000.0f;
+const float CGlobalRendering::NEAR_PLANE         =    2.8f;
+const float CGlobalRendering::SMF_INTENSITY_MULT = 210.0f / 255.0f;
+const int CGlobalRendering::minWinSizeX = 400;
+const int CGlobalRendering::minWinSizeY = 300;
 
-CR_BIND(CGlobalRendering, );
+CR_BIND(CGlobalRendering, )
 
 CR_REG_METADATA(CGlobalRendering, (
-	CR_MEMBER(teamNanospray), // ??
+	CR_MEMBER(teamNanospray),
+	CR_MEMBER(drawSky),
+	CR_MEMBER(drawWater),
+	CR_MEMBER(drawGround),
+	CR_MEMBER(drawMapMarks),
+	CR_MEMBER(drawFog),
+	CR_MEMBER(drawdebug),
+	CR_MEMBER(drawdebugtraceray),
+	CR_MEMBER(timeOffset),
 	CR_MEMBER(lastFrameTime),
 	CR_MEMBER(lastFrameStart),
-	CR_MEMBER(weightedSpeedFactor), // ??
-	CR_MEMBER(drawFrame), // ??
-	CR_MEMBER(drawdebug), // ??
-	CR_MEMBER(active),
-	CR_MEMBER(viewRange),
-	CR_MEMBER(timeOffset),
-	CR_MEMBER(drawFog),
-	CR_RESERVED(64)
-));
+	CR_MEMBER(weightedSpeedFactor),
+	CR_MEMBER(drawFrame),
+	CR_MEMBER(FPS),
+
+	CR_IGNORED(winState),
+	CR_IGNORED(screenSizeX),
+	CR_IGNORED(screenSizeY),
+	CR_IGNORED(winPosX),
+	CR_IGNORED(winPosY),
+	CR_IGNORED(winSizeX),
+	CR_IGNORED(winSizeY),
+	CR_IGNORED(viewPosX),
+	CR_IGNORED(viewPosY),
+	CR_IGNORED(viewSizeX),
+	CR_IGNORED(viewSizeY),
+	CR_IGNORED(pixelX),
+	CR_IGNORED(pixelY),
+	CR_IGNORED(aspectRatio),
+	CR_IGNORED(zNear),
+	CR_IGNORED(viewRange),
+	CR_IGNORED(FSAA),
+	CR_IGNORED(maxTextureSize),
+	CR_IGNORED(active),
+	CR_IGNORED(compressTextures),
+	CR_IGNORED(haveATI),
+	CR_IGNORED(haveMesa),
+	CR_IGNORED(haveIntel),
+	CR_IGNORED(haveNvidia),
+	CR_IGNORED(atiHacks),
+	CR_IGNORED(supportNPOTs),
+	CR_IGNORED(support24bitDepthBuffers),
+	CR_IGNORED(supportRestartPrimitive),
+	CR_IGNORED(haveARB),
+	CR_IGNORED(haveGLSL),
+	CR_IGNORED(maxSmoothPointSize),
+	CR_IGNORED(glslMaxVaryings),
+	CR_IGNORED(glslMaxAttributes),
+	CR_IGNORED(glslMaxDrawBuffers),
+	CR_IGNORED(glslMaxRecommendedIndices),
+	CR_IGNORED(glslMaxRecommendedVertices),
+	CR_IGNORED(glslMaxUniformBufferBindings),
+	CR_IGNORED(glslMaxUniformBufferSize),
+	CR_IGNORED(dualScreenMode),
+	CR_IGNORED(dualScreenMiniMapOnLeft),
+	CR_IGNORED(fullScreen),
+	CR_IGNORED(window)
+))
 
 CGlobalRendering::CGlobalRendering()
 	: timeOffset(0.0f)
 	, lastFrameTime(0.0f)
-	, lastFrameStart(spring_gettime())
+	, lastFrameStart(spring_notime)
 	, weightedSpeedFactor(0.0f)
 	, drawFrame(1)
-	, FPS(30.0f)
+	, FPS(GAME_SPEED)
 
-	, winState(0)
+	, winState(WINSTATE_DEFAULT)
 	, screenSizeX(1)
 	, screenSizeY(1)
 
@@ -80,9 +130,8 @@ CGlobalRendering::CGlobalRendering()
 	, zNear(NEAR_PLANE)
 	, viewRange(MAX_VIEW_RANGE)
 	, FSAA(0)
-	, depthBufferBits(0)
 
-	, maxTextureSize(1024)
+	, maxTextureSize(2048)
 
 	, drawSky(true)
 	, drawWater(true)
@@ -90,6 +139,7 @@ CGlobalRendering::CGlobalRendering()
 	, drawMapMarks(true)
 	, drawFog(true)
 	, drawdebug(false)
+	, drawdebugtraceray(false)
 
 	, teamNanospray(true)
 	, active(true)
@@ -117,6 +167,8 @@ CGlobalRendering::CGlobalRendering()
 	, dualScreenMode(false)
 	, dualScreenMiniMapOnLeft(false)
 	, fullScreen(true)
+
+	, window(nullptr)
 {
 }
 
@@ -138,10 +190,17 @@ void CGlobalRendering::PostInit() {
 		haveIntel  = (vendor.find("intel") != std::string::npos);
 		haveNvidia = (vendor.find("nvidia ") != std::string::npos);
 
-		//FIXME Neither Intel's nor Mesa's GLSL implementation seem to be in a workable state atm (date: Nov. 2011)
-		haveGLSL &= !haveIntel;
-		haveGLSL &= !haveMesa;
-		//FIXME add an user config to force enable it!
+		const int useGlslShaders = configHandler->GetInt("ForceShaders");
+		if (useGlslShaders < 0) {
+			// disable Shaders for Intel drivers
+			haveARB  &= !haveIntel;
+			haveGLSL &= !haveIntel;
+		} else if (useGlslShaders == 0) {
+			haveARB  = false;
+			haveGLSL = false;
+		} else if (useGlslShaders > 0) {
+			// rely on extension detection (don't force enable shaders, when the extensions aren't exposed!)
+		}
 
 		if (haveATI) {
 			// x-series doesn't support NPOTs (but hd-series does)
@@ -233,6 +292,46 @@ void CGlobalRendering::PostInit() {
 	teamNanospray = configHandler->GetBool("TeamNanoSpray");
 }
 
+void CGlobalRendering::SetFullScreen(bool configFullScreen, bool cmdLineWindowed, bool cmdLineFullScreen)
+{
+	fullScreen = configFullScreen;
+
+	// flags
+	if (cmdLineWindowed) {
+		fullScreen = false;
+	} else if (cmdLineFullScreen) {
+		fullScreen = true;
+	}
+}
+
+
+int2 CGlobalRendering::GetWantedViewSize(const bool fullscreen)
+{
+	int2 res = int2(configHandler->GetInt("XResolution"), configHandler->GetInt("YResolution"));
+
+	if (!fullscreen) {
+		res = int2(configHandler->GetInt("XResolutionWindowed"), configHandler->GetInt("YResolutionWindowed"));
+	}
+
+	// Use Native Desktop Resolution
+	// and yes SDL2 can do this itself when sizeX & sizeY are set to zero, but
+	// oh wonder SDL2 fails then when you use Display Cloneing and similar
+	//  -> i.e. DVI monitor runs then at 640x400 and HDMI at full-HD (yes with display _cloning_!)
+	{
+		SDL_DisplayMode dmode;
+		SDL_GetDesktopDisplayMode(0, &dmode); //TODO make screen configurable?
+		if (res.x<=0) res.x = dmode.w;
+		if (res.y<=0) res.y = dmode.h;
+	}
+
+	// In Windowed Mode Limit Minimum Window Size
+	if (!fullscreen) {
+		res.x = std::max(res.x, minWinSizeX);
+		res.y = std::max(res.y, minWinSizeY);
+	}
+
+	return res;
+}
 
 
 void CGlobalRendering::SetDualScreenParams() {
@@ -243,18 +342,6 @@ void CGlobalRendering::SetDualScreenParams() {
 	} else {
 		dualScreenMiniMapOnLeft = false;
 	}
-}
-
-void CGlobalRendering::UpdateWindowGeometry() {
-	// NOTE:
-	//   in headless builds this is not called,
-	//   therefore winSize{X,Y} both remain 1
-	screenSizeX = viewSizeX;
-	screenSizeY = viewSizeY;
-	winSizeX = viewSizeX;
-	winSizeY = viewSizeY;
-	winPosX = 0;
-	winPosY = 0;
 }
 
 void CGlobalRendering::UpdateViewPortGeometry() {

@@ -3,7 +3,6 @@
 #ifndef BASIC_SKY_H
 #define BASIC_SKY_H
 
-#include "Rendering/GL/myGL.h"
 #include "ISky.h"
 
 class CBasicSky : public ISky
@@ -44,7 +43,6 @@ protected:
 	unsigned int skyTex;
 	unsigned int skyDot3Tex;
 	unsigned int cloudDot3Tex;
-	unsigned int sunTex;
 	unsigned int sunFlareTex;
 
 	unsigned char (* skytexpart)[4];

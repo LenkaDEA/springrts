@@ -2,7 +2,6 @@
 
 #include "SDL_mouse.h"
 #include "SDL_keyboard.h"
-#include "System/mmgr.h"
 
 #include "InMapDraw.h"
 
@@ -10,22 +9,22 @@
 #include "Camera.h"
 #include "Game.h"
 #include "GlobalUnsynced.h"
-#include "Player.h"
-#include "PlayerHandler.h"
+#include "ExternalAI/AILegacySupport.h" // {Point, Line}Marker
+#include "Game/Players/Player.h"
+#include "Game/Players/PlayerHandler.h"
 #include "UI/MiniMap.h"
 #include "UI/MouseHandler.h"
-#include "ExternalAI/AILegacySupport.h" // {Point, Line}Marker
 #include "Map/Ground.h"
 #include "Map/ReadMap.h"
-#include "System/Net/UnpackPacket.h"
+#include "Net/Protocol/BaseNetProtocol.h"
+#include "Net/Protocol/NetProtocol.h"
 #include "Sim/Misc/TeamHandler.h"
+#include "System/Net/UnpackPacket.h"
 #include "System/EventHandler.h"
 #include "System/EventClient.h"
-#include "System/BaseNetProtocol.h"
-#include "System/NetProtocol.h"
 #include "System/Log/ILog.h"
 #include "System/Sound/ISound.h"
-#include "System/Sound/SoundChannels.h"
+#include "System/Sound/ISoundChannels.h"
 
 
 CInMapDraw* inMapDrawer = NULL;
@@ -41,7 +40,7 @@ public:
 	CNotificationPeeper()
 		: CEventClient("NotificationPeeper", 99, false)
 	{
-		blippSound = sound->GetSoundId("MapPoint", false);
+		blippSound = sound->GetSoundId("MapPoint");
 	}
 
 	virtual bool WantsEvent(const std::string& eventName) {
@@ -57,8 +56,8 @@ public:
 			// even if this message is not intented for our ears
 			LOG("%s added point: %s", sender->name.c_str(), label->c_str());
 			eventHandler.LastMessagePosition(*pos0);
-			Channels::UserInterface.PlaySample(blippSound, *pos0);
-			minimap->AddNotification(*pos0, float3(1.0f, 1.0f, 1.0f), 1.0f);
+			Channels::UserInterface->PlaySample(blippSound, *pos0);
+			minimap->AddNotification(*pos0, OnesVector, 1.0f);
 		}
 
 		return false;
@@ -74,7 +73,7 @@ CInMapDraw::CInMapDraw()
 	, wantLabel(false)
 	, lastLeftClickTime(0.0f)
 	, lastDrawTime(0.0f)
-	, lastPos(float3(1.0f, 1.0f, 1.0f))
+	, lastPos(OnesVector)
 	, allowSpecMapDrawing(true)
 	, allowLuaMapDrawing(true)
 	, notificationPeeper(NULL)
@@ -104,16 +103,16 @@ void CInMapDraw::MousePress(int x, int y, int button)
 				PromptLabel(pos);
 			}
 			lastLeftClickTime = gu->gameTime;
-			break;
-		}
-		case SDL_BUTTON_RIGHT: {
-			SendErase(pos);
-			break;
-		}
+		} break;
 		case SDL_BUTTON_MIDDLE:{
 			SendPoint(pos, "", false);
-			break;
-		}
+
+		} break;
+		case SDL_BUTTON_RIGHT: {
+			SendErase(pos);
+		} break;
+		default: {
+		} break;
 	}
 
 	lastPos = pos;
@@ -147,11 +146,11 @@ void CInMapDraw::MouseMove(int x, int y, int dx, int dy, int button)
 
 float3 CInMapDraw::GetMouseMapPos() // TODO move to some more global place?
 {
-	const float dist = ground->LineGroundCol(camera->pos, camera->pos + (mouse->dir * globalRendering->viewRange * 1.4f), false);
+	const float dist = CGround::LineGroundCol(camera->GetPos(), camera->GetPos() + (mouse->dir * globalRendering->viewRange * 1.4f), false);
 	if (dist < 0) {
 		return float3(-1.0f, 1.0f, -1.0f);
 	}
-	float3 pos = camera->pos + (mouse->dir * dist);
+	float3 pos = camera->GetPos() + (mouse->dir * dist);
 	pos.ClampInBounds();
 	return pos;
 }
@@ -224,13 +223,13 @@ int CInMapDraw::GotNetMsg(boost::shared_ptr<const netcode::RawPacket>& packet)
 void CInMapDraw::SetSpecMapDrawingAllowed(bool state)
 {
 	allowSpecMapDrawing = state;
-	LOG("Spectator map drawing is %s", allowSpecMapDrawing? "disabled": "enabled");
+	LOG("[%s] spectator map-drawing is %s", __FUNCTION__, allowSpecMapDrawing? "enabled": "disabled");
 }
 
 void CInMapDraw::SetLuaMapDrawingAllowed(bool state)
 {
 	allowLuaMapDrawing = state;
-	LOG("Lua map drawing is %s", allowLuaMapDrawing? "disabled": "enabled");
+	LOG("[%s] Lua map-drawing is %s", __FUNCTION__, allowLuaMapDrawing? "enabled": "disabled");
 }
 
 
@@ -238,21 +237,21 @@ void CInMapDraw::SetLuaMapDrawingAllowed(bool state)
 void CInMapDraw::SendErase(const float3& pos)
 {
 	if (!gu->spectating || allowSpecMapDrawing)
-		net->Send(CBaseNetProtocol::Get().SendMapErase(gu->myPlayerNum, (short)pos.x, (short)pos.z));
+		clientNet->Send(CBaseNetProtocol::Get().SendMapErase(gu->myPlayerNum, (short)pos.x, (short)pos.z));
 }
 
 
 void CInMapDraw::SendPoint(const float3& pos, const std::string& label, bool fromLua)
 {
 	if (!gu->spectating || allowSpecMapDrawing)
-		net->Send(CBaseNetProtocol::Get().SendMapDrawPoint(gu->myPlayerNum, (short)pos.x, (short)pos.z, label, fromLua));
+		clientNet->Send(CBaseNetProtocol::Get().SendMapDrawPoint(gu->myPlayerNum, (short)pos.x, (short)pos.z, label, fromLua));
 }
 
 
 void CInMapDraw::SendLine(const float3& pos, const float3& pos2, bool fromLua)
 {
 	if (!gu->spectating || allowSpecMapDrawing)
-		net->Send(CBaseNetProtocol::Get().SendMapDrawLine(gu->myPlayerNum, (short)pos.x, (short)pos.z, (short)pos2.x, (short)pos2.z, fromLua));
+		clientNet->Send(CBaseNetProtocol::Get().SendMapDrawLine(gu->myPlayerNum, (short)pos.x, (short)pos.z, (short)pos2.x, (short)pos2.z, fromLua));
 }
 
 void CInMapDraw::SendWaitingInput(const std::string& label)
@@ -270,7 +269,8 @@ void CInMapDraw::PromptLabel(const float3& pos)
 	game->userWriting = true;
 	wantLabel = true;
 	game->userPrompt = "Label: ";
-	game->ignoreChar = '\xA7'; // should do something better here
+	game->ignoreNextChar = true;
+	inMapDrawer->SetDrawMode(false);
 }
 
 
@@ -281,23 +281,22 @@ void CInMapDraw::GetPoints(std::vector<PointMarker>& points, int pointsSizeMax, 
 	points.reserve(pointsSizeMax);
 
 	const std::list<CInMapDrawModel::MapPoint>* pointsInt = NULL;
-	std::list<CInMapDrawModel::MapPoint>::const_iterator point;
-	std::list<int>::const_iterator it;
 
 	for (size_t y = 0; (y < inMapDrawerModel->GetDrawQuadY()) && ((int)points.size() < pointsSizeMax); y++) {
 		for (size_t x = 0; (x < inMapDrawerModel->GetDrawQuadX()) && ((int)points.size() < pointsSizeMax); x++) {
 			pointsInt = &(inMapDrawerModel->GetDrawQuad(x, y)->points);
 
-			for (point = pointsInt->begin(); (point != pointsInt->end()) && ((int)points.size()  < pointsSizeMax); ++point) {
-				for (it = teamIDs.begin(); it != teamIDs.end(); ++it) {
-					if (point->GetTeamID() == *it) {
-						PointMarker pm;
-						pm.pos   = point->GetPos();
-						pm.color = teamHandler->Team(point->GetTeamID())->color;
-						pm.label = point->GetLabel().c_str();
-						points.push_back(pm);
-						break;
-					}
+			for (auto point = pointsInt->cbegin(); (point != pointsInt->cend()) && ((int)points.size()  < pointsSizeMax); ++point) {
+				for (auto it = teamIDs.cbegin(); it != teamIDs.cend(); ++it) {
+					if (point->GetTeamID() != *it)
+						continue;
+
+					PointMarker pm;
+					pm.pos   = point->GetPos();
+					pm.color = teamHandler->Team(point->GetTeamID())->color;
+					pm.label = point->GetLabel().c_str();
+					points.push_back(pm);
+					break;
 				}
 			}
 		}
@@ -311,23 +310,22 @@ void CInMapDraw::GetLines(std::vector<LineMarker>& lines, int linesSizeMax, cons
 	lines.reserve(linesSizeMax);
 
 	const std::list<CInMapDrawModel::MapLine>* linesInt = NULL;
-	std::list<CInMapDrawModel::MapLine>::const_iterator line;
-	std::list<int>::const_iterator it;
 
 	for (size_t y = 0; (y < inMapDrawerModel->GetDrawQuadY()) && ((int)lines.size() < linesSizeMax); y++) {
 		for (size_t x = 0; (x < inMapDrawerModel->GetDrawQuadX()) && ((int)lines.size() < linesSizeMax); x++) {
 			linesInt = &(inMapDrawerModel->GetDrawQuad(x, y)->lines);
 
-			for (line = linesInt->begin(); (line != linesInt->end()) && ((int)lines.size() < linesSizeMax); ++line) {
-				for (it = teamIDs.begin(); it != teamIDs.end(); ++it) {
-					if (line->GetTeamID() == *it) {
-						LineMarker lm;
-						lm.pos   = line->GetPos1();
-						lm.pos2  = line->GetPos2();
-						lm.color = teamHandler->Team(line->GetTeamID())->color;
-						lines.push_back(lm);
-						break;
-					}
+			for (auto line = linesInt->cbegin(); (line != linesInt->cend()) && ((int)lines.size() < linesSizeMax); ++line) {
+				for (auto it = teamIDs.cbegin(); it != teamIDs.cend(); ++it) {
+					if (line->GetTeamID() != *it)
+						continue;
+
+					LineMarker lm;
+					lm.pos   = line->GetPos1();
+					lm.pos2  = line->GetPos2();
+					lm.color = teamHandler->Team(line->GetTeamID())->color;
+					lines.push_back(lm);
+					break;
 				}
 			}
 		}

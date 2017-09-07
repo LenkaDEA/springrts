@@ -3,14 +3,15 @@
 #ifndef _CAMERA_HANDLER_H
 #define _CAMERA_HANDLER_H
 
+#include <unordered_map>
 #include <vector>
-#include <map>
 #include <string>
-#include <stack>
 
-#include "Console.h"
 #include "Camera/CameraController.h"
+#include "Console.h"
 
+class CCamera;
+class CPlayer;
 
 class CCameraHandler : public CommandReceiver
 {
@@ -21,15 +22,20 @@ public:
 	CCameraHandler();
 	~CCameraHandler();
 
-	void UpdateCam();
+	void UpdateController(CPlayer* player, bool fpsMode, bool fsEdgeMove, bool wnEdgeMove);
+
 	void SetCameraMode(unsigned int mode);
 	void SetCameraMode(const std::string& mode);
 	void PushMode();
 	void PopMode();
-	void CameraTransition(float time);
+
+	void CameraTransition(float nsecs);
+	void UpdateTransition();
 
 	void ToggleState();
 	void ToggleOverviewCamera();
+
+	void PushAction(const Action&);
 
 	void SaveView(const std::string& name);
 	bool LoadView(const std::string& name);
@@ -48,39 +54,50 @@ public:
 	 */
 	bool SetState(const CCameraController::StateMap& sm);
 
-	CCameraController& GetCurrentController() { return *currCamCtrl; }
-	int GetCurrentControllerNum() const { return currCamCtrlNum; }
-	const std::string GetCurrentControllerName() const;
-	const std::vector<CCameraController*>& GetAvailableControllers() const { return camControllers; }
+	CCameraController& GetCurrentController() { return *(camControllers[currCamCtrlNum]); }
+	unsigned int GetCurrentControllerNum() const { return currCamCtrlNum; }
 
-	virtual void PushAction(const Action&);
+	const std::vector<CCameraController*>& GetControllers() const { return camControllers; }
 
 	enum {
 		CAMERA_MODE_FIRSTPERSON = 0,
 		CAMERA_MODE_OVERHEAD    = 1,
-		CAMERA_MODE_TOTALWAR    = 2,
+		CAMERA_MODE_SPRING      = 2,
 		CAMERA_MODE_ROTOVERHEAD = 3,
 		CAMERA_MODE_FREE        = 4,
-		CAMERA_MODE_SMOOTH      = 5,
-		CAMERA_MODE_ORBIT       = 6,
-		CAMERA_MODE_OVERVIEW    = 7,
-		CAMERA_MODE_LAST        = 8,
+		CAMERA_MODE_OVERVIEW    = 5,
+		CAMERA_MODE_LAST        = 6,
 	};
 
 private:
-	std::vector<CCameraController*> camControllers;
-	std::stack<unsigned int> controllerStack;
-	CCameraController* currCamCtrl;
+	void UpdateController(CCameraController& camCon, bool keyMove, bool wheelMove, bool edgeMove);
+	bool LoadViewData(const ViewData& vd);
+
+private:
 	unsigned int currCamCtrlNum;
 
-	float cameraTime;
-	float cameraTimeLeft;
-	float cameraTimeFactor;
-	float cameraTimeExponent;
+	struct CamTransitionState {
+		float3 startPos;
+		float3 tweenPos;
+		float3 startRot;
+		float3 tweenRot;
 
-	bool LoadViewData(const ViewData& vd);
-	std::map<std::string, ViewData> views;
-	std::map<std::string, unsigned int> nameMap;
+		float startFOV;
+		float tweenFOV;
+
+		float timeStart;
+		float timeEnd;
+		float timeFactor;
+		float timeExponent;
+	};
+
+	CamTransitionState camTransState;
+
+	std::vector<CCameraController*> camControllers;
+	std::vector<unsigned int> controllerStack;
+
+	std::unordered_map<std::string, ViewData> viewDataMap;
+	std::unordered_map<std::string, unsigned int> nameModeMap;
 };
 
 extern CCameraHandler* camHandler;

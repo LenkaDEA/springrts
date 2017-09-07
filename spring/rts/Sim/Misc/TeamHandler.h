@@ -15,12 +15,13 @@ class CGameSetup;
 /** @brief Handles teams and allyteams */
 class CTeamHandler
 {
-	CR_DECLARE(CTeamHandler);
+	CR_DECLARE_STRUCT(CTeamHandler)
 
 public:
 	CTeamHandler();
 	~CTeamHandler();
 
+	void ResetState();
 	void LoadFromSetup(const CGameSetup* setup);
 
 	/**
@@ -30,7 +31,12 @@ public:
 	 *
 	 * Accesses a CTeam instance at a given index
 	 */
-	CTeam* Team(int i) const { return teams[i]; }
+	CTeam* Team(int i)
+	{
+		assert(i >=            0);
+		assert(i <  teams.size());
+		return &teams[i];
+	}
 
 	/**
 	 * @brief ally
@@ -49,7 +55,7 @@ public:
 	 *
 	 * returns the team2ally at given index
 	 */
-	int AllyTeam(int team) const { return teams[team]->teamAllyteam; }
+	int AllyTeam(int team) const { return teams[team].teamAllyteam; }
 	::AllyTeam& GetAllyTeam(size_t id) { return allyTeams[id]; };
 
 	bool ValidAllyTeam(size_t id) const
@@ -65,7 +71,18 @@ public:
 	 *
 	 * Tests whether teams are allied
 	 */
-	bool AlliedTeams(int a, int b) const { return allyTeams[AllyTeam(a)].allies[AllyTeam(b)]; }
+	bool AlliedTeams(int teamA, int teamB) const { return allyTeams[AllyTeam(teamA)].allies[AllyTeam(teamB)]; }
+
+	/**
+	 * @brief allied allyteams
+	 * @param a first allyteam
+	 * @param b second allyteam
+	 * @return whether allyteams are allied
+	 *
+	 * Tests whether allyteams are allied
+	 */
+	bool AlliedAllyTeams(int allyA, int allyB) const { return allyTeams[allyA].allies[allyB]; }
+
 
 	/**
 	 * @brief set ally team
@@ -74,7 +91,7 @@ public:
 	 *
 	 * Sets team's ally team
 	 */
-	void SetAllyTeam(int team, int allyteam) { teams[team]->teamAllyteam = allyteam; }
+	void SetAllyTeam(int team, int allyteam) { teams[team].teamAllyteam = allyteam; }
 
 	/**
 	 * @brief set ally
@@ -87,10 +104,15 @@ public:
 	void SetAlly(int allyteamA, int allyteamB, bool allied) { allyTeams[allyteamA].allies[allyteamB] = allied; }
 
 	// accessors
-
 	int GaiaTeamID() const { return gaiaTeamID; }
 	int GaiaAllyTeamID() const { return gaiaAllyTeamID; }
 
+	// number of teams and allyteams that were *INITIALLY* part
+	// of a game (teams.size() and allyTeams.size() are runtime
+	// constants), ie. including teams that died during it and
+	// are actually NO LONGER "active"
+	//
+	// NOTE: TEAM INSTANCES ARE NEVER DELETED UNTIL SHUTDOWN, THEY ONLY GET MARKED AS DEAD!
 	int ActiveTeams() const { return teams.size(); }
 	int ActiveAllyTeams() const { return allyTeams.size(); }
 
@@ -98,17 +120,22 @@ public:
 		return ((id >= 0) && (id < ActiveTeams()));
 	}
 	bool IsActiveTeam(int id) const {
-		return IsValidTeam(id);
+		return (IsValidTeam(id) && !teams[id].isDead);
 	}
 
 	bool IsValidAllyTeam(int id) const {
 		return ((id >= 0) && (id < ActiveAllyTeams()));
 	}
 	bool IsActiveAllyTeam(int id) const {
-		return IsValidAllyTeam(id);
+		return (IsValidAllyTeam(id) /*&& !allyTeams[id].isDead*/);
 	}
 
+	unsigned int GetNumTeamsInAllyTeam(unsigned int allyTeam, bool countDeadTeams) const;
+
 	void GameFrame(int frameNum);
+
+	void UpdateTeamUnitLimitsPreSpawn(int liveTeamNum);
+	void UpdateTeamUnitLimitsPreDeath(int deadTeamNum);
 
 private:
 
@@ -131,7 +158,7 @@ private:
 	 *
 	 * Array of CTeam instances for teams in game
 	 */
-	std::vector<CTeam *> teams;
+	std::vector<CTeam> teams;
 	std::vector< ::AllyTeam > allyTeams;
 };
 

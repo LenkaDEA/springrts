@@ -29,95 +29,32 @@ struct lua_State;
 class CLuaRules : public CLuaHandleSynced
 {
 	public:
-		static void LoadHandler();
-		static void FreeHandler();
+		static bool ReloadHandler() { return (FreeHandler(), LoadFreeHandler()); } // NOTE the ','
+		static bool LoadFreeHandler() { return (LoadHandler() || FreeHandler()); }
+
+		static bool LoadHandler();
+		static bool FreeHandler();
 
 	public: // call-ins
-		bool SyncedUpdateCallIn(lua_State *L, const string& name);
-		bool UnsyncedUpdateCallIn(lua_State *L, const string& name);
-
-		bool CommandFallback(const CUnit* unit, const Command& cmd);
-		bool AllowCommand(const CUnit* unit, const Command& cmd, bool fromSynced);
-		bool AllowUnitCreation(const UnitDef* unitDef,
-		                       const CUnit* builder, const BuildInfo* buildInfo);
-		bool AllowUnitTransfer(const CUnit* unit, int newTeam, bool capture);
-		bool AllowUnitBuildStep(const CUnit* builder, const CUnit* unit, float part);
-		bool AllowFeatureCreation(const FeatureDef* featureDef, int allyTeamID,
-		                          const float3& pos);
-		bool AllowFeatureBuildStep(const CUnit* builder, const CFeature* feature,
-		                           float part);
-		bool AllowResourceLevel(int teamID, const string& type, float level);
-		bool AllowResourceTransfer(int oldTeam, int newTeam,
-		                           const string& type, float amount);
-		bool AllowDirectUnitControl(int playerID, const CUnit* unit);
-		bool AllowStartPosition(int playerID, const float3& pos);
-
-		bool TerraformComplete(const CUnit* unit, const CUnit* build);
-
-		bool MoveCtrlNotify(const CUnit* unit, int data);
-
 		void Cob2Lua(const LuaHashString& funcName, const CUnit* unit,
 		             int& argsCount, int args[MAX_LUA_COB_ARGS]);
 
-		int AllowWeaponTargetCheck(
-			unsigned int attackerID,
-			unsigned int attackerWeaponNum,
-			unsigned int attackerWeaponDefID);
-		bool AllowWeaponTarget(
-			unsigned int attackerID,
-			unsigned int targetID,
-			unsigned int attackerWeaponNum,
-			unsigned int attackerWeaponDefID,
-			float* targetPriority);
-
-		bool UnitPreDamaged(const CUnit* unit, const CUnit* attacker,
-                             float damage, int weaponID, bool paralyzer,
-                             float* newDamage, float* impulseMult);
-
-		bool ShieldPreDamaged(const CProjectile*, const CWeapon*, const CUnit*, bool);
-
-		// unsynced
-		bool DrawUnit(const CUnit* unit);
-		bool DrawFeature(const CFeature* feature);
-		bool DrawShield(const CUnit* unit, const CWeapon* weapon);
-		bool DrawProjectile(const CProjectile* projectile);
+		const char* RecvSkirmishAIMessage(int aiID, const char* data, int inSize) {
+			return syncedLuaHandle.RecvSkirmishAIMessage(aiID, data, inSize);
+		}
 
 	private:
 		CLuaRules();
-		~CLuaRules();
+		virtual ~CLuaRules();
 
 	protected:
-		bool AddSyncedCode(lua_State *L);
-		bool AddUnsyncedCode(lua_State *L);
+		bool AddSyncedCode(lua_State* L);
+		bool AddUnsyncedCode(lua_State* L);
 
 		int UnpackCobArg(lua_State* L);
 
 	protected: // call-outs
 		static int PermitHelperAIs(lua_State* L);
-
-	private:
-		bool haveCommandFallback;
-		bool haveAllowCommand;
-		bool haveAllowUnitCreation;
-		bool haveAllowUnitTransfer;
-		bool haveAllowUnitBuildStep;
-		bool haveAllowFeatureCreation;
-		bool haveAllowFeatureBuildStep;
-		bool haveAllowResourceLevel;
-		bool haveAllowResourceTransfer;
-		bool haveAllowDirectUnitControl;
-		bool haveAllowStartPosition;
-		bool haveMoveCtrlNotify;
-		bool haveTerraformComplete;
-		bool haveUnitPreDamaged;
-		bool haveShieldPreDamaged;
-		bool haveAllowWeaponTargetCheck;
-		bool haveAllowWeaponTarget;
-
-		bool haveDrawUnit;
-		bool haveDrawFeature;
-		bool haveDrawShield;
-		bool haveDrawProjectile;
 
 	private:
 		static const int* currentCobArgs;

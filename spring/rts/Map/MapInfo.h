@@ -19,6 +19,10 @@ class MapParser;
 class CMapInfo
 {
 public:
+	/** Terrain type, there can be 256 of these:
+	    "MAP\TerrainType0" up to "MAP\TerrainType255" */
+	static const int NUM_TERRAIN_TYPES = 256;
+
 	/**
 	 * @param mapInfoFile mapinfo file, aka sm3 / smf (full path)
 	 * @param mapName human readable mapname e.g. DeltaSiegeDry
@@ -68,7 +72,9 @@ public:
 		float tidalStrength;
 		float maxMetal;        ///< what metal value 255 in the metal map is worth
 		float extractorRadius; ///< extraction radius for mines
+		float voidAlphaMin;
 		bool  voidWater;
+		bool  voidGround;
 	} map;
 
 	/** GUI settings (used by CGuiHandler) */
@@ -78,6 +84,7 @@ public:
 
 	/** settings read from "MAP\ATMOSPHERE" section */
 	struct atmosphere_t {
+		float  fluidDensity; ///< in kg/m^3
 		float  cloudDensity;
 		float  fogStart;
 		float  fogEnd;
@@ -103,8 +110,9 @@ public:
 		float bladeWidth;
 		float bladeHeight;    //! actual blades will be (bladeHeight + randf(0, bladeHeight)) tall
 		float bladeAngle;
-		float4 color;
-		std::string grassBladeTexName;    // defaults to internally-generated texture
+		int maxStrawsPerTurf;
+		float3 color;
+		std::string bladeTexName;    // defaults to internally-generated texture
 	} grass;
 
 	/** settings read from "MAP\LIGHT" section */
@@ -113,11 +121,11 @@ public:
 		float sunOrbitTime;
 		float sunStartAngle;
 		float3 groundAmbientColor;
-		float3 groundSunColor;
+		float3 groundDiffuseColor;
 		float3 groundSpecularColor;
 		float  groundShadowDensity;
 		float4 unitAmbientColor;
-		float4 unitSunColor;
+		float4 unitDiffuseColor;
 		float  unitShadowDensity;
 		float3 unitSpecularColor;
 		float  specularExponent;
@@ -126,9 +134,10 @@ public:
 	/** settings read from "MAP\WATER" section
 	    prefix their name with "Water" to get the TDF variable */
 	struct water_t {
-		float  repeatX; ///< (calculated default is in IWater)
-		float  repeatY; ///< (calculated default is in IWater)
-		float  damage;
+		float  fluidDensity;      ///< in kg/m^3
+		float  repeatX;           ///< (calculated default is in IWater)
+		float  repeatY;           ///< (calculated default is in IWater)
+		float  damage;            ///< scaled by (UNIT_SLOWUPDATE_RATE / GAME_SPEED)
 		float3 absorb;
 		float3 baseColor;
 		float3 minColor;
@@ -152,8 +161,8 @@ public:
 		float  perlinAmplitude;
 		float  windSpeed;
 		bool   shoreWaves;
-		bool   forceRendering; ///< if false the renderers will render it only if currentMinMapHeight<0
-		bool   hasWaterPlane;  ///< true if "MAP\WATER\WaterPlaneColor" is set
+		bool   forceRendering;    ///< if false the renderers will render it only if currentMinMapHeight<0
+		bool   hasWaterPlane;     ///< true if "MAP\WATER\WaterPlaneColor" is set
 		unsigned char numTiles;
 		std::string texture;
 		std::string foamTexture;
@@ -169,16 +178,29 @@ public:
 		std::string splatDetailTexName;
 		std::string grassShadingTexName;  // defaults to minimap texture
 		std::string skyReflectModTexName;
-		std::string detailNormalTexName;
+		std::string blendNormalsTexName;
 		std::string lightEmissionTexName;
 		std::string parallaxHeightTexName;
 
-		float minHeight;
-		bool  minHeightOverride;
-		float maxHeight;
-		bool  maxHeightOverride;
+		// Contains the splatted detail normal textures
+		std::vector<std::string> splatDetailNormalTexNames;
+
+		// SMF overrides
+		std::string minimapTexName;
+		std::string typemapTexName;
+		std::string metalmapTexName;
+		std::string grassmapTexName;
 
 		std::vector<std::string> smtFileNames;
+
+		float minHeight;
+		float maxHeight;
+		bool  minHeightOverride;
+		bool  maxHeightOverride;
+
+		// Controls whether the alpha channel of each splatted detail normal texture
+		// contains a diffuse channel, which behaves like the old splatted detail textures
+		bool splatDetailNormalDiffuseAlpha;
 	} smf;
 
 	/** SM3 specific settings
@@ -188,9 +210,24 @@ public:
 		std::string minimap; ///< "MAP\minimap"
 	} sm3;
 
-	/** Terrain type, there can be 256 of these:
-	    "MAP\TerrainType0" up to "MAP\TerrainType255" */
-	static const int NUM_TERRAIN_TYPES = 256;
+	struct pfs_t {
+		struct legacy_constants_t {
+		} legacy_constants;
+
+		struct qtpfs_constants_t {
+			unsigned int layersPerUpdate;
+			unsigned int maxTeamSearches;
+			unsigned int minNodeSizeX;
+			unsigned int minNodeSizeZ;
+			unsigned int maxNodeDepth;
+			unsigned int numSpeedModBins;
+			float        minSpeedModVal;
+			float        maxSpeedModVal;
+		} qtpfs_constants;
+	} pfs;
+
+
+	//If this struct is changed, please fix CReadMap::CalcTypemapChecksum accordingly
 	struct TerrainType {
 		std::string name;
 		float hardness;
@@ -200,8 +237,9 @@ public:
 		float shipSpeed;   ///< "ShipMoveSpeed"
 		bool receiveTracks;
 	};
+
 	TerrainType terrainTypes[NUM_TERRAIN_TYPES];
-	
+
 	/**
 	 * Sound EFX param structure
 	 */
@@ -220,9 +258,9 @@ private:
 	void ReadSMF();
 	void ReadSM3();
 	void ReadTerrainTypes();
+	void ReadPFSConstants();
 	void ReadSound();
 
-	std::string mapInfoFile;
 	MapParser* parser; // map       parser root table
 	LuaTable* resRoot; // resources parser root table
 };

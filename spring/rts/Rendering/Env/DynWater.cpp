@@ -1,30 +1,25 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "DynWater.h"
-#include "Game/Game.h"
 #include "Game/Camera.h"
 #include "Game/GameHelper.h"
 #include "Game/GlobalUnsynced.h"
-#include "Game/UI/MouseHandler.h"
+// #include "Game/UI/MouseHandler.h"
 #include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
-#include "Map/BaseGroundDrawer.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/FeatureDrawer.h"
-#include "Rendering/ProjectileDrawer.h"
 #include "Rendering/UnitDrawer.h"
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Env/ISky.h"
+#include "Rendering/Env/SunLighting.h"
 #include "Rendering/GL/VertexArray.h"
 #include "Rendering/Textures/Bitmap.h"
-#include "Sim/MoveTypes/MoveInfo.h"
+#include "Sim/MoveTypes/MoveDefHandler.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "System/Log/ILog.h"
 #include "System/bitops.h"
-#include "System/EventHandler.h"
 #include "System/Exceptions.h"
 
 #define LOG_SECTION_DYN_WATER "DynWater"
@@ -46,9 +41,7 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_DYN_WATER)
 #define WH_SIZE 2048
 */
 CDynWater::CDynWater()
-	: dwGroundRefractVP(0)
-	, dwGroundReflectIVP(0)
-	, camPosX(0)
+	: camPosX(0)
 	, camPosZ(0)
 {
 	if (!FBO::IsSupported()) {
@@ -57,7 +50,6 @@ CDynWater::CDynWater()
 
 	lastWaveFrame = 0;
 	firstDraw = true;
-	drawSolid = true;
 	camPosBig = float3(2048, 0, 2048);
 	refractSize = (globalRendering->viewSizeY >= 1024) ? 1024 : 512;
 
@@ -88,9 +80,9 @@ CDynWater::CDynWater()
 
 	for (int y = 0; y < 64; ++y) {
 		for (int x = 0; x < 64; ++x) {
-			temp[(y*64 + x)*4 + 0] = math::sin(x*PI*2.0f/64.0f) + ((x < 32) ? -1 : 1)*0.3f;
+			temp[(y*64 + x)*4 + 0] = std::sin(x*PI*2.0f/64.0f) + ((x < 32) ? -1 : 1)*0.3f;
 			temp[(y*64 + x)*4 + 1] = temp[(y*64 + x)*4 + 0];
-			temp[(y*64 + x)*4 + 2] = math::cos(x*PI*2.0f/64.0f) + ((x < 32) ? (16 - x) : (x - 48))/16.0f*0.3f;
+			temp[(y*64 + x)*4 + 2] = std::cos(x*PI*2.0f/64.0f) + ((x < 32) ? (16 - x) : (x - 48))/16.0f*0.3f;
 			temp[(y*64 + x)*4 + 3] = 0;
 		}
 	}
@@ -167,7 +159,7 @@ CDynWater::CDynWater()
 	for (int y = 0; y < 1024; ++y) {
 		for (int x = 0; x < 1024; ++x) {
 			//const float dist = (x - 500)*(x - 500)+(y - 450)*(y - 450);
-			temp[(y*1024 + x)*4 + 0] = 0;//max(0.0f,15-math::sqrt(dist));//math::sin(y*PI*2.0f/64.0f)*0.5f+0.5f;
+			temp[(y*1024 + x)*4 + 0] = 0;//max(0.0f,15-std::sqrt(dist));//std::sin(y*PI*2.0f/64.0f)*0.5f+0.5f;
 			temp[(y*1024 + x)*4 + 1] = 0;
 			temp[(y*1024 + x)*4 + 2] = 0;
 			temp[(y*1024 + x)*4 + 3] = 0;
@@ -197,7 +189,7 @@ CDynWater::CDynWater()
 		const float dy = y - 31.5f;
 		for (int x = 0; x < 64; ++x) {
 			const float dx = x-31.5f;
-			const float dist = math::sqrt(dx*dx + dy*dy);
+			const float dist = std::sqrt(dx*dx + dy*dy);
 			temp[(y*64 + x)*4 + 0] = std::max(0.0f, 1 - dist/30.f) * std::max(0.0f, 1 - dist/30.f);
 			temp[(y*64 + x)*4 + 1] = std::max(0.0f, 1 - dist/30.f);
 			temp[(y*64 + x)*4 + 2] = std::max(0.0f, 1 - dist/30.f) * std::max(0.0f, 1 - dist/30.f);
@@ -299,11 +291,11 @@ CDynWater::~CDynWater()
 
 void CDynWater::Draw()
 {
-	if (!mapInfo->water.forceRendering && (readmap->currMinHeight > 1.0f)) {
+	if (!mapInfo->water.forceRendering && !readMap->HasVisibleWater())
 		return;
-	}
 
-	glDisable(GL_BLEND);
+	glPushAttrib(GL_ENABLE_BIT);
+	glEnable(GL_BLEND);
 	glDisable(GL_ALPHA_TEST);
 	glEnable(GL_FOG);
 
@@ -318,16 +310,13 @@ void CDynWater::Draw()
 	glActiveTextureARB(GL_TEXTURE3_ARB);
 	glBindTexture(GL_TEXTURE_2D, refractTexture);
 	glActiveTextureARB(GL_TEXTURE4_ARB);
-	glBindTexture(GL_TEXTURE_2D, readmap->GetShadingTexture());
+	glBindTexture(GL_TEXTURE_2D, readMap->GetShadingTexture());
 	glActiveTextureARB(GL_TEXTURE5_ARB);
 	glBindTexture(GL_TEXTURE_2D, foamTex);
 	glActiveTextureARB(GL_TEXTURE6_ARB);
 	glBindTexture(GL_TEXTURE_2D, detailNormalTex);
-	glActiveTextureARB(GL_TEXTURE7_ARB);
-	glBindTexture(GL_TEXTURE_2D, shadowHandler->shadowTexture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_COMPARE_R_TO_TEXTURE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC_ARB, GL_LEQUAL);
-	glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
+
+	shadowHandler->SetupShadowTexSampler(GL_TEXTURE7);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 
 	glColor4f(1, 1, 1, 0.5f);
@@ -344,9 +333,9 @@ void CDynWater::Draw()
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 11, -camPosX/256.0f + 0.5f, -camPosZ/256.0f + 0.5f, 0, 0);
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 12, 1.0f/WF_SIZE, 1.0f/WF_SIZE, 0, 0);
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 13, -(camPosBig.x - WH_SIZE)/WF_SIZE, -(camPosBig.z - WH_SIZE)/WF_SIZE, 0, 0);
-	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 14, 1.0f/(gs->pwr2mapx * SQUARE_SIZE), 1.0f/(gs->pwr2mapy * SQUARE_SIZE), 0, 0);
+	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 14, 1.0f/(mapDims.pwr2mapx * SQUARE_SIZE), 1.0f/(mapDims.pwr2mapy * SQUARE_SIZE), 0, 0);
 	//glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 0, 1.0f/4096.0f, 1.0f/4096.0f, 0, 0);
-	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 1, camera->pos.x, camera->pos.y, camera->pos.z, 0);
+	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 1, camera->GetPos().x, camera->GetPos().y, camera->GetPos().z, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 2, reflectRight.x, reflectRight.y, reflectRight.z, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 3, reflectUp.x, reflectUp.y, reflectUp.z, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 4, 0.5f/dx, 0.5f/dy, 1, 1);
@@ -355,8 +344,8 @@ void CDynWater::Draw()
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 7, 0.2f, 0, 0, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 8, 0.5f, 0.6f, 0.8f, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 9, L.x, L.y, L.z, 0.0f);
-	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 10, mapInfo->light.groundSunColor.x, mapInfo->light.groundSunColor.y, mapInfo->light.groundSunColor.z, 0);
-	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 11, mapInfo->light.groundAmbientColor.x, mapInfo->light.groundAmbientColor.y, mapInfo->light.groundAmbientColor.z, 0);
+	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 10, sunLighting->groundDiffuseColor.x, sunLighting->groundDiffuseColor.y, sunLighting->groundDiffuseColor.z, 0);
+	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 11, sunLighting->groundAmbientColor.x, sunLighting->groundAmbientColor.y, sunLighting->groundAmbientColor.z, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 12, refractRight.x, refractRight.y, refractRight.z, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 13, refractUp.x,refractUp.y, refractUp.z, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 14, 0.5f/dx, 0.5f/dy, 1, 1);
@@ -370,6 +359,7 @@ void CDynWater::Draw()
 
 	glDisable(GL_FRAGMENT_PROGRAM_ARB);
 	glDisable(GL_VERTEX_PROGRAM_ARB);
+	glPopAttrib();
 /*
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTextureARB(GL_TEXTURE1_ARB);
@@ -392,10 +382,10 @@ void CDynWater::Draw()
 
 void CDynWater::UpdateWater(CGame* game)
 {
-	if ((!mapInfo->water.forceRendering && (readmap->currMinHeight > 1.0f)) || mapInfo->map.voidWater) {
+	if (!mapInfo->water.forceRendering && !readMap->HasVisibleWater())
 		return;
-	}
 
+	glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_FOG_BIT);
 	glDisable(GL_DEPTH_TEST);
 	glDepthMask(0);
 	glDisable(GL_BLEND);
@@ -410,7 +400,6 @@ void CDynWater::UpdateWater(CGame* game)
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(1);
 
-	glPushAttrib(GL_FOG_BIT);
 	DrawRefraction(game);
 	DrawReflection(game);
 	FBO::Unbind();
@@ -419,14 +408,13 @@ void CDynWater::UpdateWater(CGame* game)
 
 void CDynWater::Update()
 {
-	if ((!mapInfo->water.forceRendering) && (readmap->currMinHeight > 1.0f)) {
+	if (!mapInfo->water.forceRendering && !readMap->HasVisibleWater())
 		return;
-	}
 
 	oldCamPosBig = camPosBig;
 
-	camPosBig.x = math::floor(std::max((float)WH_SIZE, std::min((float)gs->mapx*SQUARE_SIZE-WH_SIZE, (float)camera->pos.x))/(W_SIZE*16))*(W_SIZE*16);
-	camPosBig.z = math::floor(std::max((float)WH_SIZE, std::min((float)gs->mapy*SQUARE_SIZE-WH_SIZE, (float)camera->pos.z))/(W_SIZE*16))*(W_SIZE*16);
+	camPosBig.x = std::floor(std::max((float)WH_SIZE, std::min((float)mapDims.mapx*SQUARE_SIZE-WH_SIZE, (float)camera->GetPos().x))/(W_SIZE*16))*(W_SIZE*16);
+	camPosBig.z = std::floor(std::max((float)WH_SIZE, std::min((float)mapDims.mapy*SQUARE_SIZE-WH_SIZE, (float)camera->GetPos().z))/(W_SIZE*16))*(W_SIZE*16);
 
 	glDisable(GL_DEPTH_TEST);
 	glDepthMask(0);
@@ -434,7 +422,7 @@ void CDynWater::Update()
 	glDisable(GL_ALPHA_TEST);
 
 	/* if(mouse->buttons[0].pressed) {
-		float3 pos = camera->pos + mouse->dir * (-camera->pos.y / mouse->dir.y);
+		float3 pos = camera->GetPos() + mouse->dir * (-camera->GetPos().y / mouse->dir.y);
 		AddSplash(pos, 20, 1);
 	}*/
 	AddShipWakes();
@@ -448,125 +436,69 @@ void CDynWater::Update()
 
 void CDynWater::DrawReflection(CGame* game)
 {
-	const double clipPlaneEq[4] = {0.0, 1.0, 0.0, 1.0};
-	const bool shadowsLoaded = shadowHandler->shadowsLoaded;
-
-//	CCamera* realCam = camera;
-//	camera = new CCamera(*realCam);
-	char realCam[sizeof(CCamera)];
-	new (realCam) CCamera(*camera); // anti-crash workaround for multithreading
-
-	camera->forward.y *= -1.0f;
-	camera->pos.y *= -1.0f;
-	camera->Update();
-
-	reflectRight = camera->right;
-	reflectUp = camera->up;
-	reflectForward = camera->forward;
-
 	reflectFBO.Bind();
-	glViewport(0, 0, 512, 512);
-	glClearColor(0.5f, 0.6f, 0.8f, 0);
+
+	glClearColor(sky->fogColor[0], sky->fogColor[1], sky->fogColor[2], 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	const double clipPlaneEqs[2 * 4] = {
+		0.0, 1.0, 0.0, 5.0, // ground; use d>0 to hide shoreline cracks
+		0.0, 1.0, 0.0, 0.0, // models
+	};
+
+	CCamera* prvCam = CCamera::GetSetActiveCamera(CCamera::CAMTYPE_UWREFL);
+	CCamera* curCam = CCamera::GetActiveCamera();
+
 	{
-		drawReflection = true;
+		curCam->CopyStateReflect(prvCam);
+		curCam->UpdateLoadViewPort(0, 0, 512, 512);
 
-		game->SetDrawMode(CGame::gameReflectionDraw);
-		sky->Draw();
+		reflectRight   = curCam->GetRight();
+		reflectUp      = curCam->GetUp();
+		reflectForward = curCam->GetDir();
 
-		{
-			glEnable(GL_CLIP_PLANE2);
-			glClipPlane(GL_CLIP_PLANE2, clipPlaneEq);
-
-			shadowHandler->shadowsLoaded = false;
-
-			CBaseGroundDrawer* gd = readmap->GetGroundDrawer();
-				gd->SetupReflDrawPass();
-				gd->Draw(DrawPass::WaterReflection);
-				gd->SetupBaseDrawPass();
-
-			shadowHandler->shadowsLoaded = shadowsLoaded;
-
-			unitDrawer->Draw(true);
-			featureDrawer->Draw();
-			unitDrawer->DrawCloakedUnits(true);
-			featureDrawer->DrawFadeFeatures(true);
-
-			projectileDrawer->Draw(true);
-			eventHandler.DrawWorldReflection();
-
-			glDisable(GL_CLIP_PLANE2);
-		}
-
-		sky->DrawSun();
-		game->SetDrawMode(CGame::gameNormalDraw);
-
-		drawReflection = false;
+		DrawReflections(&clipPlaneEqs[0], true, true);
 	}
 
-	glViewport(globalRendering->viewPosX, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
-	glClearColor(mapInfo->atmosphere.fogColor[0], mapInfo->atmosphere.fogColor[1], mapInfo->atmosphere.fogColor[2], 1);
+	CCamera::SetActiveCamera(prvCam->GetCamType());
 
-//	delete camera;
-//	camera = realCam;
-	camera->~CCamera();
-	new (camera) CCamera(*(reinterpret_cast<CCamera*>(realCam)));
-
-	camera->Update();
+	prvCam->Update();
+	prvCam->LoadViewPort();
 }
 
 void CDynWater::DrawRefraction(CGame* game)
 {
-	drawRefraction = true;
 	camera->Update();
 
-	refractRight = camera->right;
-	refractUp = camera->up;
-	refractForward = camera->forward;
+	refractRight = camera->GetRight();
+	refractUp = camera->GetUp();
+	refractForward = camera->GetDir();
+
 
 	refractFBO.Bind();
 	glViewport(0, 0, refractSize, refractSize);
 
-	glClearColor(mapInfo->atmosphere.fogColor[0], mapInfo->atmosphere.fogColor[1], mapInfo->atmosphere.fogColor[2], 1);
+	glClearColor(sky->fogColor[0], sky->fogColor[1], sky->fogColor[2], 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	float3 oldsun=unitDrawer->unitSunColor;
-	float3 oldambient=unitDrawer->unitAmbientColor;
+	const double clipPlaneEqs[2 * 4] = {
+		0.0, -1.0, 0.0, 5.0, // ground
+		0.0, -1.0, 0.0, 0.0, // models
+	};
 
-	unitDrawer->unitSunColor *= float3(0.5f, 0.7f, 0.9f);
-	unitDrawer->unitAmbientColor *= float3(0.6f, 0.8f, 1.0f);
+	const float3 oldsun = sunLighting->unitDiffuseColor;
+	const float3 oldambient = sunLighting->unitAmbientColor;
 
-	game->SetDrawMode(CGame::gameRefractionDraw);
+	sunLighting->unitDiffuseColor *= float3(0.5f, 0.7f, 0.9f);
+	sunLighting->unitAmbientColor *= float3(0.6f, 0.8f, 1.0f);
 
-	CBaseGroundDrawer* gd = readmap->GetGroundDrawer();
-		gd->SetupRefrDrawPass();
-		gd->Draw(DrawPass::WaterRefraction);
-		gd->SetupBaseDrawPass();
-
-	glEnable(GL_CLIP_PLANE2);
-	double plane[4]= {0, -1, 0, 2};
-	glClipPlane(GL_CLIP_PLANE2 ,plane);
-	drawReflection = true;
-	unitDrawer->Draw(false,true);
-	featureDrawer->Draw();
-	unitDrawer->DrawCloakedUnits(true);
-	featureDrawer->DrawFadeFeatures(true); // FIXME: Make it fade out correctly without "noAdvShading"
-	drawReflection = false;
-	projectileDrawer->Draw(false, true);
-	eventHandler.DrawWorldRefraction();
-	glDisable(GL_CLIP_PLANE2);
-
-	game->SetDrawMode(CGame::gameNormalDraw);
-
-	drawRefraction=false;
-
+	DrawRefractions(&clipPlaneEqs[0], true, true);
 
 	glViewport(globalRendering->viewPosX, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
-	glClearColor(mapInfo->atmosphere.fogColor[0], mapInfo->atmosphere.fogColor[1], mapInfo->atmosphere.fogColor[2], 1);
+	glClearColor(sky->fogColor[0], sky->fogColor[1], sky->fogColor[2], 1);
 
-	unitDrawer->unitSunColor = oldsun;
-	unitDrawer->unitAmbientColor = oldambient;
+	sunLighting->unitDiffuseColor = oldsun;
+	sunLighting->unitAmbientColor = oldambient;
 }
 
 void CDynWater::DrawWaves()
@@ -607,8 +539,8 @@ void CDynWater::DrawWaves()
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 9,  0,          1.0f/1024, 0,0);
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 10, 1.0f/1024,  1.0f/1024, 0,0);
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 11, 1.0f/1024,  0, 0,0);
-	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 12, float(WF_SIZE)/(gs->pwr2mapx*SQUARE_SIZE), float(WF_SIZE)/(gs->pwr2mapy*SQUARE_SIZE), 0, 0);
-	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 13, (camPosBig.x-WH_SIZE)/(gs->pwr2mapx*SQUARE_SIZE), (camPosBig.z-WH_SIZE)/(gs->pwr2mapy*SQUARE_SIZE), 0, 0);
+	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 12, float(WF_SIZE)/(mapDims.pwr2mapx*SQUARE_SIZE), float(WF_SIZE)/(mapDims.pwr2mapy*SQUARE_SIZE), 0, 0);
+	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 13, (camPosBig.x-WH_SIZE)/(mapDims.pwr2mapx*SQUARE_SIZE), (camPosBig.z-WH_SIZE)/(mapDims.pwr2mapy*SQUARE_SIZE), 0, 0);
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 14, dx/WF_SIZE, dy/WF_SIZE, 0, 0);
 	glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 15, (camPosBig.x-WH_SIZE)/WF_SIZE*4, (camPosBig.x-WH_SIZE)/WF_SIZE*4, 0, 0);
 
@@ -641,7 +573,7 @@ void CDynWater::DrawWaves()
 	glActiveTextureARB(GL_TEXTURE5_ARB);
 	glBindTexture(GL_TEXTURE_2D, waveTex1);
 	glActiveTextureARB(GL_TEXTURE6_ARB);
-	glBindTexture(GL_TEXTURE_2D, readmap->GetShadingTexture ());
+	glBindTexture(GL_TEXTURE_2D, readMap->GetShadingTexture ());
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 
 	glBindProgramARB(GL_FRAGMENT_PROGRAM_ARB, waveFP2);
@@ -731,10 +663,10 @@ void CDynWater::DrawWaves()
 
 	//update normals pass
 	glBegin(GL_QUADS);
-	glTexCoord2f(start, start); glVertex3f(0, 0, 0);
-	glTexCoord2f(start, end);   glVertex3f(0, 1, 0);
-	glTexCoord2f(end,   end);   glVertex3f(1, 1, 0);
-	glTexCoord2f(end,   start); glVertex3f(1, 0, 0);
+	glTexCoord2f(start, start); glVertexf3(ZeroVector);
+	glTexCoord2f(start, end);   glVertexf3(  UpVector);
+	glTexCoord2f(end,   end);   glVertexf3(  XYVector);
+	glTexCoord2f(end,   start); glVertexf3( RgtVector);
 	glEnd();
 
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
@@ -788,8 +720,8 @@ void CDynWater::DrawHeightTex()
 	glBindProgramARB(GL_VERTEX_PROGRAM_ARB, waveCopyHeightVP);
 	glEnable(GL_VERTEX_PROGRAM_ARB);
 
-	camPosX = int(camera->pos.x / W_SIZE);
-	camPosZ = int(camera->pos.z / W_SIZE);
+	camPosX = int(camera->GetPos().x / W_SIZE);
+	camPosZ = int(camera->GetPos().z / W_SIZE);
 
 	float startx = (camPosX - 120)/1024.0f - (camPosBig.x - WH_SIZE)/WF_SIZE;
 	float startz = (camPosZ - 120)/1024.0f - (camPosBig.z - WH_SIZE)/WF_SIZE;
@@ -817,7 +749,8 @@ void CDynWater::DrawHeightTex()
 }
 
 
-
+// ((40*2*2)*(2<<5))>>1 == WF_SIZE
+#define LOD_SIZE_FACT (40*2*2)
 #define WSQUARE_SIZE W_SIZE
 
 static CVertexArray* va;
@@ -829,52 +762,51 @@ static inline void DrawVertexAQ(int x, int y)
 
 void CDynWater::DrawWaterSurface()
 {
-	int viewRadius = 40;
 	bool inStrip = false;
 
 	va = GetVertexArray();
 	va->Initialize();
 
-	camPosBig2.x = math::floor(std::max((float)WH_SIZE, std::min((float)gs->mapx*SQUARE_SIZE - WH_SIZE, (float)camera->pos.x))/(W_SIZE*16))*(W_SIZE*16);
-	camPosBig2.z = math::floor(std::max((float)WH_SIZE, std::min((float)gs->mapy*SQUARE_SIZE - WH_SIZE, (float)camera->pos.z))/(W_SIZE*16))*(W_SIZE*16);
+	CCamera* cam = CCamera::GetActiveCamera();
+	cam->GetFrustumSides(readMap->GetCurrMinHeight() - 100.0f, readMap->GetCurrMaxHeight() + 100.0f, SQUARE_SIZE);
 
-	// FIXME:
-	//     1. DynWater::UpdateCamRestraints was never called ==> <this->left> and <this->right> were always empty
-	//     2. even if it had been, DynWater::UpdateCamRestraints always used <cam2> to get the sides, not <camera>
-	// UpdateCamRestraints(cam2);
+	camPosBig2.x = std::floor(std::max((float)WH_SIZE, std::min((float)mapDims.mapx*SQUARE_SIZE - WH_SIZE, cam->GetPos().x))/(W_SIZE*16))*(W_SIZE*16);
+	camPosBig2.z = std::floor(std::max((float)WH_SIZE, std::min((float)mapDims.mapy*SQUARE_SIZE - WH_SIZE, cam->GetPos().z))/(W_SIZE*16))*(W_SIZE*16);
 
-	const std::vector<CCamera::FrustumLine>/*&*/ negSides /*= cam2->negFrustumSides*/;
-	const std::vector<CCamera::FrustumLine>/*&*/ posSides /*= cam2->posFrustumSides*/;
+	const std::vector<CCamera::FrustumLine> negSides; // = cam->GetNegFrustumSides();
+	const std::vector<CCamera::FrustumLine> posSides; // = cam->GetPosFrustumSides();
 
 	std::vector<CCamera::FrustumLine>::const_iterator fli;
 
 	for (int lod = 1; lod < (2 << 5); lod *= 2) {
-		int cx = (int)(cam2->pos.x / WSQUARE_SIZE);
-		int cy = (int)(cam2->pos.z / WSQUARE_SIZE);
+		int cx = (int)(cam->GetPos().x / WSQUARE_SIZE);
+		int cy = (int)(cam->GetPos().z / WSQUARE_SIZE);
 
 		cx = (cx / lod) * lod;
 		cy = (cy / lod) * lod;
-		int hlod = lod >> 1;
-		int ysquaremod = (cy % (2 * lod)) / lod;
-		int xsquaremod = (cx % (2 * lod)) / lod;
 
-		int minty = int(camPosBig2.z/WSQUARE_SIZE - 512);
-		int maxty = int(camPosBig2.z/WSQUARE_SIZE + 512);
-		int mintx = int(camPosBig2.x/WSQUARE_SIZE - 512);
-		int maxtx = int(camPosBig2.x/WSQUARE_SIZE + 512);
+		const int hlod = lod >> 1;
+		const int ysquaremod = (cy % (2 * lod)) / lod;
+		const int xsquaremod = (cx % (2 * lod)) / lod;
 
-		int minly = cy + (-viewRadius + 2 - ysquaremod) * lod;
-		int maxly = cy + (viewRadius      - ysquaremod) * lod;
-		int minlx = cx + (-viewRadius + 2 - xsquaremod) * lod;
-		int maxlx = cx + (viewRadius      - xsquaremod) * lod;
+		const int minty = int(camPosBig2.z / WSQUARE_SIZE - 512);
+		const int maxty = int(camPosBig2.z / WSQUARE_SIZE + 512);
+		const int mintx = int(camPosBig2.x / WSQUARE_SIZE - 512);
+		const int maxtx = int(camPosBig2.x / WSQUARE_SIZE + 512);
 
-		int xstart = std::max(minlx, mintx);
-		int xend   = std::min(maxlx, maxtx);
-		int ystart = std::max(minly, minty);
-		int yend   = std::min(maxly, maxty);
+		const int minly = cy + (-LOD_SIZE_FACT + 2 - ysquaremod) * lod;
+		const int maxly = cy + ( LOD_SIZE_FACT     - ysquaremod) * lod;
+		const int minlx = cx + (-LOD_SIZE_FACT + 2 - xsquaremod) * lod;
+		const int maxlx = cx + ( LOD_SIZE_FACT     - xsquaremod) * lod;
 
-		int vrhlod = viewRadius * hlod;
+		const int xstart = std::max(minlx, mintx);
+		const int xend   = std::min(maxlx, maxtx);
+		const int ystart = std::max(minly, minty);
+		const int yend   = std::min(maxly, maxty);
 
+		const int vrhlod = LOD_SIZE_FACT * hlod;
+
+		// TODO: split drawing from (duplicated) GridVisibility code below
 		for (int y = ystart; y < yend; y += lod) {
 			int xs = xstart;
 			int xe = xend;
@@ -882,32 +814,26 @@ void CDynWater::DrawWaterSurface()
 
 			for (fli = negSides.begin(); fli != negSides.end(); ++fli) {
 				const float xtf = fli->base / WSQUARE_SIZE + fli->dir * y;
-				xtest = ((int)xtf) / lod * lod - lod;
+				xtest  = ((int) xtf                  ) / lod * lod - lod;
 				xtest2 = ((int)(xtf + fli->dir * lod)) / lod * lod - lod;
-				if (xtest > xtest2) {
-					xtest = xtest2;
-				}
-				if (xtest > xs) {
-					xs = xtest;
-				}
+
+				xtest = std::max(xtest, xtest2);
+				xs = std::max(xs, xtest);
 			}
 			for (fli = posSides.begin(); fli != posSides.end(); ++fli) {
 				const float xtf = fli->base / WSQUARE_SIZE + fli->dir * y;
-				xtest = ((int)xtf) / lod * lod - lod;
+				xtest  = ((int) xtf                  ) / lod * lod - lod;
 				xtest2 = ((int)(xtf + fli->dir * lod)) / lod * lod - lod;
-				if (xtest < xtest2) {
-					xtest = xtest2;
-				}
-				if (xtest < xe) {
-					xe = xtest;
-				}
+
+				xtest = std::min(xtest, xtest2);
+				xe = std::min(xe, xtest);
 			}
 
 			const int ylod = y + lod;
 			const int yhlod = y + hlod;
 
 			const int nloop = (xe - xs) / lod + 1;
-			va->EnlargeArrays(nloop*13, 4*nloop + 1);
+			va->EnlargeArrays(nloop*13);
 			for (int x = xs; x < xe; x += lod) {
 				const int xlod = x + lod;
 				const int xhlod = x + hlod;
@@ -923,49 +849,49 @@ void CDynWater::DrawWaterSurface()
 				} else { // inre begr?sning mot f?eg?nde lod FIXME
 					if (x >= (cx + vrhlod)) {
 						if (inStrip) {
-							va->EndStripQ();
+							va->EndStrip();
 							inStrip = false;
 						}
 						DrawVertexAQ(x,y);
 						DrawVertexAQ(x,yhlod);
 						DrawVertexAQ(xhlod,y);
 						DrawVertexAQ(xhlod,yhlod);
-						va->EndStripQ();
+						va->EndStrip();
 						DrawVertexAQ(x,yhlod);
 						DrawVertexAQ(x,ylod);
 						DrawVertexAQ(xhlod,yhlod);
 						DrawVertexAQ(xhlod,ylod);
-						va->EndStripQ();
+						va->EndStrip();
 						DrawVertexAQ(xhlod,ylod);
 						DrawVertexAQ(xlod,ylod);
 						DrawVertexAQ(xhlod,yhlod);
 						DrawVertexAQ(xlod,y);
 						DrawVertexAQ(xhlod,y);
-						va->EndStripQ();
+						va->EndStrip();
 					} else if (x <= (cx - vrhlod)) {
 						if (inStrip) {
-							va->EndStripQ();
+							va->EndStrip();
 							inStrip = false;
 						}
 						DrawVertexAQ(xlod,  yhlod);
 						DrawVertexAQ(xlod,  y);
 						DrawVertexAQ(xhlod, yhlod);
 						DrawVertexAQ(xhlod, y);
-						va->EndStripQ();
+						va->EndStrip();
 						DrawVertexAQ(xlod,  ylod);
 						DrawVertexAQ(xlod,  yhlod);
 						DrawVertexAQ(xhlod, ylod);
 						DrawVertexAQ(xhlod, yhlod);
-						va->EndStripQ();
+						va->EndStrip();
 						DrawVertexAQ(xhlod, y);
 						DrawVertexAQ(x,     y);
 						DrawVertexAQ(xhlod, yhlod);
 						DrawVertexAQ(x,     ylod);
 						DrawVertexAQ(xhlod, ylod);
-						va->EndStripQ();
+						va->EndStrip();
 					} else if (y >= (cy + vrhlod)) {
 						if (inStrip) {
-							va->EndStripQ();
+							va->EndStrip();
 							inStrip = false;
 						}
 						DrawVertexAQ(x,     y);
@@ -974,16 +900,16 @@ void CDynWater::DrawWaterSurface()
 						DrawVertexAQ(xhlod, yhlod);
 						DrawVertexAQ(xlod,  y);
 						DrawVertexAQ(xlod,  yhlod);
-						va->EndStripQ();
+						va->EndStrip();
 						DrawVertexAQ(x,     yhlod);
 						DrawVertexAQ(x,     ylod);
 						DrawVertexAQ(xhlod, yhlod);
 						DrawVertexAQ(xlod,  ylod);
 						DrawVertexAQ(xlod,  yhlod);
-						va->EndStripQ();
+						va->EndStrip();
 					} else if (y <= (cy - vrhlod)) {
 						if (inStrip) {
-							va->EndStripQ();
+							va->EndStrip();
 							inStrip = false;
 						}
 						DrawVertexAQ(x,     yhlod);
@@ -992,18 +918,18 @@ void CDynWater::DrawWaterSurface()
 						DrawVertexAQ(xhlod, ylod);
 						DrawVertexAQ(xlod,  yhlod);
 						DrawVertexAQ(xlod,  ylod);
-						va->EndStripQ();
+						va->EndStrip();
 						DrawVertexAQ(xlod,  yhlod);
 						DrawVertexAQ(xlod,  y);
 						DrawVertexAQ(xhlod, yhlod);
 						DrawVertexAQ(x,     y);
 						DrawVertexAQ(x,     yhlod);
-						va->EndStripQ();
+						va->EndStrip();
 					}
 				}
 			}
 			if (inStrip) {
-				va->EndStripQ();
+				va->EndStrip();
 				inStrip = false;
 			}
 		}
@@ -1057,10 +983,10 @@ void CDynWater::DrawDetailNormalTex()
 
 	//update detail normals
 	glBegin(GL_QUADS);
-	glTexCoord2f(0, 0); glVertex3f(0, 0, 0);
-	glTexCoord2f(0, 1); glVertex3f(0, 1, 0);
-	glTexCoord2f(1, 1); glVertex3f(1, 1, 0);
-	glTexCoord2f(1, 0); glVertex3f(1, 0, 0);
+	glTexCoord2f(0, 0); glVertexf3(ZeroVector);
+	glTexCoord2f(0, 1); glVertexf3(  UpVector);
+	glTexCoord2f(1, 1); glVertexf3(  XYVector);
+	glTexCoord2f(1, 0); glVertexf3( RgtVector);
 	glEnd();
 
 
@@ -1111,29 +1037,24 @@ void CDynWater::AddShipWakes()
 	va2->Initialize();
 
 	{
-		GML_RECMUTEX_LOCK(unit); // AddShipWakes
-
-		const std::set<CUnit*>& units = unitDrawer->GetUnsortedUnits();
+		const auto& units = unitDrawer->GetUnsortedUnits();
 		const int nadd = units.size() * 4;
 
 		va->EnlargeArrays(nadd, 0, VA_SIZE_TN);
 		va2->EnlargeArrays(nadd, 0, VA_SIZE_TN);
 
-		for (std::set<CUnit*>::const_iterator ui = units.begin(); ui != units.end(); ++ui) {
-			const CUnit* unit = *ui;
-			const UnitDef* unitDef = unit->unitDef;
-			const MoveDef* moveDef = unitDef->moveDef;
+		for (const CUnit* unit: units) {
+			const MoveDef* moveDef = unit->moveDef;
 
-			if (moveDef == NULL) {
+			if (moveDef == NULL)
 				continue;
-			}
 
-			if (moveDef->moveType == MoveDef::Hover_Move) {
+			if (moveDef->speedModClass == MoveDef::Hover) {
 				// hovercraft
 				const float3& pos = unit->pos;
 
-				if ((math::fabs(pos.x - camPosBig.x) > (WH_SIZE - 50)) ||
-					(math::fabs(pos.z - camPosBig.z) > (WH_SIZE - 50)))
+				if ((std::fabs(pos.x - camPosBig.x) > (WH_SIZE - 50)) ||
+					(std::fabs(pos.z - camPosBig.z) > (WH_SIZE - 50)))
 				{
 					continue;
 				}
@@ -1144,7 +1065,7 @@ void CDynWater::AddShipWakes()
 				if ((pos.y > -4.0f) && (pos.y < 4.0f)) {
 					const float3 frontAdd = unit->frontdir * unit->radius * 0.75f;
 					const float3 sideAdd = unit->rightdir * unit->radius * 0.75f;
-					const float depth = math::sqrt(math::sqrt(unit->mass)) * 0.4f;
+					const float depth = std::sqrt(std::sqrt(unit->mass)) * 0.4f;
 					const float3 n(depth, 0.05f * depth, depth);
 
 					va2->AddVertexQTN(pos + frontAdd + sideAdd, 0, 0, n);
@@ -1152,12 +1073,12 @@ void CDynWater::AddShipWakes()
 					va2->AddVertexQTN(pos - frontAdd - sideAdd, 1, 1, n);
 					va2->AddVertexQTN(pos - frontAdd + sideAdd, 0, 1, n);
 				}
-			} else if (moveDef->moveType == MoveDef::Ship_Move) {
+			} else if (moveDef->speedModClass == MoveDef::Ship) {
 				// surface ship
 				const float3& pos = unit->pos;
 
-				if ((math::fabs(pos.x - camPosBig.x) > (WH_SIZE - 50)) ||
-					(math::fabs(pos.z - camPosBig.z) > (WH_SIZE - 50)))
+				if ((std::fabs(pos.x - camPosBig.x) > (WH_SIZE - 50)) ||
+					(std::fabs(pos.z - camPosBig.z) > (WH_SIZE - 50)))
 				{
 					continue;
 				}
@@ -1166,12 +1087,12 @@ void CDynWater::AddShipWakes()
 				}
 
 				// skip submarines (which have deep waterlines)
-				if (unit->isUnderWater || !unit->inWater)
+				if (unit->IsUnderWater() || !unit->IsInWater())
 					continue;
 
 				const float3 frontAdd = unit->frontdir * unit->radius * 0.75f;
 				const float3 sideAdd = unit->rightdir * unit->radius * 0.18f;
-				const float depth = math::sqrt(math::sqrt(unit->mass));
+				const float depth = std::sqrt(std::sqrt(unit->mass));
 				const float3 n(depth, 0.04f * unit->speed.Length2D() * depth, depth);
 
 				va->AddVertexQTN(pos + frontAdd + sideAdd, 0, 0, n);
@@ -1194,6 +1115,7 @@ void CDynWater::AddShipWakes()
 
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 	glDisable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	glDisable(GL_FRAGMENT_PROGRAM_ARB);
 	glDisable(GL_VERTEX_PROGRAM_ARB);
@@ -1203,8 +1125,6 @@ void CDynWater::AddShipWakes()
 
 void CDynWater::AddExplosions()
 {
-	GML_STDMUTEX_LOCK(water); // AddExplosions
-
 	if (explosions.empty()) {
 		return;
 	}
@@ -1249,8 +1169,8 @@ void CDynWater::AddExplosions()
 	for (std::vector<Explosion>::iterator ei = explosions.begin(); ei != explosions.end(); ++ei) {
 		Explosion& explo = *ei;
 		float3 pos = explo.pos;
-		if ((math::fabs(pos.x - camPosBig.x) > (WH_SIZE - 50))
-				|| (math::fabs(pos.z - camPosBig.z) > (WH_SIZE - 50)))
+		if ((std::fabs(pos.x - camPosBig.x) > (WH_SIZE - 50))
+				|| (std::fabs(pos.z - camPosBig.z) > (WH_SIZE - 50)))
 		{
 			continue;
 		}
@@ -1281,6 +1201,7 @@ void CDynWater::AddExplosions()
 
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 	glDisable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	glDisable(GL_FRAGMENT_PROGRAM_ARB);
 	glDisable(GL_VERTEX_PROGRAM_ARB);
@@ -1293,8 +1214,6 @@ void CDynWater::AddExplosion(const float3& pos, float strength, float size)
 	if ((pos.y > size) || (size < 8)) {
 		return;
 	}
-
-	GML_STDMUTEX_LOCK(water); // AddExplosion
 
 	explosions.push_back(Explosion(pos, std::min(size*20, strength), size));
 }
@@ -1352,7 +1271,7 @@ void CDynWater::DrawOuterSurface()
 	CVertexArray* va = GetVertexArray();
 	va->Initialize();
 
-	va->EnlargeArrays(3*3*16*16*4, 0);
+	va->EnlargeArrays(3*3*16*16*4);
 	float posx = camPosBig2.x - WH_SIZE - WF_SIZE;
 	float posy = camPosBig2.z - WH_SIZE - WF_SIZE;
 
@@ -1383,25 +1302,3 @@ void CDynWater::DrawOuterSurface()
 	va->DrawArray0(GL_QUADS);
 }
 
-
-
-/*
-void CDynWater::UpdateCamRestraints(CCamera* cam) {
-	cam->GetFrustumSides(-10.0f, 10.0f, 1.0f);
-
-	const float3& camDir3D  = cam->forward;
-	      float3  camDir2D  = float3(camDir3D.x, 0.0f, camDir3D.z);
-	      float3  camOffset = ZeroVector;
-
-	static const float miny = 0.0f;
-	static const float maxy = 255.0f / 3.5f;
-
-	// prevent colinearity in top-down view
-	if (math::fabs(camDir3D.dot(UpVector)) < 0.95f) {
-		camDir2D  = camDir2D.SafeANormalize();
-		camOffset = camDir2D * globalRendering->viewRange * 1.05f;
-
-		cam->GetFrustumSide(camDir2D, camOffset, miny, maxy, SQUARE_SIZE, (camDir3D.y > 0.0f), false);
-	}
-}
-*/

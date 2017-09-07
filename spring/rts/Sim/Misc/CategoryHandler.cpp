@@ -2,41 +2,40 @@
 
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
-#include "System/mmgr.h"
 
 #include "CategoryHandler.h"
 
 #include "System/creg/STL_Map.h"
 #include "System/Util.h"
 #include "System/Log/ILog.h"
-#include "lib/gml/gmlmut.h"
 
-CR_BIND(CCategoryHandler, );
+CR_BIND(CCategoryHandler, )
 
 CR_REG_METADATA(CCategoryHandler, (
-		CR_MEMBER(categories),
-		CR_MEMBER(firstUnused),
-		CR_RESERVED(8)
-		));
+	CR_MEMBER(categories),
+	CR_MEMBER(firstUnused)
+))
 
-CCategoryHandler* CCategoryHandler::instance;
+CCategoryHandler* CCategoryHandler::instance = NULL;
 
+CCategoryHandler* CCategoryHandler::Instance() {
+	assert(instance != NULL);
+	return instance;
+}
+
+
+void CCategoryHandler::CreateInstance() {
+	if (instance == NULL) {
+		instance = new CCategoryHandler();
+	}
+}
 
 void CCategoryHandler::RemoveInstance()
 {
 	delete instance;
 	instance = NULL;
-}
-
-
-CCategoryHandler::CCategoryHandler() : firstUnused(0)
-{
-}
-
-
-CCategoryHandler::~CCategoryHandler()
-{
 }
 
 
@@ -49,8 +48,6 @@ unsigned int CCategoryHandler::GetCategory(std::string name)
 		return 0; // the empty category
 
 	unsigned int cat = 0;
-	
-	GML_STDMUTEX_LOCK(cat); // GetCategory
 
 	if (categories.find(name) == categories.end()) {
 		// this category is yet unknown
@@ -85,6 +82,7 @@ unsigned int CCategoryHandler::GetCategories(std::string names)
 	// split on ' '
 	std::stringstream namesStream(names);
 	std::string name;
+
 	while (std::getline(namesStream, name, ' ')) {
 		if (!name.empty()) {
 			ret |= GetCategory(name);
@@ -99,13 +97,9 @@ std::vector<std::string> CCategoryHandler::GetCategoryNames(unsigned int bits) c
 {
 	std::vector<std::string> names;
 
-	std::map<std::string, unsigned int>::const_iterator it;
-
-	GML_STDMUTEX_LOCK(cat); // GetCategoryNames
-
 	for (unsigned int bit = 1; bit != 0; bit = (bit << 1)) {
 		if ((bit & bits) != 0) {
-			for (it = categories.begin(); it != categories.end(); ++it) {
+			for (auto it = categories.cbegin(); it != categories.cend(); ++it) {
 				if (it->second == bit) {
 					names.push_back(it->first);
 				}
@@ -115,3 +109,4 @@ std::vector<std::string> CCategoryHandler::GetCategoryNames(unsigned int bits) c
 
 	return names;
 }
+

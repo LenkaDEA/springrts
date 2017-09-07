@@ -1,58 +1,168 @@
-LIBRARY	unitsync
-EXPORTS
-	Init						@1
-	UnInit						@2
-	GetCurrentList				@3
-	ProcessUnits				@4
-	ProcessUnitsNoChecksum		@15
-	AddClient					@5
-	RemoveClient				@6
-	GetClientDiff				@7
-	InstallClientDiff			@8
-	
-	GetUnitCount				@9
-	GetUnitName					@10
-	IsUnitDisabled				@11
-	IsUnitDisabledByClient		@12
-	GetFullUnitName				@13
-	
-	AddArchive					@21
-	AddAllArchives				@22
-	GetArchiveChecksum			@23
-	
-	GetMapInfoEx				@29
-	GetMapCount					@30
-	GetMapName					@31
-	GetMapInfo					@32
-	GetMinimap					@33
-	GetMapArchiveCount			@34
-	GetMapArchiveName			@35
-	GetMapChecksum				@36
-	
-	GetPrimaryModCount			@40
-	GetPrimaryModName			@41
-	GetPrimaryModArchive		@42
-	GetPrimaryModIndex			@43	
-	GetPrimaryModArchiveCount	@44
-	GetPrimaryModArchiveList	@45
-	GetPrimaryModChecksum		@46
-	
-	GetSideCount				@50
-	GetSideName					@51
-	
-	OpenArchive					@60
-	CloseArchive				@61
-	OpenArchiveFile				@62
-	ReadArchiveFile				@63
-	CloseArchiveFile			@64
-	SizeArchiveFile				@65
-	FindFilesArchive			@66
-	
-	OpenFileVFS					@70
-	CloseFileVFS				@71
-	ReadFileVFS					@72
-	FileSizeVFS					@73
-	InitFindVFS					@74
-	FindFilesVFS				@75
+LIBRARY UNITSYNC
 
-	GetSpringVersion			@76
+EXPORTS
+AddAllArchives
+AddArchive
+CloseArchive
+CloseArchiveFile
+CloseFileVFS
+DeleteSpringConfigKey
+FileSizeVFS
+FindFilesArchive
+FindFilesVFS
+GetArchiveChecksum
+GetArchivePath
+GetCustomOptionCount
+GetDataDirectory
+GetDataDirectoryCount
+GetFullUnitName
+GetInfoDescription
+GetInfoKey
+GetInfoMap
+GetInfoMapSize
+GetInfoType
+GetInfoValue
+GetInfoValueBool
+GetInfoValueFloat
+GetInfoValueInteger
+GetInfoValueString
+GetMapArchiveCount
+GetMapArchiveName
+GetMapAuthor
+GetMapChecksum
+GetMapChecksumFromName
+GetMapCount
+GetMapDescription
+GetMapFileName
+GetMapGravity
+GetMapHeight
+GetMapInfo
+GetMapInfoCount
+GetMapInfoEx
+GetMapMaxHeight
+GetMapMinHeight
+GetMapName
+GetMapOptionCount
+GetMapPosCount
+GetMapPosX
+GetMapPosZ
+GetMapResourceCount
+GetMapResourceExtractorRadius
+GetMapResourceMax
+GetMapResourceName
+GetMapTidalStrength
+GetMapWidth
+GetMapWindMax
+GetMapWindMin
+GetMinimap
+GetModOptionCount
+GetModValidMap
+GetModValidMapCount
+GetNextError
+GetOptionBoolDef
+GetOptionDesc
+GetOptionKey
+GetOptionListCount
+GetOptionListDef
+GetOptionListItemDesc
+GetOptionListItemKey
+GetOptionListItemName
+GetOptionName
+GetOptionNumberDef
+GetOptionNumberMax
+GetOptionNumberMin
+GetOptionNumberStep
+GetOptionScope
+GetOptionSection
+GetOptionStringDef
+GetOptionStringMaxLen
+GetOptionStyle
+GetOptionType
+GetPrimaryModArchive
+GetPrimaryModArchiveCount
+GetPrimaryModArchiveList
+GetPrimaryModChecksum
+GetPrimaryModChecksumFromName
+GetPrimaryModCount
+GetPrimaryModDescription
+GetPrimaryModGame
+GetPrimaryModIndex
+GetPrimaryModInfoCount
+GetPrimaryModMutator
+GetPrimaryModName
+GetPrimaryModShortGame
+GetPrimaryModShortName
+GetPrimaryModVersion
+GetSideCount
+GetSideName
+GetSideStartUnit
+GetSkirmishAICount
+GetSkirmishAIInfoCount
+GetSkirmishAIOptionCount
+GetSpringConfigFile
+GetSpringConfigFloat
+GetSpringConfigInt
+GetSpringConfigString
+GetSpringVersion
+GetSpringVersionPatchset
+GetUnitCount
+GetUnitName
+GetWritableDataDirectory
+Init
+InitDirListVFS
+InitFindVFS
+InitSubDirsVFS
+IsSpringReleaseVersion
+OpenArchive
+OpenArchiveFile
+OpenArchiveType
+OpenFileVFS
+ProcessUnits
+ProcessUnitsNoChecksum
+ReadArchiveFile
+ReadFileVFS
+RemoveAllArchives
+SetSpringConfigFile
+SetSpringConfigFloat
+SetSpringConfigInt
+SetSpringConfigString
+SizeArchiveFile
+UnInit
+lpAddIntKeyBoolVal
+lpAddIntKeyFloatVal
+lpAddIntKeyIntVal
+lpAddIntKeyStrVal
+lpAddStrKeyBoolVal
+lpAddStrKeyFloatVal
+lpAddStrKeyIntVal
+lpAddStrKeyStrVal
+lpAddTableInt
+lpAddTableStr
+lpClose
+lpEndTable
+lpErrorLog
+lpExecute
+lpGetIntKeyBoolVal
+lpGetIntKeyFloatVal
+lpGetIntKeyIntVal
+lpGetIntKeyListCount
+lpGetIntKeyListEntry
+lpGetIntKeyStrVal
+lpGetIntKeyType
+lpGetKeyExistsInt
+lpGetKeyExistsStr
+lpGetStrKeyBoolVal
+lpGetStrKeyFloatVal
+lpGetStrKeyIntVal
+lpGetStrKeyListCount
+lpGetStrKeyListEntry
+lpGetStrKeyStrVal
+lpGetStrKeyType
+lpOpenFile
+lpOpenSource
+lpPopTable
+lpRootTable
+lpRootTableExpr
+lpSubTableExpr
+lpSubTableInt
+lpSubTableStr

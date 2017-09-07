@@ -4,8 +4,9 @@
 
 using namespace LuaRulesParams;
 
-CR_BIND(Param,);
+CR_BIND(Param,)
 CR_REG_METADATA(Param, (
-				CR_MEMBER(value),
-				CR_MEMBER(los)
-));
+	CR_MEMBER(los),
+	CR_MEMBER(valueInt),
+	CR_MEMBER(valueString)
+))

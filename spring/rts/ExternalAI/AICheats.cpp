@@ -13,14 +13,14 @@
 #include "Sim/Features/Feature.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/TeamHandler.h"
-#include "Game/GameServer.h"
+#include "Net/GameServer.h"
 #include "Game/GameSetup.h"
-#include "System/mmgr.h"
+#include "System/myMath.h"
 
 #include <vector>
 #include <list>
 
-#define CHECK_UNITID(id) ((unsigned)(id) < (unsigned)uh->MaxUnits())
+#define CHECK_UNITID(id) ((unsigned)(id) < (unsigned)unitHandler->MaxUnits())
 #define CHECK_GROUPID(id) ((unsigned)(id) < (unsigned)gh->groups.size())
 
 CUnit* CAICheats::GetUnit(int unitId) const {
@@ -28,7 +28,7 @@ CUnit* CAICheats::GetUnit(int unitId) const {
 	CUnit* unit = NULL;
 
 	if (CHECK_UNITID(unitId)) {
-		unit = uh->units[unitId];
+		unit = unitHandler->units[unitId];
 	}
 
 	return unit;
@@ -51,7 +51,7 @@ bool CAICheats::OnlyPassiveCheats()
 	// and the only client) if used by an AI
 	if (!gameServer) {
 		return true;
-	} else if (gameSetup && (gameSetup->playerStartingData.size() == 1)) {
+	} else if ((CGameSetup::GetPlayerStartingData()).size() == 1) {
 		// assumes AI's dont count toward numPlayers
 		return false;
 	} else {
@@ -78,13 +78,13 @@ void CAICheats::SetMyIncomeMultiplier(float incomeMultiplier)
 void CAICheats::GiveMeMetal(float amount)
 {
 	if (!OnlyPassiveCheats())
-		teamHandler->Team(ai->GetTeamId())->metal += amount;
+		teamHandler->Team(ai->GetTeamId())->res.metal += amount;
 }
 
 void CAICheats::GiveMeEnergy(float amount)
 {
 	if (!OnlyPassiveCheats())
-		teamHandler->Team(ai->GetTeamId())->energy += amount;
+		teamHandler->Team(ai->GetTeamId())->res.energy += amount;
 }
 
 int CAICheats::CreateUnit(const char* name, const float3& pos)
@@ -92,7 +92,9 @@ int CAICheats::CreateUnit(const char* name, const float3& pos)
 	int unitId = 0;
 
 	if (!OnlyPassiveCheats()) {
-		CUnit* unit = unitLoader->LoadUnit(name, pos, ai->GetTeamId(), false, 0, NULL);
+		const UnitLoadParams unitParams = {NULL, NULL, pos, ZeroVector, -1, ai->GetTeamId(), FACING_SOUTH, false, false};
+		const CUnit* unit = unitLoader->LoadUnit(name, unitParams);
+
 		if (unit) {
 			unitId = unit->id;
 		}
@@ -119,7 +121,7 @@ float3 CAICheats::GetUnitPos(int unitId) const
 {
 	const CUnit* unit = GetUnit(unitId);
 	if (unit) {
-		return unit->pos;
+		return unit->midPos;
 	}
 
 	return ZeroVector;
@@ -159,29 +161,6 @@ static int FilterUnitsVector(const std::vector<CUnit*>& units, int* unitIds, int
 
 	return a;
 }
-static int FilterUnitsList(const std::list<CUnit*>& units, int* unitIds, int unitIds_max, bool (*includeUnit)(CUnit*) = NULL)
-{
-	int a = 0;
-
-	if (unitIds_max < 0) {
-		unitIds = NULL;
-		unitIds_max = MAX_UNITS;
-	}
-
-	std::list<CUnit*>::const_iterator ui;
-	for (ui = units.begin(); (ui != units.end()) && (a < unitIds_max); ++ui) {
-		CUnit* u = *ui;
-
-		if ((includeUnit == NULL) || (*includeUnit)(u)) {
-			if (unitIds != NULL) {
-				unitIds[a] = u->id;
-			}
-			a++;
-		}
-	}
-
-	return a;
-}
 
 static inline bool unit_IsNeutral(CUnit* unit) {
 	return unit->IsNeutral();
@@ -199,24 +178,24 @@ static inline bool unit_IsEnemy(CUnit* unit) {
 int CAICheats::GetEnemyUnits(int* unitIds, int unitIds_max)
 {
 	myAllyTeamId = teamHandler->AllyTeam(ai->GetTeamId());
-	return FilterUnitsList(uh->activeUnits, unitIds, unitIds_max, &unit_IsEnemy);
+	return FilterUnitsVector(unitHandler->activeUnits, unitIds, unitIds_max, &unit_IsEnemy);
 }
 
 int CAICheats::GetEnemyUnits(int* unitIds, const float3& pos, float radius, int unitIds_max)
 {
-	const std::vector<CUnit*>& units = qf->GetUnitsExact(pos, radius);
+	const std::vector<CUnit*>& units = quadField->GetUnitsExact(pos, radius);
 	myAllyTeamId = teamHandler->AllyTeam(ai->GetTeamId());
 	return FilterUnitsVector(units, unitIds, unitIds_max, &unit_IsEnemy);
 }
 
 int CAICheats::GetNeutralUnits(int* unitIds, int unitIds_max)
 {
-	return FilterUnitsList(uh->activeUnits, unitIds, unitIds_max, &unit_IsNeutral);
+	return FilterUnitsVector(unitHandler->activeUnits, unitIds, unitIds_max, &unit_IsNeutral);
 }
 
 int CAICheats::GetNeutralUnits(int* unitIds, const float3& pos, float radius, int unitIds_max)
 {
-	const std::vector<CUnit*>& units = qf->GetUnitsExact(pos, radius);
+	const std::vector<CUnit*>& units = quadField->GetUnitsExact(pos, radius);
 	return FilterUnitsVector(units, unitIds, unitIds_max, &unit_IsNeutral);
 }
 
@@ -334,10 +313,10 @@ bool CAICheats::GetUnitResourceInfo(int unitId, UnitResourceInfo* unitResInf) co
 
 	const CUnit* unit = GetUnit(unitId);
 	if (unit) {
-		unitResInf->energyMake = unit->energyMake;
-		unitResInf->energyUse  = unit->energyUse;
-		unitResInf->metalMake  = unit->metalMake;
-		unitResInf->metalUse   = unit->metalUse;
+		unitResInf->energyMake = unit->resourcesMake.energy;
+		unitResInf->energyUse  = unit->resourcesUse.energy;
+		unitResInf->metalMake  = unit->resourcesMake.metal;
+		unitResInf->metalUse   = unit->resourcesUse.metal;
 		fetchOk = true;
 	}
 
@@ -386,7 +365,7 @@ bool CAICheats::IsUnitParalyzed(int unitId) const
 
 	const CUnit* unit = GetUnit(unitId);
 	if (unit) {
-		stunned = unit->stunned;
+		stunned = unit->IsStunned();
 	}
 
 	return stunned;
@@ -445,7 +424,7 @@ int CAICheats::HandleCommand(int commandId, void* data)
 			AIHCTraceRay* cmdData = static_cast<AIHCTraceRay*>(data);
 
 			if (CHECK_UNITID(cmdData->srcUID)) {
-				const CUnit* srcUnit = uh->units[cmdData->srcUID];
+				const CUnit* srcUnit = unitHandler->units[cmdData->srcUID];
 				CUnit* hitUnit = NULL;
 				CFeature* hitFeature = NULL;
 
@@ -463,7 +442,7 @@ int CAICheats::HandleCommand(int commandId, void* data)
 			AIHCFeatureTraceRay* cmdData = static_cast<AIHCFeatureTraceRay*>(data);
 
 			if (CHECK_UNITID(cmdData->srcUID)) {
-				const CUnit* srcUnit = uh->units[cmdData->srcUID];
+				const CUnit* srcUnit = unitHandler->units[cmdData->srcUID];
 				CUnit* hitUnit = NULL;
 				CFeature* hitFeature = NULL;
 

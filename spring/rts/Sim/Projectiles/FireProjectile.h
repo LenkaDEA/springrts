@@ -6,34 +6,41 @@
 #include "Projectile.h"
 #include <list>
 
-#if defined(USE_GML) && GML_ENABLE_SIM
-#define SUBPARTICLE_LIST gmlCircularQueue<CFireProjectile::SubParticle,16>
-#else
-#define SUBPARTICLE_LIST std::list<SubParticle>
-#endif
 
 class CFireProjectile : public CProjectile
 {
-	CR_DECLARE(CFireProjectile);
-	CR_DECLARE_SUB(SubParticle);
+	CR_DECLARE_DERIVED(CFireProjectile)
+	CR_DECLARE_SUB(SubParticle)
 public:
-	CFireProjectile(const float3& pos,const float3& speed,CUnit* owner,int emitTtl,float emitRadius,int particleTtl,float particleSize);
-	~CFireProjectile();
+	CFireProjectile() { }
+	CFireProjectile(
+		const float3& pos,
+		const float3& spd,
+		CUnit* owner,
+		int emitTtl,
+		int particleTtl,
+		float emitRadius,
+		float particleSize
+	);
 
-	void Draw();
-	void Update();
+	void Draw() override;
+	void Update() override;
 	void StopFire();
 
+	virtual int GetProjectilesCount() const override;
+
+public:
 	int ttl;
 	float3 emitPos;
 	float emitRadius;
-		
+
 	int particleTime;
 	float particleSize;
 	float ageSpeed;
 
 	struct SubParticle {
-		CR_DECLARE(SubParticle);
+		CR_DECLARE_STRUCT(SubParticle)
+
 		float3 pos;
 		float3 posDif;
 		float age;
@@ -42,11 +49,10 @@ public:
 		int smokeType;
 	};
 
-	SUBPARTICLE_LIST subParticles;
-	SUBPARTICLE_LIST subParticles2;
+	typedef std::list<SubParticle> part_list_type; //FIXME
 
-private:
-	virtual void FireImpl() {};
+	part_list_type subParticles;
+	part_list_type subParticles2;
 };
 
 #endif // FIRE_PROJECTILE_H

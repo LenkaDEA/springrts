@@ -8,7 +8,7 @@
 #include "Sim/Units/BuildInfo.h"
 #include "System/Misc/BitwiseEnum.h"
 
-#include <map>
+#include <set>
 #include <string>
 
 class CUnit;
@@ -23,10 +23,12 @@ struct UnitDef;
 class CBuilderCAI : public CMobileCAI
 {
 public:
-	CR_DECLARE(CBuilderCAI);
+	CR_DECLARE(CBuilderCAI)
 	CBuilderCAI(CUnit* owner);
 	CBuilderCAI();
 	~CBuilderCAI();
+
+	static void InitStatic();
 	void PostLoad();
 
 	int GetDefaultCmd(const CUnit* unit, const CFeature* feature);
@@ -35,7 +37,7 @@ public:
 	void FinishCommand();
 	void GiveCommandReal(const Command& c, bool fromSynced = true);
 	void BuggerOff(const float3& pos, float radius);
-	bool TargetInterceptable(CUnit *unit, float uspeed);
+	bool TargetInterceptable(const CUnit* unit, float uspeed);
 
 	void ExecuteBuildCmd(Command& c);
 	void ExecutePatrol(Command& c);
@@ -54,7 +56,7 @@ public:
 	/**
 	 * Checks if a unit is being reclaimed by a friendly con.
 	 */
-	static bool IsUnitBeingReclaimed(CUnit* unit, CUnit* friendUnit = NULL);
+	static bool IsUnitBeingReclaimed(const CUnit* unit, CUnit* friendUnit = NULL);
 	static bool IsFeatureBeingReclaimed(int featureId, CUnit* friendUnit = NULL);
 	static bool IsFeatureBeingResurrected(int featureId, CUnit* friendUnit = NULL);
 
@@ -62,7 +64,7 @@ public:
 	bool IsInBuildRange(const float3& pos, const float radius) const;
 
 public:
-	std::map<int, std::string> buildOptions;
+	std::set<int> buildOptions;
 
 	static CUnitSet reclaimers;
 	static CUnitSet featureReclaimers;
@@ -77,7 +79,7 @@ private:
 		REC_ENEMYONLY  = 1<<4,
 		REC_SPECIAL    = 1<<5
 	};
-	typedef BitwiseEnum<ReclaimOptions> ReclaimOption;
+	typedef Bitwise::BitwiseEnum<ReclaimOptions> ReclaimOption;
 
 private:
 	/**
@@ -97,6 +99,9 @@ private:
 	 */
 	bool FindRepairTargetAndRepair(const float3& pos, float radius, unsigned char options, bool attackEnemy, bool builtOnly);
 	/**
+	 * @param pos         position where to search for units to capture
+	 * @param radius      radius in which are searched units to capture
+	 * @param options     command options
 	 * @param healthyOnly only capture units with capture progress or 100% health remaining
 	 */
 	bool FindCaptureTargetAndCapture(const float3& pos, float radius, unsigned char options, bool healthyOnly);
@@ -107,13 +112,13 @@ private:
 	bool MoveInBuildRange(const CWorldObject* obj, const bool checkMoveTypeForFailed = false);
 	bool MoveInBuildRange(const float3& pos, float radius, const bool checkMoveTypeForFailed = false);
 
-	bool IsBuildPosBlocked(const BuildInfo& build, const CUnit* nanoFrame) const;
+	bool IsBuildPosBlocked(const BuildInfo& build, const CUnit** nanoFrame) const;
 	bool IsBuildPosBlocked(const BuildInfo& build) const {
 		const CUnit* u = NULL;
-		return IsBuildPosBlocked(build, u);
+		return IsBuildPosBlocked(build, &u);
 	}
 
-	void CancelRestrictedUnit(const std::string& buildOption);
+	void CancelRestrictedUnit();
 	bool OutOfImmobileRange(const Command& cmd) const;
 	/// add a command to reclaim a feature that is blocking our build-site
 	void ReclaimFeature(CFeature* f);
@@ -146,7 +151,7 @@ private:
 	float GetBuildOptionRadius(const UnitDef* unitdef, int cmdId);
 
 private:
-	CBuilder* owner_builder;
+	CBuilder* ownerBuilder;
 
 	bool building;
 	BuildInfo build;

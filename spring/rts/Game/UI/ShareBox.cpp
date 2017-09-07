@@ -4,18 +4,17 @@
 
 #include "MouseHandler.h"
 #include "Game/GlobalUnsynced.h"
-#include "Game/SelectedUnits.h"
-#include "Game/Player.h"
-#include "Game/PlayerHandler.h"
-#include "Rendering/glFont.h"
+#include "Game/SelectedUnitsHandler.h"
+#include "Game/Players/Player.h"
+#include "Game/Players/PlayerHandler.h"
+#include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/TeamHandler.h"
-#include "System/NetProtocol.h"
-#include "System/mmgr.h"
+#include "Net/Protocol/NetProtocol.h"
 #include "System/MsgStrings.h"
 
-#include <SDL_keysym.h>
+#include <SDL_keycode.h>
 
 
 #define MAX_SHARE_TEAMS (teamHandler->ActiveTeams() - 1)
@@ -166,7 +165,7 @@ void CShareBox::Draw()
 	} else {
 		glColor4f(0.2f, 0.2f, 0.2f, alpha);
 	}
-	
+
 	DrawBox(box + unitBox);
 
 	glColor4f(0.8f, 0.8f, 0.9f, 0.7f);
@@ -214,15 +213,15 @@ void CShareBox::Draw()
 	font->glPrint(box.x1 + 0.01f, box.y1 + 0.16f, 0.7f, FONT_SCALE | FONT_NORM, "Share Energy");
 
 	font->SetTextColor(1, 1, 1, 0.8f);
-	font->glFormat(box.x1 + 0.25f, box.y1 + 0.12f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", float(teamHandler->Team(gu->myTeam)->energy));
-	font->glFormat(box.x1 + 0.14f, box.y1 + 0.12f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", teamHandler->Team(gu->myTeam)->energy * energyShare);
+	font->glFormat(box.x1 + 0.25f, box.y1 + 0.12f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", float(teamHandler->Team(gu->myTeam)->res.energy));
+	font->glFormat(box.x1 + 0.14f, box.y1 + 0.12f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", teamHandler->Team(gu->myTeam)->res.energy * energyShare);
 
 	font->SetTextColor(0.8f, 0.8f, 0.9f, 0.8f);
 	font->glPrint(box.x1 + 0.01f, box.y1 + 0.22f, 0.7f, FONT_SCALE | FONT_NORM, "Share Metal");
 
 	font->SetTextColor(1, 1, 1, 0.8f);
-	font->glFormat(box.x1 + 0.25f, box.y1 + 0.18f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", float(teamHandler->Team(gu->myTeam)->metal));
-	font->glFormat(box.x1 + 0.14f, box.y1 + 0.18f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", teamHandler->Team(gu->myTeam)->metal * metalShare);
+	font->glFormat(box.x1 + 0.25f, box.y1 + 0.18f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", float(teamHandler->Team(gu->myTeam)->res.metal));
+	font->glFormat(box.x1 + 0.14f, box.y1 + 0.18f, 0.7f, FONT_SCALE | FONT_NORM, "%.0f", teamHandler->Team(gu->myTeam)->res.metal * metalShare);
 
 	int teamPos = 0;
 	for(int team = startTeam; team < MAX_SHARE_TEAMS && teamPos < numTeamsDisp; ++team, ++teamPos) {
@@ -231,15 +230,10 @@ void CShareBox::Draw()
 			actualTeam++;
 		}
 		const float alpha = (shareTeam == actualTeam) ? 0.8f : 0.4f;
-		std::string teamName;
 
-		if (teamHandler->Team(actualTeam)->leader >= 0) {
-			teamName = playerHandler->Player(teamHandler->Team(actualTeam)->leader)->name;
-		} else {
-			teamName = UncontrolledPlayerName;
-		}
-
+		std::string teamName = teamHandler->Team(actualTeam)->GetControllerName();
 		std::string ally, dead;
+
 		if (teamHandler->Ally(gu->myAllyTeam, teamHandler->AllyTeam(actualTeam))) {
 			font->SetTextColor(0.5f, 1.0f, 0.5f, alpha);
 			ally = " <Ally>";
@@ -370,11 +364,11 @@ void CShareBox::MouseRelease(int x, int y, int button)
 		if (shareUnits) {
 			Command c(CMD_STOP);
 			// make sure the units are stopped and that the selection is transmitted
-			selectedUnits.GiveCommand(c, false);
+			selectedUnitsHandler.GiveCommand(c, false);
 		}
-		net->Send(CBaseNetProtocol::Get().SendShare(gu->myPlayerNum, shareTeam, shareUnits, metalShare * teamHandler->Team(gu->myTeam)->metal, energyShare * teamHandler->Team(gu->myTeam)->energy));
+		clientNet->Send(CBaseNetProtocol::Get().SendShare(gu->myPlayerNum, shareTeam, shareUnits, metalShare * teamHandler->Team(gu->myTeam)->res.metal, energyShare * teamHandler->Team(gu->myTeam)->res.energy));
 		if (shareUnits) {
-			selectedUnits.ClearSelected();
+			selectedUnitsHandler.ClearSelected();
 		}
 		lastShareTeam = shareTeam;
 	}
@@ -424,7 +418,7 @@ void CShareBox::MouseMove(int x, int y, int dx, int dy, int button)
 	}
 }
 
-bool CShareBox::KeyPressed(unsigned short key, bool isRepeat)
+bool CShareBox::KeyPressed(int key, bool isRepeat)
 {
 	if (key == SDLK_ESCAPE) {
 		delete this;

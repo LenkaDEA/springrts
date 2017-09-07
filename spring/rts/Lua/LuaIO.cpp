@@ -11,8 +11,6 @@
 #include <string>
 using std::string;
 
-#include "System/mmgr.h"
-
 #include "LuaIO.h"
 
 #if !defined UNITSYNC && !defined DEDICATED && !defined BUILDING_AI
@@ -36,7 +34,9 @@ static bool IsSafePath(const string& path)
 	}
 	if ((path.find("..") != string::npos) ||
 		(path.find("springsettings.cfg") != string::npos) || //don't allow to change config file
-		(path.find(".springrc") != string::npos)) {
+		(path.find(".springrc") != string::npos) ||
+		(path.find("springrc") != string::npos)
+	) {
 		return false;
 	}
 
@@ -73,15 +73,8 @@ bool LuaIO::SafeReadPath(const string& path)
 }
 
 
-bool LuaIO::SafeWritePath(lua_State* L, const string& path)
+bool LuaIO::SafeWritePath(const string& path)
 {
-	string prefix = ""; // FIXME
-#if !defined UNITSYNC && !defined DEDICATED && !defined BUILDING_AI
-	const CLuaHandle* lh = CLuaHandle::GetHandle(L);
-	if (lh != NULL) {
-		prefix = lh->GetName() + "/" + "Write";
-	}
-#endif // !defined UNITSYNC && !defined DEDICATED && !defined BUILDING_AI
 	const size_t numExtensions = 5;
 	const char* exeFiles[numExtensions] = {"exe", "dll", "so", "bat", "com"};
 	const string ext = FileSystem::GetExtension(path);
@@ -90,7 +83,7 @@ bool LuaIO::SafeWritePath(lua_State* L, const string& path)
 		if (ext == exeFiles[i])
 			return false;
 	}
-	return dataDirsAccess.InWriteDir(path, prefix);
+	return dataDirsAccess.InWriteDir(path);
 }
 
 
@@ -142,7 +135,7 @@ int LuaIO::system(lua_State* L, const char* command)
 
 int LuaIO::remove(lua_State* L, const char* pathname)
 {
-	if (!SafeWritePath(L, pathname)
+	if (!SafeWritePath(pathname)
 		|| !IsSafePath(pathname)) {
 		errno = EPERM; //EACCESS?
 		return -1;
@@ -153,7 +146,7 @@ int LuaIO::remove(lua_State* L, const char* pathname)
 
 int LuaIO::rename(lua_State* L, const char* oldpath, const char* newpath)
 {
-	if (!SafeWritePath(L, oldpath) || !SafeWritePath(L, newpath)
+	if (!SafeWritePath(oldpath) || !SafeWritePath(newpath)
 		|| !IsSafePath(oldpath) || !IsSafePath(newpath)) {
 		errno = EPERM; //EACCESS?
 		return -1;

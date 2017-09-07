@@ -5,21 +5,18 @@
 
 #include "Weapon.h"
 
-class CTorpedoLauncher :
-	public CWeapon
+class CTorpedoLauncher: public CWeapon
 {
-	CR_DECLARE(CTorpedoLauncher);
+	CR_DECLARE_DERIVED(CTorpedoLauncher)
 public:
-	CTorpedoLauncher(CUnit* owner);
-	~CTorpedoLauncher(void);
-
-	void Update(void);
-	bool TryTarget(const float3& pos,bool userTarget,CUnit* unit);
-
-	float tracking;
+	CTorpedoLauncher(CUnit* owner, const WeaponDef* def);
 
 private:
-	virtual void FireImpl(void);
+	bool TestTarget(const float3 pos, const SWeaponTarget& trg) const override final;
+	void FireImpl(const bool scriptCall) override final;
+
+private:
+	float tracking;
 };
 
 

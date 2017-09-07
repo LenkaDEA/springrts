@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "SimpleParser.h"
 #include "FileHandler.h"
@@ -11,17 +10,17 @@
 CSimpleParser::CSimpleParser(CFileHandler& fh)
 	: curPos(0)
 	, lineNumber(0)
-	, inComment(false) // /* text */ comments are not implemented
+//	, inComment(false) // /* text */ comments are not implemented
 {
 	fh.LoadStringData(file);
 }
 
 CSimpleParser::CSimpleParser(const std::string& filecontent)
-	: curPos(0)
+	: file(filecontent)
+	, curPos(0)
 	, lineNumber(0)
-	, inComment(false) // /* text */ comments are not implemented
+//	, inComment(false) // /* text */ comments are not implemented
 {
-	file = filecontent;
 }
 
 

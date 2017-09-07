@@ -55,10 +55,11 @@ bool GetJVMPath(const char* jrePath, const char* jvmType,
 
 static bool CheckIfJREPath(const char* path, const char* arch)
 {
-	char libJava[MAXPATHLEN];
 	bool found = false;
 
 	if (path != NULL) {
+		char libJava[MAXPATHLEN];
+
 		// Is path a JRE path?
 		SNPRINTF(libJava, MAXPATHLEN, "%s\\bin\\"JAVA_LIB, path);
 		if (FileExists(libJava)) {
@@ -72,11 +73,12 @@ static bool CheckIfJREPath(const char* path, const char* arch)
 bool GetJREPathFromBase(char* path, size_t pathSize, const char* basePath,
 		const char* arch)
 {
-	char jrePath[MAXPATHLEN];
 	bool found = false;
 
 	if (basePath != NULL) {
 	//if (GetApplicationHome(path, pathSize)) {
+		char jrePath[MAXPATHLEN];
+
 		// Is basePath a JRE path?
 		STRCPY_T(jrePath, MAXPATHLEN, basePath);
 		if (CheckIfJREPath(jrePath, arch)) {
@@ -160,7 +162,7 @@ static bool GetJREPathFromRegistry(char* path, size_t pathSize, const char* arch
 	RegCloseKey(key);
 	RegCloseKey(subkey);
 
-	simpleLog_logL(SIMPLELOG_LEVEL_FINER, "JRE found in registry!");
+	simpleLog_logL(LOG_LEVEL_NOTICE, "JRE found in registry!");
 	return true;
 }
 

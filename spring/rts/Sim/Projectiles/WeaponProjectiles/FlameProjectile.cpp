@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "FlameProjectile.h"
 #include "Game/Camera.h"
@@ -8,72 +7,58 @@
 #include "Rendering/GL/VertexArray.h"
 #include "Rendering/Textures/ColorMap.h"
 #include "Rendering/Textures/TextureAtlas.h"
+#include "Sim/Projectiles/ExplosionGenerator.h"
 #include "Sim/Projectiles/ProjectileHandler.h"
 #include "Sim/Weapons/WeaponDef.h"
 
-CR_BIND_DERIVED(CFlameProjectile, CWeaponProjectile, (ZeroVector, ZeroVector, ZeroVector, NULL, NULL, 0));
+CR_BIND_DERIVED(CFlameProjectile, CWeaponProjectile, )
 
 CR_REG_METADATA(CFlameProjectile,(
 	CR_SETFLAG(CF_Synced),
-	CR_MEMBER(color),
-	CR_MEMBER(color2),
-	CR_MEMBER(intensity),
 	CR_MEMBER(spread),
 	CR_MEMBER(curTime),
 	CR_MEMBER(physLife),
-	CR_MEMBER(invttl),
-	CR_RESERVED(16)
-	));
+	CR_MEMBER(invttl)
+))
 
 
-CFlameProjectile::CFlameProjectile(
-	const float3& pos, const float3& speed, const float3& spread,
-	CUnit* owner, const WeaponDef* weaponDef, int ttl):
-
-	CWeaponProjectile(pos, speed, owner, NULL, ZeroVector, weaponDef, NULL, ttl),
-	color(color),
-	color2(color2),
-	intensity(intensity),
-	spread(spread),
-	curTime(0)
+CFlameProjectile::CFlameProjectile(const ProjectileParams& params):CWeaponProjectile(params)
+	, curTime(0.0f)
+	, physLife(0.0f)
+	, invttl(1.0f / ttl)
+	, spread(params.spread)
 {
-	projectileType = WEAPON_FLAME_PROJECTILE;
-	invttl = 1.0f / ttl;
 
-	if (weaponDef) {
+	projectileType = WEAPON_FLAME_PROJECTILE;
+
+	if (weaponDef != NULL) {
 		SetRadiusAndHeight(weaponDef->size * weaponDef->collisionSize, 0.0f);
 		drawRadius = weaponDef->size;
+
 		physLife = 1.0f / weaponDef->duration;
 	}
-
-	cegID = gCEG->Load(explGenHandler, (weaponDef != NULL)? weaponDef->cegTag: "");
-}
-
-CFlameProjectile::~CFlameProjectile()
-{
 }
 
 void CFlameProjectile::Collision()
 {
-	const float3 norm = ground->GetNormal(pos.x, pos.z);
+	const float3& norm = CGround::GetNormal(pos.x, pos.z);
 	const float ns = speed.dot(norm);
-	speed -= (norm * ns);
-	pos.y += 0.05f;
-	curTime += 0.05f;
-}
 
-void CFlameProjectile::Collision(CUnit* unit)
-{
-	CWeaponProjectile::Collision(unit);
+	SetVelocityAndSpeed(speed - (norm * ns));
+	SetPosition(pos + UpVector * 0.05f);
+
+	curTime += 0.05f;
 }
 
 void CFlameProjectile::Update()
 {
 	if (!luaMoveCtrl) {
-		pos += speed;
+		SetPosition(pos + speed);
 		UpdateGroundBounce();
-		speed += spread;
+		SetVelocityAndSpeed(speed + spread);
 	}
+
+	UpdateInterception();
 
 	radius = radius + weaponDef->sizeGrowth;
 	sqRadius = radius * radius;
@@ -88,7 +73,7 @@ void CFlameProjectile::Update()
 		deleteMe = true;
 	}
 
-	gCEG->Explosion(cegID, pos, curTime, intensity, NULL, 0.0f, NULL, speed);
+	explGenHandler->GenExplosion(cegID, pos, speed, curTime, 0.0f, 0.0f, NULL, NULL);
 }
 
 void CFlameProjectile::Draw()
@@ -97,22 +82,28 @@ void CFlameProjectile::Draw()
 	unsigned char col[4];
 	weaponDef->visuals.colorMap->GetColor(col, curTime);
 
-	va->AddVertexTC(drawPos - camera->right * radius - camera->up * radius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->ystart, col);
-	va->AddVertexTC(drawPos + camera->right * radius - camera->up * radius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->ystart, col);
-	va->AddVertexTC(drawPos + camera->right * radius + camera->up * radius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->yend,   col);
-	va->AddVertexTC(drawPos - camera->right * radius + camera->up * radius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->yend,   col);
+	va->AddVertexTC(drawPos - camera->GetRight() * radius - camera->GetUp() * radius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->ystart, col);
+	va->AddVertexTC(drawPos + camera->GetRight() * radius - camera->GetUp() * radius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->ystart, col);
+	va->AddVertexTC(drawPos + camera->GetRight() * radius + camera->GetUp() * radius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->yend,   col);
+	va->AddVertexTC(drawPos - camera->GetRight() * radius + camera->GetUp() * radius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->yend,   col);
 }
 
-int CFlameProjectile::ShieldRepulse(CPlasmaRepulser* shield, float3 shieldPos, float shieldForce, float shieldMaxSpeed)
+int CFlameProjectile::ShieldRepulse(const float3& shieldPos, float shieldForce, float shieldMaxSpeed)
 {
-	if (!luaMoveCtrl) {
-		const float3 rdir = (pos - shieldPos).Normalize();
+	if (luaMoveCtrl)
+		return 0;
 
-		if (rdir.dot(speed) < shieldMaxSpeed) {
-			speed += (rdir * shieldForce);
-			return 2;
-		}
+	const float3 rdir = (pos - shieldPos).Normalize();
+
+	if (rdir.dot(speed) < shieldMaxSpeed) {
+		SetVelocityAndSpeed(speed + (rdir * shieldForce));
+		return 2;
 	}
 
 	return 0;
+}
+
+int CFlameProjectile::GetProjectilesCount() const
+{
+	return 1;
 }

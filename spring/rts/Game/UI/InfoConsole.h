@@ -7,9 +7,9 @@
 #include "System/float3.h"
 #include "System/EventClient.h"
 #include "System/Log/LogSinkHandler.h"
+#include "System/Misc/SpringTime.h"
 
 #include <deque>
-#include <vector>
 #include <string>
 #include <list>
 #include <boost/thread/recursive_mutex.hpp>
@@ -27,24 +27,13 @@ public:
 	void RecordLogMessage(const std::string& section, int level,
 			const std::string& text);
 
-
 	bool WantsEvent(const std::string& eventName) {
 		return (eventName == "LastMessagePosition");
 	}
 	void LastMessagePosition(const float3& pos);
-	const float3& GetMsgPos();
-	int GetMsgPosCount() const {
-		return lastMsgPositions.size();
-	}
+	const float3& GetMsgPos(const float3& defaultPos = ZeroVector);
+	unsigned int GetMsgPosCount() const { return lastMsgPositions.size(); }
 
-
-	int lifetime;
-	float xpos;
-	float ypos;
-	float width;
-	float height;
-	float fontScale;
-	float fontSize;
 	bool enabled;
 
 public:
@@ -58,33 +47,41 @@ public:
 			, section(section)
 			, level(level)
 			, id(id)
-			, time(0)
 			{}
 		std::string text;
 		std::string section;
 		int level;
 		int id;
-		boost::uint32_t time;
 	};
 
-	int  GetRawLines(std::deque<RawLine>& copy);
+	int GetRawLines(std::deque<RawLine>& copy);
 
 private:
+	struct InfoLine {
+		std::string text;
+		spring_time timeout;
+	};
+
 	std::list<float3> lastMsgPositions;
 	std::list<float3>::iterator lastMsgIter;
 
 	std::deque<RawLine> rawData;
+	std::deque<InfoLine> data;
+
 	size_t newLines;
 	int rawId;
 
-	struct InfoLine {
-		std::string text;
-		int time;
-	};
-	int lastTime;
-	std::deque<InfoLine> data;
-
 	mutable boost::recursive_mutex infoConsoleMutex;
+
+	int lifetime;
+	float xpos;
+	float ypos;
+	float width;
+	float height;
+	float fontScale;
+	float fontSize;
+
+	size_t maxLines;
 };
 
 #endif /* INFO_CONSOLE_H */

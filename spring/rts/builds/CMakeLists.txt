@@ -1,6 +1,6 @@
 ### builds
 #
-# Macros and fucntions defined in this file:
+# Macros and functions defined in this file:
 # * CreateEngineBuildAndInstallTarget
 #
 
@@ -19,13 +19,17 @@ macro    (CreateEngineBuildAndInstallTarget targetName)
 	set(myBuildTarget spring-${targetName})
 	set(${targetName}-Deps
 			engine-${targetName}
-			manpages
-			userdocs
-			gamedata
+			basecontent
 			unitsync
 			${DEPS_AI_ALL}
-			ArchiveMover
 		)
+	if (CREATE_MAN_PAGES)
+		LIST(APPEND ${targetName}-Deps manpages)
+	endif()
+	if (userdoc_INSTALL_HTML)
+		LIST(APPEND ${targetName}-Deps userdocs)
+	endif()
+
 	# Create a custom meta build target
 	add_custom_target(${myBuildTarget}
 		WORKING_DIRECTORY
@@ -35,7 +39,7 @@ macro    (CreateEngineBuildAndInstallTarget targetName)
 		)
 	# This also works for custom targets
 	add_dependencies(${myBuildTarget} ${${targetName}-Deps})
-	Add_Dependencies(engine-${targetName} generateVersionFiles)
+	Add_Dependencies(engine-${targetName} generateVersionFiles basecontent)
 
 	# Only install spring-<targetName> executable & dependencies
 	set(${targetName}-InstallDirs
@@ -48,22 +52,47 @@ macro    (CreateEngineBuildAndInstallTarget targetName)
 	If    (NOT "${AI_TYPES}" STREQUAL "NONE")
 		Set(${targetName}-InstallDirs ${${targetName}-InstallDirs} "AI")
 	EndIf (NOT "${AI_TYPES}" STREQUAL "NONE")
+
 	CreateInstallTarget(spring-${targetName} myBuildTarget ${targetName}-InstallDirs)
+
+	# allow easy switching of the default engine
+	if    (${targetName} STREQUAL "legacy")
+		# Create shortcuts
+		# * make spring
+		# * make install-spring
+		message(STATUS "Using ${targetName} as default engine")
+		add_dependencies(spring spring-${targetName}) # This also works for custom targets
+		add_dependencies(install-spring install-spring-${targetName}) # This also works for custom targets
+		set_target_properties(engine-${targetName} PROPERTIES OUTPUT_NAME "spring")
+	else()
+		set_target_properties(engine-${targetName} PROPERTIES OUTPUT_NAME "spring-${targetName}")
+	endif ()
 endmacro (CreateEngineBuildAndInstallTarget targetName)
 
 
 # This allows us to disable each build type individually at configure stage.
 Macro    (AddEngineBuild build)
-	Set(BUILD_spring-${build} TRUE CACHE BOOL "Configure the spring-${build} target.")
+	option(BUILD_spring-${build} "Configure the spring-${build} target." TRUE)
 	If     (BUILD_spring-${build})
 		Add_Subdirectory(${build})
 	EndIf  ()
 EndMacro (AddEngineBuild)
 
-if    (NOT HEADLESS_SYSTEM)
-	AddEngineBuild(default)
-	AddEngineBuild(multithreaded)
-endif (NOT HEADLESS_SYSTEM)
+# add default dummy target which is used later on
+add_custom_target(spring WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+add_custom_target(install-spring WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 
+### Add icon and manifest to exe using windres
+IF    (WIN32)
+	SET(ENGINE_ICON "${ENGINE_SRC_ROOT_DIR}/icon.rc")
+	
+	IF (MSVC)
+		# Make sure we disable the default manifest generation to prevent conflicts
+		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /MANIFEST:NO")
+	ENDIF()
+ENDIF (WIN32)
+
+# the build targets
+AddEngineBuild(legacy)
 AddEngineBuild(dedicated)
 AddEngineBuild(headless)

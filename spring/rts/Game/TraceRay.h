@@ -3,10 +3,15 @@
 #ifndef _TRACE_RAY_H
 #define _TRACE_RAY_H
 
+#include <vector>
+
 class float3;
 class CUnit;
 class CFeature;
+class CWeapon;
+class CPlasmaRepulser;
 class CSolidObject;
+struct CollisionQuery;
 
 namespace Collision {
 	enum {
@@ -15,31 +20,49 @@ namespace Collision {
 		NOFEATURES   = 4,
 		NONEUTRALS   = 8,
 		NOGROUND     = 16,
-		BOOLEAN      = 32, // skip further testings after the first collision
+		NOCLOAKED    = 32,
+		BOOLEAN      = 64, // skip further tests after the first collision (unused)
 		NOUNITS = NOENEMIES | NOFRIENDLIES | NONEUTRALS
 	};
 }
 
 namespace TraceRay {
+	struct SShieldDist {
+		CPlasmaRepulser* rep;
+		float dist;
+	};
+
+	// TODO: extend with allyTeam param s.t. we can add Collision::NO{LOS,RADAR}, etc.
 	float TraceRay(
 		const float3& start,
 		const float3& dir,
 		float length,
-		int collisionFlags,
+		int avoidFlags,
 		const CUnit* owner,
 		CUnit*& hitUnit,
-		CFeature*& hitFeature);
-	float GuiTraceRay(
+		CFeature*& hitFeature,
+		CollisionQuery* hitColQuery = 0x0
+	);
+
+	void TraceRayShields(
+		const CWeapon* emitter,
 		const float3& start,
 		const float3& dir,
 		float length,
-		bool useRadar,
-		const CUnit* exclude,
-		CUnit*& hitUnit,
-		CFeature*& hitFeature,
-		bool groundOnly = false);
+		std::vector<SShieldDist>& hitShields
+	);
 
-	bool LineFeatureCol(const float3& start, const float3& dir, float length);
+	float GuiTraceRay(
+		const float3& start,
+		const float3& dir,
+		const float length,
+		const CUnit* exclude,
+		const CUnit*& hitUnit,
+		const CFeature*& hitFeature,
+		bool useRadar,
+		bool groundOnly = false,
+		bool ignoreWater = true
+	);
 
 	/**
 	 * @return true if there is an object (allied/neutral unit, feature)
@@ -51,9 +74,7 @@ namespace TraceRay {
 		float length,
 		float spread,
 		int allyteam,
-		bool testFriendly,
-		bool testNeutral,
-		bool testFeatures,
+		int avoidFlags,
 		CUnit* owner);
 
 	/**
@@ -67,11 +88,8 @@ namespace TraceRay {
 		float linear,
 		float quadratic,
 		float spread,
-		float baseSize,
 		int allyteam,
-		bool testFriendly,
-		bool testNeutral,
-		bool testFeatures,
+		int avoidFlags,
 		CUnit* owner);
 }
 

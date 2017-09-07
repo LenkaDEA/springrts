@@ -11,7 +11,17 @@
 #include "System/maindefines.h"
 
 #ifdef _MSC_VER
-#define __builtin_sqrtf math::sqrtf
+#define __builtin_sqrtf sqrt_sse
+#endif
+
+#ifdef __GNUC__
+	#define _const __attribute__((const))
+	#define _pure __attribute__((pure))
+	#define _warn_unused_result __attribute__((warn_unused_result))
+#else
+	#define _const
+	#define _pure
+	#define _warn_unused_result
 #endif
 
 /**
@@ -25,23 +35,32 @@
  */
 
 namespace fastmath {
-	float isqrt_nosse(float);
+	float isqrt_sse(float x) _const;
+	float sqrt_sse(float x) _const;
+	float isqrt_nosse(float x) _const;
+	float isqrt2_nosse(float x) _const;
+	float sqrt_builtin(float x) _const;
+	float apxsqrt(float x) _const;
+	float apxsqrt2(float x) _const;
+	float sin(float x) _const;
+	float cos(float x) _const;
+	template<typename T> float floor(const T& f) _const;
+
 	/****************** Square root functions ******************/
 
 	/**
 	* @brief DO NOT USE IN SYNCED CODE. Calculates 1/sqrt(x) using SSE instructions.
 	*
-	* This is much slower than isqrt_nosse (extremely slow on AMDs) and
+	* This is much slower than isqrt_nosse (extremely slow on some AMDs) and
 	* additionally gives different results on Intel and AMD processors.
 	*/
+	__FORCE_ALIGN_STACK__
 	inline float isqrt_sse(float x)
 	{
 #ifndef DEDICATED_NOSSE
-		__m128 vec = _mm_load_ss(&x);
+		__m128 vec = _mm_set_ss(x);
 		vec = _mm_rsqrt_ss(vec);
-		_mm_store_ss(&x, vec);
-		
-		return x;
+		return _mm_cvtss_f32(vec);
 #else
 		return isqrt_nosse(x);
 #endif
@@ -50,17 +69,15 @@ namespace fastmath {
 	/**
 	* @brief Sync-safe. Calculates square root with using SSE instructions.
 	*
-	* Slower than std::sqrtf, faster than streflop
+	* Slower than std::sqrtf, much faster than streflop
 	*/
-
-	inline float __ALIGN_ARG__ sqrt_sse(float x)
+	__FORCE_ALIGN_STACK__
+	inline float sqrt_sse(float x)
 	{
 #ifndef DEDICATED_NOSSE
-		__m128 vec = _mm_load_ss(&x);
+		__m128 vec = _mm_set_ss(x);
 		vec = _mm_sqrt_ss(vec);
-		_mm_store_ss(&x, vec);
-		
-		return x;
+		return _mm_cvtss_f32(vec);
 #else
 		return sqrt(x);
 #endif
@@ -119,14 +136,8 @@ namespace fastmath {
 	/****************** Square root ******************/
 
 
-	/** Calculate sqrt using builtin sqrtf. */
-	inline float sqrt(float x)
-	{
-		return __builtin_sqrtf(x);
-	}
-
-	/** Calculate sqrt using builtin sqrtf. */
-	inline float sqrt2(float x)
+	/** Calculate sqrt using builtin sqrtf. (very fast) */
+	inline float sqrt_builtin(float x)
 	{
 		return __builtin_sqrtf(x);
 	}
@@ -149,21 +160,6 @@ namespace fastmath {
 		return x * isqrt2_nosse(x);
 	}
 
-	/**
-	* @brief Calculates 1/sqrt(x) very quickly.
-	*
-	*/
-	inline float isqrt(float x) {
-		return isqrt2_nosse(x);
-	}
-
-	/**
-	* @brief Calculates 1/sqrt(x) very quickly. More accurate but slower than isqrt.
-	*
-	*/
-	inline float isqrt2(float x) {
-		return isqrt2_nosse(x);
-	}
 
 	/****************** Trigonometric functions ******************/
 
@@ -217,6 +213,20 @@ namespace fastmath {
 	static const float NEGHALFPI = -HALFPI;
 
 	/**
+	* @brief square root of two
+	*
+	* sqrt(2)
+	*/
+	static const float SQRT2 = 1.41421356237f;
+
+	/**
+	* @brief Degree (300) to Radians (2pi)
+	*
+	* 360 / (2*PI)
+	*/
+	static const float DEG_TO_RAD = 180.f / PI;
+
+	/**
 	* @brief calculates the sine of x
 	*
 	* Range reduces x to -PI ... PI, and then uses the
@@ -255,8 +265,7 @@ namespace fastmath {
 	* @brief fast version of std::floor
 	*
 	* Like 2-3x faster than glibc ones.
-	* Note: It seems std::floor operates on FPU's 80bit while this custom solution always works on 32bit.
-	* So the results differ at the end of the 32bit precision range.
+	* Note: The results differ at the end of the 32bit precision range.
 	*/
 	template<typename T>
 	inline float floor(const T& f)
@@ -267,14 +276,21 @@ namespace fastmath {
 
 using fastmath::PI;
 namespace math {
-	//! override streflop with faster sqrt!
+	// override streflop with faster sqrt!
+	float sqrt(float x) _const;
 	inline float sqrt(float x) {
 		return fastmath::sqrt_sse(x);
 	}
+	float sqrtf(float x) _const;
+	inline float sqrtf(float x) {
+		return fastmath::sqrt_sse(x);
+	}
 
-	using fastmath::isqrt;
-	using fastmath::isqrt2;
-	
+	float isqrt(float x) _const;
+	inline float isqrt(float x) {
+		return fastmath::isqrt2_nosse(x);
+	}
+
 	using fastmath::floor;
 }
 

@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include <set>
 #include <string>
@@ -17,6 +16,7 @@
 #include "LuaHandle.h"
 #include "LuaUtils.h"
 #include "Game/TraceRay.h"
+#include "Rendering/Models/IModelParser.h"
 #include "Sim/Misc/CategoryHandler.h"
 #include "Sim/Misc/DamageArrayHandler.h"
 #include "Sim/Projectiles/Projectile.h"
@@ -50,7 +50,7 @@ static int VisualsTable(lua_State* L, const void* data);
 static int DamagesArray(lua_State* L, const void* data);
 static int CustomParamsTable(lua_State* L, const void* data);
 static int GuiSoundSetTable(lua_State* L, const void* data);
-static int CategorySetFromBits(lua_State* L, const void* data);
+//static int CategorySetFromBits(lua_State* L, const void* data);
 
 
 /******************************************************************************/
@@ -58,50 +58,33 @@ static int CategorySetFromBits(lua_State* L, const void* data);
 
 bool LuaWeaponDefs::PushEntries(lua_State* L)
 {
-	if (paramMap.empty()) {
-	  InitParamMap();
-	}
+	InitParamMap();
 
-	const map<string, int>& weaponMap = weaponDefHandler->weaponID;
-	map<string, int>::const_iterator wit;
-	for (wit = weaponMap.begin(); wit != weaponMap.end(); ++wit) {
-		const WeaponDef* wd = &weaponDefHandler->weaponDefs[wit->second];
-		if (wd == NULL) {
-	  	continue;
-		}
-		lua_pushnumber(L, wd->id);
-		lua_newtable(L); { // the proxy table
+	typedef int (*IndxFuncType)(lua_State*);
+	typedef int (*IterFuncType)(lua_State*);
 
-			lua_newtable(L); { // the metatable
+	const auto& defsMap = weaponDefHandler->weaponID;
 
-				HSTR_PUSH(L, "__index");
-				lua_pushlightuserdata(L, (void*)wd);
-				lua_pushcclosure(L, WeaponDefIndex, 1);
-				lua_rawset(L, -3); // closure
+	const std::array<const LuaHashString, 3> indxOpers = {{
+		LuaHashString("__index"),
+		LuaHashString("__newindex"),
+		LuaHashString("__metatable")
+	}};
+	const std::array<const LuaHashString, 2> iterOpers = {{
+		LuaHashString("pairs"),
+		LuaHashString("next")
+	}};
 
-				HSTR_PUSH(L, "__newindex");
-				lua_pushlightuserdata(L, (void*)wd);
-				lua_pushcclosure(L, WeaponDefNewIndex, 1);
-				lua_rawset(L, -3);
+	const std::array<const IndxFuncType, 3> indxFuncs = {WeaponDefIndex, WeaponDefNewIndex, WeaponDefMetatable};
+	const std::array<const IterFuncType, 2> iterFuncs = {Pairs, Next};
 
-				HSTR_PUSH(L, "__metatable");
-				lua_pushlightuserdata(L, (void*)wd);
-				lua_pushcclosure(L, WeaponDefMetatable, 1);
-				lua_rawset(L, -3);
-			}
+	for (auto it = defsMap.cbegin(); it != defsMap.cend(); ++it) {
+		const auto def = weaponDefHandler->GetWeaponDefByID(it->second);
 
-			lua_setmetatable(L, -2);
-		}
+		if (def == NULL)
+			continue;
 
-		HSTR_PUSH(L, "pairs");
-		lua_pushcfunction(L, Pairs);
-		lua_rawset(L, -3);
-
-		HSTR_PUSH(L, "next");
-		lua_pushcfunction(L, Next);
-		lua_rawset(L, -3);
-
-		lua_rawset(L, -3); // proxy table into WeaponDefs
+		PushObjectDefProxyTable(L, indxOpers, iterOpers, indxFuncs, iterFuncs, def);
 	}
 
 	return true;
@@ -130,26 +113,26 @@ static int WeaponDefIndex(lua_State* L)
 	const void* userData = lua_touserdata(L, lua_upvalueindex(1));
 	const WeaponDef* wd = static_cast<const WeaponDef*>(userData);
 	const DataElement& elem = it->second;
-	const char* p = ((const char*)wd) + elem.offset;
+	const void* p = ((const char*)wd) + elem.offset;
 	switch (elem.type) {
 		case READONLY_TYPE: {
 			lua_rawget(L, 1);
 			return 1;
 		}
 		case INT_TYPE: {
-			lua_pushnumber(L, *((int*)p));
+			lua_pushnumber(L, *reinterpret_cast<const int*>(p));
 			return 1;
 		}
 		case BOOL_TYPE: {
-			lua_pushboolean(L, *((bool*)p));
+			lua_pushboolean(L, *reinterpret_cast<const bool*>(p));
 			return 1;
 		}
 		case FLOAT_TYPE: {
-			lua_pushnumber(L, *((float*)p));
+			lua_pushnumber(L, *reinterpret_cast<const float*>(p));
 			return 1;
 		}
 		case STRING_TYPE: {
-			lua_pushsstring(L, *((string*)p));
+			lua_pushsstring(L, *reinterpret_cast<const std::string*>(p));
 			return 1;
 		}
 		case FUNCTION_TYPE: {
@@ -194,7 +177,7 @@ static int WeaponDefNewIndex(lua_State* L)
 
 	// Definition editing
 	const DataElement& elem = it->second;
-	const char* p = ((const char*)wd) + elem.offset;
+	const void* p = ((const char*)wd) + elem.offset;
 
 	switch (elem.type) {
 		case FUNCTION_TYPE:
@@ -272,7 +255,7 @@ static int DamagesArray(lua_State* L, const void* data)
 	const int typeCount = damageArrayHandler->GetNumTypes();
 	for (int i = 0; i < typeCount; i++) {
 		lua_pushnumber(L, i);
-		lua_pushnumber(L, d[i]);
+		lua_pushnumber(L, d.Get(i));
 		lua_rawset(L, -3);
 	}
 
@@ -282,10 +265,9 @@ static int DamagesArray(lua_State* L, const void* data)
 
 static int VisualsTable(lua_State* L, const void* data)
 {
-	const struct WeaponDef::Visuals& v =
-		*static_cast<const struct WeaponDef::Visuals*>(data);
+	const struct WeaponDef::Visuals& v = *static_cast<const struct WeaponDef::Visuals*>(data);
 	lua_newtable(L);
-	HSTR_PUSH_STRING(L, "modelName",      v.modelName);
+	HSTR_PUSH_STRING(L, "modelName",      modelLoader.FindModelPath(v.modelName));
 	HSTR_PUSH_NUMBER(L, "colorR",         v.color.x);
 	HSTR_PUSH_NUMBER(L, "colorG",         v.color.y);
 	HSTR_PUSH_NUMBER(L, "colorB",         v.color.z);
@@ -293,7 +275,6 @@ static int VisualsTable(lua_State* L, const void* data)
 	HSTR_PUSH_NUMBER(L, "color2G",        v.color2.y);
 	HSTR_PUSH_NUMBER(L, "color2B",        v.color2.z);
 	HSTR_PUSH_BOOL  (L, "smokeTrail",     v.smokeTrail);
-	HSTR_PUSH_BOOL  (L, "beamWeapon",     v.beamweapon);
 	HSTR_PUSH_NUMBER(L, "tileLength",     v.tilelength);
 	HSTR_PUSH_NUMBER(L, "scrollSpeed",    v.scrollspeed);
 	HSTR_PUSH_NUMBER(L, "pulseSpeed",     v.pulseSpeed);
@@ -306,8 +287,8 @@ static int VisualsTable(lua_State* L, const void* data)
 	HSTR_PUSH_NUMBER(L, "alphaDecay",     v.alphaDecay);
 	HSTR_PUSH_NUMBER(L, "separation",     v.separation);
 	HSTR_PUSH_BOOL  (L, "noGap",          v.noGap);
-
-	HSTR_PUSH_BOOL  (L, "alwaysVisible", v.alwaysVisible);
+	HSTR_PUSH_BOOL  (L, "alwaysVisible",  v.alwaysVisible);
+	HSTR_PUSH_BOOL  (L, "beamWeapon",     false); // DEPRECATED
 
 	return 1;
 //	CColorMap *colorMap;
@@ -369,6 +350,7 @@ static inline int BuildCategorySet(lua_State* L, const vector<string>& cats)
 }
 
 
+/*
 static int CategorySetFromBits(lua_State* L, const void* data)
 {
 	const int bits = *((const int*)data);
@@ -376,7 +358,7 @@ static int CategorySetFromBits(lua_State* L, const void* data)
 		CCategoryHandler::Instance()->GetCategoryNames(bits);
 	return BuildCategorySet(L, cats);
 }
-
+*/
 
 /*static int CategorySetFromString(lua_State* L, const void* data)
 {
@@ -427,6 +409,8 @@ static int GuiSoundSetTable(lua_State* L, const void* data)
 
 static bool InitParamMap()
 {
+	paramMap.clear();
+
 	paramMap["next"]  = DataElement(READONLY_TYPE);
 	paramMap["pairs"] = DataElement(READONLY_TYPE);
 
@@ -450,6 +434,7 @@ static bool InitParamMap()
 	ADD_DEPRECATED_LUADEF_KEY("areaOfEffect");
 	ADD_DEPRECATED_LUADEF_KEY("maxVelocity");
 	ADD_DEPRECATED_LUADEF_KEY("onlyTargetCategories");
+	ADD_DEPRECATED_LUADEF_KEY("restTime");
 
 	ADD_INT("id", wd.id);
 
@@ -457,7 +442,9 @@ static bool InitParamMap()
 
 	ADD_STRING("name",        wd.name);
 	ADD_STRING("description", wd.description);
-	ADD_STRING("cegTag",      wd.cegTag);
+
+	// FIXME: why is this expgen-tag exposed but not the other two?
+	ADD_STRING("cegTag", wd.visuals.ptrailExpGenTag);
 
 	ADD_STRING("type", wd.type);
 
@@ -472,12 +459,17 @@ static bool InitParamMap()
 	ADD_FLOAT("predictBoost", wd.predictBoost);
 	ADD_INT("highTrajectory", wd.highTrajectory);
 
+	ADD_FLOAT("dynDamageExp", wd.damages.dynDamageExp);
+	ADD_FLOAT("dynDamageMin", wd.damages.dynDamageMin);
+	ADD_FLOAT("dynDamageRange", wd.damages.dynDamageRange);
+	ADD_BOOL("dynDamageInverted", wd.damages.dynDamageInverted);
+
 	ADD_BOOL("noSelfDamage",  wd.noSelfDamage);
 	ADD_BOOL("impactOnly",    wd.impactOnly);
 
-	ADD_FLOAT("craterAreaOfEffect", wd.craterAreaOfEffect);
-	ADD_FLOAT("damageAreaOfEffect", wd.damageAreaOfEffect);
-	ADD_FLOAT("edgeEffectiveness",  wd.edgeEffectiveness);
+	ADD_FLOAT("craterAreaOfEffect", wd.damages.craterAreaOfEffect);
+	ADD_FLOAT("damageAreaOfEffect", wd.damages.damageAreaOfEffect);
+	ADD_FLOAT("edgeEffectiveness",  wd.damages.edgeEffectiveness);
 	ADD_FLOAT("fireStarter",        wd.fireStarter);
 	ADD_FLOAT("size",               wd.size);
 	ADD_FLOAT("sizeGrowth",         wd.sizeGrowth);
@@ -497,7 +489,6 @@ static bool InitParamMap()
 	ADD_INT("numbounce",       wd.numBounce);
 
 	ADD_FLOAT("maxAngle", wd.maxAngle);
-	ADD_FLOAT("restTime", wd.restTime);
 
 	ADD_FLOAT("uptime", wd.uptime);
 
@@ -515,6 +506,7 @@ static bool InitParamMap()
 	ADD_INT("targetable",      wd.targetable);
 	ADD_BOOL("stockpile",      wd.stockpile);
 	ADD_INT("interceptor",     wd.interceptor);
+	ADD_BOOL("interceptSolo",  wd.interceptSolo);
 	ADD_FLOAT("coverageRange", wd.coverageRange);
 
 	ADD_FLOAT("stockpileTime", wd.stockpileTime);
@@ -534,12 +526,13 @@ static bool InitParamMap()
 	ADD_FLOAT("turnRate", wd.turnrate);
 
 	ADD_FLOAT("projectilespeed", wd.projectilespeed);
-	ADD_FLOAT("explosionSpeed", wd.explosionSpeed);
+	ADD_FLOAT("explosionSpeed", wd.damages.explosionSpeed);
 
 	ADD_FLOAT("wobble", wd.wobble);
 	ADD_FLOAT("dance",  wd.dance);
 
 	ADD_FLOAT("trajectoryHeight", wd.trajectoryHeight);
+	ADD_INT("flightTime", wd.flighttime);
 
 	ADD_BOOL("largeBeamLaser", wd.largeBeamLaser);
 	ADD_BOOL("laserHardStop", wd.laserHardStop);

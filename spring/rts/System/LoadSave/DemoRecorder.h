@@ -4,12 +4,14 @@
 #define DEMO_RECORDER
 
 #include <vector>
-#include <fstream>
+#include <sstream>
 #include <list>
+#include <zlib.h>
 
 #include "Demo.h"
-#include "Game/PlayerStatistics.h"
+#include "Game/Players/PlayerStatistics.h"
 #include "Sim/Misc/TeamStatistics.h"
+
 
 /**
  * @brief Used to record demos
@@ -17,36 +19,38 @@
 class CDemoRecorder : public CDemo
 {
 public:
-	CDemoRecorder(const std::string& mapName, const std::string& modName);
+	CDemoRecorder(const std::string& mapName, const std::string& modName, bool serverDemo);
 	~CDemoRecorder();
 
 	void WriteSetupText(const std::string& text);
-	void SaveToDemo(const unsigned char* buf,const unsigned length, const float modGameTime);
-	
+	void SaveToDemo(const unsigned char* buf, const unsigned length, const float modGameTime);
+
 	/**
 	@brief assign a map name for the demo file
-	When this function is called, we can rename our demo file so that
-	map name / game time are visible. The demo file will be renamed by the
-	destructor. Otherwise the name "DATE_TIME_unnamed_VERSION.sdf" will be used.
 	*/
-	void SetName(const std::string& mapname, const std::string& modname);
+	void SetName(const std::string& mapName, const std::string& modName, bool serverDemo);
 	const std::string& GetName() const { return demoName; }
 
 	void SetGameID(const unsigned char* buf);
 	void SetTime(int gameTime, int wallclockTime);
 
-	void InitializeStats(int numPlayers, int numTeams );
+	void AddNewPlayer(const std::string& name, int playerNum);
+	void InitializeStats(int numPlayers, int numTeams);
 	void SetPlayerStats(int playerNum, const PlayerStatistics& stats);
 	void SetTeamStats(int teamNum, const std::list< TeamStatistics >& stats);
 	void SetWinningAllyTeams(const std::vector<unsigned char>& winningAllyTeams);
 
 private:
-	void WriteFileHeader(bool updateStreamLength = true);
+	unsigned int WriteFileHeader(bool updateStreamLength);
+	void SetFileHeader();
 	void WritePlayerStats();
 	void WriteTeamStats();
 	void WriteWinnerList();
+	void WriteDemoFile();
 
-	std::ofstream demoStream;
+private:
+	gzFile file;
+	std::stringstream demoStream;
 	std::vector<PlayerStatistics> playerStats;
 	std::vector< std::vector<TeamStatistics> > teamStats;
 	std::vector<unsigned char> winningAllyTeams;

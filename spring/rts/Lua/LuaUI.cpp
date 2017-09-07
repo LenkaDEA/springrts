@@ -1,22 +1,20 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "LuaLobby.h" // ugh, streflop namespace corruption...
-
-#include "System/mmgr.h"
-
 #include "LuaUI.h"
 
 #include "LuaInclude.h"
 
 #include "LuaUnsyncedCtrl.h"
+#include "LuaArchive.h"
 #include "LuaCallInCheck.h"
 #include "LuaConstGL.h"
 #include "LuaConstCMD.h"
 #include "LuaConstCMDTYPE.h"
 #include "LuaConstGame.h"
 #include "LuaSyncedRead.h"
-#include "LuaUnsyncedCall.h"
+#include "LuaInterCall.h"
 #include "LuaUnsyncedRead.h"
+#include "LuaUICommand.h"
 #include "LuaFeatureDefs.h"
 #include "LuaUnitDefs.h"
 #include "LuaWeaponDefs.h"
@@ -24,6 +22,7 @@
 #include "LuaOpenGL.h"
 #include "LuaUtils.h"
 #include "LuaVFS.h"
+#include "LuaVFSDownload.h"
 #include "LuaIO.h"
 #include "LuaZip.h"
 #include "Game/Camera.h"
@@ -31,11 +30,8 @@
 #include "Game/Game.h"
 #include "Game/GameHelper.h"
 #include "Game/GlobalUnsynced.h"
-#include "Game/PlayerRoster.h"
-#include "Game/SelectedUnits.h"
+#include "Game/SelectedUnitsHandler.h"
 #include "Game/UI/CommandColors.h"
-#include "Game/UI/CursorIcons.h"
-#include "Game/UI/GuiHandler.h"
 #include "Game/UI/InfoConsole.h"
 #include "Game/UI/KeyCodes.h"
 #include "Game/UI/KeySet.h"
@@ -44,6 +40,8 @@
 #include "Game/UI/MouseHandler.h"
 #include "Map/ReadMap.h"
 #include "Rendering/IconHandler.h"
+#include "Sim/Misc/LosHandler.h"
+#include "Sim/Units/CommandAI/CommandDescription.h"
 #include "System/EventHandler.h"
 #include "System/Log/ILog.h"
 #include "System/FileSystem/FileHandler.h"
@@ -53,15 +51,14 @@
 #include "System/Util.h"
 #include "lib/luasocket/src/luasocket.h"
 
+#include <mutex>
+#include <boost/thread/mutex.hpp>
 #include <stdio.h>
 #include <set>
 #include <cctype>
-#include <SDL_keysym.h>
-#include <SDL_mouse.h>
-#include <SDL_timer.h>
 
 CONFIG(bool, LuaSocketEnabled)
-	.defaultValue(false)
+	.defaultValue(true)
 	.description("Enable LuaSocket support, allows a lua-widget to make TCP/UDP Connections")
 	.readOnly(true)
 ;
@@ -73,83 +70,60 @@ CLuaUI* luaUI = NULL;
 
 const int CMD_INDEX_OFFSET = 1; // starting index for command descriptions
 
-static const char* GetVFSMode()
+static const char* GetVFSMode(bool lockedAccess)
 {
 	const char* accessMode = SPRING_VFS_RAW;
-	if (CFileHandler::FileExists("gamedata/LockLuaUI.txt", SPRING_VFS_MOD)) {
+
+	if (lockedAccess) {
 		if (!CLuaHandle::GetDevMode()) {
-			LOG("This game has locked LuaUI access");
 			accessMode = SPRING_VFS_MOD;
 		} else {
-			LOG("Bypassing this game's LuaUI access lock");
 			accessMode = SPRING_VFS_RAW SPRING_VFS_MOD;
 		}
 	}
+
 	return accessMode;
 }
 
 /******************************************************************************/
 /******************************************************************************/
 
+static boost::mutex m_singleton;
 
-void CLuaUI::LoadHandler()
-{
-	if (luaUI) {
-		return;
-	}
-
-	GML_STDMUTEX_LOCK(luaui); // LoadHandler
-
-	new CLuaUI();
-
-	if (!luaUI->IsValid()) {
-		delete luaUI;
-	}
-}
-
-
-void CLuaUI::FreeHandler()
-{
-	static bool inFree = false;
-	if (!inFree) {
-
-		GML_STDMUTEX_LOCK(luaui); // FreeHandler
-
-		inFree = true;
-		delete luaUI;
-		inFree = false;
-	}
-}
+DECL_LOAD_HANDLER(CLuaUI, luaUI)
+DECL_FREE_HANDLER(CLuaUI, luaUI)
 
 
 /******************************************************************************/
 
 CLuaUI::CLuaUI()
-: CLuaHandle("LuaUI", LUA_HANDLE_ORDER_UI, true)
+: CLuaHandle("LuaUI", LUA_HANDLE_ORDER_UI, true, false)
 {
-	GML::SetLuaUIState(L_Sim);
 	luaUI = this;
 
-	BEGIN_ITERATE_LUA_STATES();
-
-	if (!IsValid()) {
+	if (!IsValid())
 		return;
-	}
 
 	UpdateTeams();
+
+	queuedAction = ACTION_NOVALUE;
 
 	haveShockFront = false;
 	shockFrontMinArea  = 0.0f;
 	shockFrontMinPower = 0.0f;
 	shockFrontDistAdj  = 100.0f;
 
+	const bool luaLockedAccess = CFileHandler::FileExists("gamedata/LockLuaUI.txt", SPRING_VFS_MOD);
 	const bool luaSocketEnabled = configHandler->GetBool("LuaSocketEnabled");
-	LOG("LuaSocketEnabled: %s", (luaSocketEnabled ? "yes": "no" ));
 
-	const char* vfsMode = GetVFSMode();
-	const std::string file = (CFileHandler::FileExists("luaui.lua", vfsMode) ? "luaui.lua" : "LuaUI/main.lua");
+	const std::string mode = GetVFSMode(luaLockedAccess);
+	const std::string file = (CFileHandler::FileExists("luaui.lua", mode) ? "luaui.lua": "LuaUI/main.lua");
+	const std::string code = LoadFile(file, mode);
 
-	const string code = LoadFile(file);
+	LOG("LuaUI Entry Point: \"%s\"", file.c_str());
+	LOG("LuaUI Access Lock: %s", (luaLockedAccess ? ((!CLuaHandle::GetDevMode()) ? "enabled": "bypassed"): "disabled" ));
+	LOG("LuaSocket Enabled: %s", (luaSocketEnabled ? "yes": "no" ));
+
 	if (code.empty()) {
 		KillLua();
 		return;
@@ -195,31 +169,28 @@ CLuaUI::CLuaUI()
 
 	AddBasicCalls(L); // into Global
 
-	lua_pushstring(L, "Script");
-	lua_rawget(L, -2);
-	LuaPushNamedCFunc(L, "UpdateCallIn", CallOutUnsyncedUpdateCallIn);
-	lua_pop(L, 1);
-
 	// load the spring libraries
 	if (!LoadCFunctions(L)                                                 ||
 	    !AddEntriesToTable(L, "VFS",         LuaVFS::PushUnsynced)         ||
 	    !AddEntriesToTable(L, "VFS",       LuaZipFileReader::PushUnsynced) ||
 	    !AddEntriesToTable(L, "VFS",       LuaZipFileWriter::PushUnsynced) ||
+	    !AddEntriesToTable(L, "VFS",         LuaArchive::PushEntries)      ||
 	    !AddEntriesToTable(L, "UnitDefs",    LuaUnitDefs::PushEntries)     ||
 	    !AddEntriesToTable(L, "WeaponDefs",  LuaWeaponDefs::PushEntries)   ||
 	    !AddEntriesToTable(L, "FeatureDefs", LuaFeatureDefs::PushEntries)  ||
-	    !AddEntriesToTable(L, "Script",      LuaUnsyncedCall::PushEntries) ||
+	    !AddEntriesToTable(L, "Script",      LuaInterCall::PushEntriesUnsynced) ||
 	    !AddEntriesToTable(L, "Script",      LuaScream::PushEntries)       ||
-	    !AddEntriesToTable(L, "Script",      LuaLobby::PushEntries)        ||
 	    !AddEntriesToTable(L, "Spring",      LuaSyncedRead::PushEntries)   ||
 	    !AddEntriesToTable(L, "Spring",      LuaUnsyncedCtrl::PushEntries) ||
 	    !AddEntriesToTable(L, "Spring",      LuaUnsyncedRead::PushEntries) ||
+	    !AddEntriesToTable(L, "Spring",      LuaUICommand::PushEntries)    ||
 	    !AddEntriesToTable(L, "gl",          LuaOpenGL::PushEntries)       ||
 	    !AddEntriesToTable(L, "GL",          LuaConstGL::PushEntries)      ||
 	    !AddEntriesToTable(L, "Game",        LuaConstGame::PushEntries)    ||
 	    !AddEntriesToTable(L, "CMD",         LuaConstCMD::PushEntries)     ||
 	    !AddEntriesToTable(L, "CMDTYPE",     LuaConstCMDTYPE::PushEntries) ||
-	    !AddEntriesToTable(L, "LOG",         LuaUtils::PushLogEntries)
+	    !AddEntriesToTable(L, "LOG",         LuaUtils::PushLogEntries)     ||
+	    !AddEntriesToTable(L, "VFS",         LuaVFSDownload::PushEntries)
 	) {
 		KillLua();
 		return;
@@ -235,104 +206,76 @@ CLuaUI::CLuaUI()
 	eventHandler.AddClient(this);
 
 	// update extra call-ins
-	UnsyncedUpdateCallIn(L, "WorldTooltip");
-	UnsyncedUpdateCallIn(L, "MapDrawCmd");
-
-	UpdateUnsyncedXCalls(L);
+	UpdateCallIn(L, "WorldTooltip");
+	UpdateCallIn(L, "MapDrawCmd");
 
 	lua_settop(L, 0);
-
-	END_ITERATE_LUA_STATES();
 }
 
 
 CLuaUI::~CLuaUI()
 {
-	if (L_Sim != NULL || L_Draw != NULL) {
-		Shutdown();
-		KillLua();
-	}
-	luaUI = NULL;
-	GML::SetLuaUIState(NULL);
+	luaUI = nullptr;
 }
 
 void CLuaUI::InitLuaSocket(lua_State* L) {
 	std::string code;
-	std::string filename="socket.lua";
+	std::string filename = "socket.lua";
 	CFileHandler f(filename);
 
-	LUA_OPEN_LIB(L,luaopen_socket_core);
+	LUA_OPEN_LIB(L, luaopen_socket_core);
 
-	if (f.LoadStringData(code)){
-		LoadCode(L, code.c_str(), filename.c_str());
+	if (f.LoadStringData(code)) {
+		LoadCode(L, code, filename);
 	} else {
 		LOG_L(L_ERROR, "Error loading %s", filename.c_str());
 	}
 }
 
-string CLuaUI::LoadFile(const string& filename) const
+string CLuaUI::LoadFile(const string& name, const std::string& mode) const
 {
-	const char* vfsMode = GetVFSMode();
-	CFileHandler f(filename, vfsMode);
+	CFileHandler f(name, mode.c_str());
 
 	string code;
-	if (!f.LoadStringData(code)) {
+	if (!f.LoadStringData(code))
 		code.clear();
-	}
+
 	return code;
 }
 
 
-bool CLuaUI::HasCallIn(lua_State *L, const string& name)
+static bool IsDisallowedCallIn(const string& name)
 {
-	if (!IsValid()) {
-		return false;
-	}
-
-	// never allow these calls
-	if (name == "Explosion") {
-		return false;
-	}
-
-	lua_getglobal(L, name.c_str());
-	if (!lua_isfunction(L, -1)) {
-		lua_pop(L, 1);
-		return false;
-	}
-	lua_pop(L, 1);
-	return true;
+	return
+		   (name == "Explosion")
+		|| (name == "DrawUnit")
+		|| (name == "DrawFeature")
+		|| (name == "DrawShield")
+		|| (name == "DrawProjectile")
+	;
 }
 
 
-bool CLuaUI::UnsyncedUpdateCallIn(lua_State *L, const string& name)
+bool CLuaUI::HasCallIn(lua_State* L, const string& name)
 {
-	// never allow this call-in
-	if (name == "Explosion") {
+	// never allow these calls
+	if (IsDisallowedCallIn(name))
 		return false;
-	}
 
-	if (HasCallIn(L, name)) {
-		eventHandler.InsertEvent(this, name);
-	} else {
-		eventHandler.RemoveEvent(this, name);
-	}
-
-	UpdateUnsyncedXCalls(L);
-
-	return true;
+	return CLuaHandle::HasCallIn(L, name);
 }
 
 
 void CLuaUI::UpdateTeams()
 {
 	if (luaUI) {
-		luaUI->SetFullCtrl(gs->godMode, true);
+		luaUI->SetFullCtrl(gs->godMode);
 		luaUI->SetCtrlTeam(gs->godMode ? AllAccessTeam :
-		                  (gu->spectating ? NoAccessTeam : gu->myTeam), true);
-		luaUI->SetFullRead(gu->spectatingFullView, true);
-		luaUI->SetReadTeam(luaUI->GetFullRead() ? AllAccessTeam : gu->myTeam, true);
-		luaUI->SetReadAllyTeam(luaUI->GetFullRead() ? AllAccessTeam : gu->myAllyTeam, true);
-		luaUI->SetSelectTeam(gu->spectatingFullSelect ? AllAccessTeam : gu->myTeam, true);
+		                  (gu->spectating ? NoAccessTeam : gu->myTeam));
+		luaUI->SetFullRead(gu->spectatingFullView);
+		luaUI->SetReadTeam(luaUI->GetFullRead() ? AllAccessTeam : gu->myTeam);
+		luaUI->SetReadAllyTeam(luaUI->GetFullRead() ? AllAccessTeam : gu->myAllyTeam);
+		luaUI->SetSelectTeam(gu->spectatingFullSelect ? AllAccessTeam : gu->myTeam);
 	}
 }
 
@@ -350,10 +293,8 @@ bool CLuaUI::LoadCFunctions(lua_State* L)
 	lua_rawset(L, -3)
 
 	REGISTER_LUA_CFUNC(SetShockFrontFactors);
-	REGISTER_LUA_CFUNC(SendToUnsynced);
 
 	lua_setglobal(L, "Spring");
-
 	return true;
 }
 
@@ -361,37 +302,22 @@ bool CLuaUI::LoadCFunctions(lua_State* L)
 /******************************************************************************/
 /******************************************************************************/
 
-void CLuaUI::Shutdown()
-{
-	LUA_CALL_IN_CHECK(L);
-	lua_checkstack(L, 2);
-	static const LuaHashString cmdStr("Shutdown");
-	if (!cmdStr.GetGlobalFunc(L)) {
-		return;
-	}
-
-	// call the routine
-	RunCallIn(cmdStr, 0, 0);
-
-	return;
-}
-
-
-bool CLuaUI::ConfigCommand(const string& command)
+bool CLuaUI::ConfigCommand(const string& command) //FIXME rename to fit event name
 {
 	LUA_CALL_IN_CHECK(L, true);
-	lua_checkstack(L, 2);
+	luaL_checkstack(L, 2, __FUNCTION__);
 	static const LuaHashString cmdStr("ConfigureLayout");
 	if (!cmdStr.GetGlobalFunc(L)) {
-		return true; // the call is not defined
+		return false; // the call is not defined
 	}
 
-	lua_pushstring(L, command.c_str());
+	lua_pushsstring(L, command);
 
 	// call the routine
-	if (!RunCallIn(cmdStr, 1, 0)) {
+	if (!RunCallIn(L, cmdStr, 1, 0)) {
 		return false;
 	}
+
 	return true;
 }
 
@@ -403,40 +329,36 @@ static inline float fuzzRand(float fuzz)
 }
 
 
-void CLuaUI::ShockFront(float power, const float3& pos, float areaOfEffect, float *distadj)
+void CLuaUI::ShockFront(const float3& pos, float power, float areaOfEffect, const float* distMod)
 {
-	if (!haveShockFront) {
+	if (!haveShockFront)
 		return;
-	}
-	if (areaOfEffect < shockFrontMinArea && !distadj) {
+	if (areaOfEffect < shockFrontMinArea && distMod == NULL)
 		return;
-	}
-#if defined(USE_GML) && GML_ENABLE_SIM
-	float shockFrontDistAdj = distadj ? *distadj : this->shockFrontDistAdj;
-#endif
-	float3 gap = (camera->pos - pos);
-	float dist = gap.Length() + shockFrontDistAdj;
 
-	power = power / (dist * dist);
-	if (power < shockFrontMinPower && !distadj) {
-		return;
-	}
+	float3 gap = (camera->GetPos() - pos);
 
-	LUA_UI_BATCH_PUSH(SHOCK_FRONT, power, pos, areaOfEffect, shockFrontDistAdj);
+	const float shockFrontDistMod = this->shockFrontDistAdj;
+	float dist = gap.Length() + shockFrontDistMod;
+
+	if ((power /= (dist * dist)) < shockFrontMinPower && distMod == NULL)
+		return;
+
 	LUA_CALL_IN_CHECK(L);
-	lua_checkstack(L, 6);
+
+	luaL_checkstack(L, 6, __FUNCTION__);
 	static const LuaHashString cmdStr("ShockFront");
+
 	if (!cmdStr.GetGlobalFunc(L)) {
-		haveShockFront = false;
+		haveShockFront = false; //FIXME improve in GameHelper.cpp and pipe instead through eventHandler?
 		return; // the call is not defined
 	}
 
-	if (!gu->spectatingFullView && !loshandler->InLos(pos, gu->myAllyTeam)) {
-		const float fuzz = 0.25f;
-		gap.x *= fuzzRand(fuzz);
-		gap.y *= fuzzRand(fuzz);
-		gap.z *= fuzzRand(fuzz);
-		dist = gap.Length() + shockFrontDistAdj;
+	if (!gu->spectatingFullView && !losHandler->InLos(pos, gu->myAllyTeam)) {
+		gap.x *= fuzzRand(0.25f);
+		gap.y *= fuzzRand(0.25f);
+		gap.z *= fuzzRand(0.25f);
+		dist = gap.Length() + shockFrontDistMod;
 	}
 	const float3 dir = (gap / dist); // normalize
 
@@ -446,7 +368,7 @@ void CLuaUI::ShockFront(float power, const float3& pos, float areaOfEffect, floa
 	lua_pushnumber(L, dir.z);
 
 	// call the routine
-	if (!RunCallIn(cmdStr, 4, 0)) {
+	if (!RunCallIn(L, cmdStr, 4, 0)) {
 		return;
 	}
 
@@ -454,61 +376,12 @@ void CLuaUI::ShockFront(float power, const float3& pos, float areaOfEffect, floa
 }
 
 
-void CLuaUI::ExecuteUIEventBatch() {
-	if(!UseEventBatch()) return;
-
-	std::vector<LuaUIEvent> lleb;
-	{
-		GML_STDMUTEX_LOCK(llbatch);
-
-		if(luaUIEventBatch.empty())
-			return;
-
-		luaUIEventBatch.swap(lleb);
-	}
-
-	GML_SELECT_LUA_STATE();
-	GML_DRCMUTEX_LOCK(lua); // ExecuteUIEventBatch
-
-	if(Threading::IsSimThread())
-		Threading::SetBatchThread(false);
-	for(std::vector<LuaUIEvent>::iterator i = lleb.begin(); i != lleb.end(); ++i) {
-		LuaUIEvent &e = *i;
-		switch(e.id) {
-			case SHOCK_FRONT:
-				ShockFront(e.flt1, e.pos1, e.flt2, &e.flt3);
-				break;
-			default:
-				LOG_L(L_ERROR, "%s: Invalid Event %d", __FUNCTION__, e.id);
-				break;
-		}
-	}
-	if(Threading::IsSimThread())
-		Threading::SetBatchThread(true);
-}
-
 /******************************************************************************/
 
-bool CLuaUI::HasLayoutButtons()
-{
-	SELECT_LUA_STATE();
-	GML_DRCMUTEX_LOCK(lua); // HasLayoutButtons
-
-	lua_checkstack(L, 2);
-
-	static const LuaHashString cmdStr("LayoutButtons");
-	if (!cmdStr.GetGlobalFunc(L)) {
-		return false; // the call is not defined
-	}
-	lua_pop(L, 1);
-	return true;
-}
-
-
 bool CLuaUI::LayoutButtons(int& xButtons, int& yButtons,
-                           const vector<CommandDescription>& cmds,
+                           const vector<SCommandDescription>& cmds,
                            vector<int>& removeCmds,
-                           vector<CommandDescription>& customCmds,
+                           vector<SCommandDescription>& customCmds,
                            vector<int>& onlyTextureCmds,
                            vector<ReStringPair>& reTextureCmds,
                            vector<ReStringPair>& reNamedCmds,
@@ -526,12 +399,8 @@ bool CLuaUI::LayoutButtons(int& xButtons, int& yButtons,
 	buttonList.clear();
 	menuName = "";
 
-	GML_THRMUTEX_LOCK(unit, GML_DRAW); // LayoutButtons
-	GML_THRMUTEX_LOCK(feat, GML_DRAW); // LayoutButtons
-//	GML_THRMUTEX_LOCK(proj, GML_DRAW); // LayoutButtons
-
 	LUA_CALL_IN_CHECK(L, false);
-	lua_checkstack(L, 6);
+	luaL_checkstack(L, 6, __FUNCTION__);
 	const int top = lua_gettop(L);
 
 	static const LuaHashString cmdStr("LayoutButtons");
@@ -549,7 +418,7 @@ bool CLuaUI::LayoutButtons(int& xButtons, int& yButtons,
 	}
 
 	// call the function
-	if (!RunCallIn(cmdStr, 4, LUA_MULTRET)) {
+	if (!RunCallIn(L, cmdStr, 4, LUA_MULTRET)) {
 		lua_settop(L, top);
 		return false;
 	}
@@ -638,7 +507,7 @@ bool CLuaUI::LayoutButtons(int& xButtons, int& yButtons,
 
 
 bool CLuaUI::BuildCmdDescTable(lua_State* L,
-                               const vector<CommandDescription>& cmds)
+                               const vector<SCommandDescription>& cmds)
 {
 	lua_newtable(L);
 
@@ -747,7 +616,7 @@ bool CLuaUI::GetLuaReParamsList(lua_State* L, int index,
 
 
 bool CLuaUI::GetLuaCmdDescList(lua_State* L, int index,
-                               vector<CommandDescription>& cmdDescs)
+                               vector<SCommandDescription>& cmdDescs)
 {
 	const int table = index;
 	if (!lua_istable(L, table)) {
@@ -757,7 +626,7 @@ bool CLuaUI::GetLuaCmdDescList(lua_State* L, int index,
 	for (lua_rawgeti(L, table, paramIndex);
 	     lua_istable(L, -1);
 	     lua_pop(L, 1), paramIndex++, lua_rawgeti(L, table, paramIndex)) {
-		CommandDescription cd;
+		SCommandDescription cd;
 		cd.id   = CMD_INTERNAL;
 		cd.type = CMDTYPE_CUSTOM;
 		const int cmdDescTable = lua_gettop(L);
@@ -830,109 +699,6 @@ bool CLuaUI::GetLuaCmdDescList(lua_State* L, int index,
 /******************************************************************************/
 /******************************************************************************/
 //
-// Custom Call-in
-//
-
-bool CLuaUI::HasUnsyncedXCall(lua_State* srcState, const string& funcName)
-{
-	SELECT_LUA_STATE();
-#if (LUA_MT_OPT & LUA_MUTEX)
-	if (srcState != L && SingleState()) {
-		GML_STDMUTEX_LOCK(xcall); // HasUnsyncedXCall
-
-		return unsyncedXCalls.find(funcName) != unsyncedXCalls.end();
-	}
-#endif
-
-	lua_getglobal(L, funcName.c_str());
-	const bool haveFunc = lua_isfunction(L, -1);
-	lua_pop(L, 1);
-	return haveFunc;
-}
-
-
-int CLuaUI::UnsyncedXCall(lua_State* srcState, const string& funcName)
-{
-#if (LUA_MT_OPT & LUA_MUTEX)
-	{
-		SELECT_UNSYNCED_LUA_STATE();
-		if (srcState != L) {
-			DelayDataDump ddmp;
-
-			LuaUtils::ShallowDataDump sdd;
-			sdd.type = LUA_TSTRING;
-			sdd.data.str = new std::string;
-			*sdd.data.str = funcName;
-
-			ddmp.data.push_back(sdd);
-
-			LuaUtils::Backup(ddmp.dump, srcState, lua_gettop(srcState));
-
-			lua_settop(srcState, 0);
-
-			GML_STDMUTEX_LOCK(scall);
-
-			delayedCallsFromSynced.push_back(DelayDataDump());
-
-			DelayDataDump &ddb = delayedCallsFromSynced.back();
-			ddb.data.swap(ddmp.data);
-			ddb.dump.swap(ddmp.dump);
-			ddb.xcall = true;
-
-			return 0;
-		}
-	}
-#endif
-
-	LUA_CALL_IN_CHECK(L, 0);
-	const LuaHashString funcHash(funcName);
-	if (!funcHash.GetGlobalFunc(L)) {
-		return 0;
-	}
-
-	const int top = lua_gettop(L) - 1; // do not count the function
-
-	const bool diffStates = (srcState != L);
-
-	int retCount;
-
-	if (!diffStates) {
-		lua_insert(L, 1); // move the function to the beginning
-		// call the function
-		if (!RunCallIn(funcHash, top, LUA_MULTRET)) {
-			return 0;
-		}
-		retCount = lua_gettop(L);
-	}
-	else {
-		const int srcCount = lua_gettop(srcState);
-
-		LuaUtils::CopyData(L, srcState, srcCount);
-		const bool origDrawingState = LuaOpenGL::IsDrawingEnabled(L);
-		LuaOpenGL::SetDrawingEnabled(L, LuaOpenGL::IsDrawingEnabled(srcState));
-
-		// call the function
-		if (!RunCallIn(funcHash, srcCount, LUA_MULTRET)) {
-			LuaOpenGL::SetDrawingEnabled(L, origDrawingState);
-			return 0;
-		}
-		LuaOpenGL::SetDrawingEnabled(L, origDrawingState);
-		retCount = lua_gettop(L) - top;
-
-		lua_settop(srcState, 0);
-		if (retCount > 0) {
-			LuaUtils::CopyData(srcState, L, retCount);
-		}
-		lua_settop(L, top);
-	}
-
-	return retCount;
-}
-
-
-/******************************************************************************/
-/******************************************************************************/
-//
 // Lua Callbacks
 //
 
@@ -951,35 +717,6 @@ int CLuaUI::SetShockFrontFactors(lua_State* L)
 		const float value = max(1.0f, lua_tofloat(L, 3));
 		luaUI->shockFrontDistAdj = value;
 	}
-	return 0;
-}
-
-int CLuaUI::UpdateUnsyncedXCalls(lua_State* L)
-{
-#if (LUA_MT_OPT & LUA_MUTEX)
-	if (!SingleState() || L != L_Sim)
-#endif
-		return 0;
-
-	GML_STDMUTEX_LOCK(xcall); // UpdateUnsyncedXCalls
-
-	unsyncedXCalls.clear();
-
-	for (lua_pushnil(L); lua_next(L, LUA_GLOBALSINDEX) != 0; lua_pop(L, 1)) {
-		const int ktype = lua_type(L, -2);
-		const int vtype = lua_type(L, -1);
-		if (ktype == LUA_TSTRING && vtype == LUA_TFUNCTION) {
-			size_t len = 0;
-			const char* data = lua_tolstring(L, -2, &len);
-			if (len > 0) {
-				std::string name;
-				name.resize(len);
-				memcpy(&name[0], data, len);
-				unsyncedXCalls.insert(name);
-			}
-		}
-	}
-
 	return 0;
 }
 

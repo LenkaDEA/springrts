@@ -3,6 +3,7 @@
 #ifndef QTPFS_PATH_HDR
 #define QTPFS_PATH_HDR
 
+#include <algorithm>
 #include <vector>
 
 #include "System/float3.h"
@@ -17,7 +18,7 @@ namespace QTPFS {
 			nextPointIndex = 0;
 			numPathUpdates = 0;
 
-			hash   = -1U;
+			hash   = -1u;
 			radius = 0.0f;
 			synced = true;
 
@@ -119,7 +120,7 @@ namespace QTPFS {
 		// object that requested this path (NULL if none)
 		const CSolidObject* owner;
 	};
-};
+}
 
 #endif
 

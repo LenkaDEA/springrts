@@ -41,8 +41,13 @@ find_file(DOCBOOK_XSL
 	PATH_SUFFIXES
 		xml/docbook/stylesheet/nwalsh/manpages
 		sgml/docbook/xsl-stylesheets/manpages
+		xsl/docbook/manpages
 	DOC "DocBook XSL Style-Sheet"
 	)
+
+IF    (NOT DOCBOOK_XSL)
+	file(GLOB DOCBOOK_XSL / /usr/share/xml/docbook/xsl-stylesheets-*/manpages/docbook.xsl)
+ENDIF (NOT DOCBOOK_XSL)
 
 # handle the QUIETLY and REQUIRED arguments and set ASCIIDOC_FOUND to TRUE if
 # all listed variables are TRUE

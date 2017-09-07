@@ -81,14 +81,14 @@ widgetHandler = {
   autoUserWidgets = true,
 
   actionHandler = include("actions.lua"),
-  
+
   WG = {}, -- shared table for widgets
 
   globals = {}, -- global vars/funcs
 
   mouseOwner = nil,
   ownedButton = 0,
-  
+
   tweakMode = false,
   tweakKeys = {},
 
@@ -120,13 +120,16 @@ local flexCallIns = {
   'UnitCreated',
   'UnitFinished',
   'UnitFromFactory',
+  'UnitReverseBuilt',
   'UnitDestroyed',
+  'RenderUnitDestroyed',
   'UnitTaken',
   'UnitGiven',
   'UnitIdle',
   'UnitCommand',
   'UnitCmdDone',
   'UnitDamaged',
+  'UnitStunned',
   'UnitEnteredRadar',
   'UnitEnteredLos',
   'UnitLeftRadar',
@@ -185,7 +188,12 @@ local callInLists = {
   'TweakIsAbove',
   'TweakGetTooltip',
   'RecvFromSynced',
-
+  'TextInput',
+  'DownloadQueued',
+  'DownloadStarted',
+  'DownloadFinished',
+  'DownloadFailed',
+  'DownloadProgress',
 -- these use mouseOwner instead of lists
 --  'MouseMove',
 --  'MouseRelease',
@@ -237,19 +245,21 @@ end
 
 function widgetHandler:LoadConfigData()
   local chunk, err = loadfile(CONFIG_FILENAME)
-  if (chunk == nil) then
-    return {}
-  else
-    local tmp = {math = {huge = math.huge}}
-    setfenv(chunk, tmp)
-    self.orderList = chunk().order
-    self.configData = chunk().data
-    if (not self.orderList) then
-      self.orderList = {} -- safety
+  if (chunk == nil) or (chunk() == nil) or (err) then
+    if err then
+      Spring.Log(section, LOG.ERROR, err)
     end
-    if (not self.configData) then
-      self.configData = {} -- safety
-    end
+    return
+  end
+  local tmp = {math = {huge = math.huge}}
+  setfenv(chunk, tmp)
+  self.orderList = chunk().order
+  self.configData = chunk().data
+  if (not self.orderList) then
+    self.orderList = {} -- safety
+  end
+  if (not self.configData) then
+    self.configData = {} -- safety
   end
 end
 
@@ -259,7 +269,7 @@ function widgetHandler:SaveConfigData()
   local filetable = {}
   for i,w in ipairs(self.widgets) do
     if (w.GetConfigData) then
-      self.configData[w.whInfo.name] = w:GetConfigData()
+      self.configData[w.whInfo.name] = select(2, pcall(w.GetConfigData))
     end
     self.orderList[w.whInfo.name] = i
   end
@@ -331,7 +341,7 @@ function widgetHandler:Initialize()
   Spring.CreateDir(LUAUI_DIRNAME .. 'Config')
 
   local unsortedWidgets = {}
-  
+
   -- stuff the raw widgets into unsortedWidgets
   local widgetFiles = VFS.DirList(WIDGET_DIRNAME, "*.lua", VFS.RAW_ONLY)
   for k,wf in ipairs(widgetFiles) do
@@ -351,8 +361,8 @@ function widgetHandler:Initialize()
       table.insert(unsortedWidgets, widget)
     end
   end
-  
-  -- sort the widgets  
+
+  -- sort the widgets
   table.sort(unsortedWidgets, function(w1, w2)
     local l1 = w1.whInfo.layer
     local l2 = w2.whInfo.layer
@@ -370,7 +380,7 @@ function widgetHandler:Initialize()
     end
   end)
 
-  -- add the widgets  
+  -- add the widgets
   for _,w in ipairs(unsortedWidgets) do
     local name = w.whInfo.name
     local basename = w.whInfo.basename
@@ -397,7 +407,7 @@ function widgetHandler:LoadWidget(filename, fromZip)
     Spring.Log(section, LOG.ERROR, 'Failed to load: ' .. basename .. '  (' .. err .. ')')
     return nil
   end
-  
+
   local widget = widgetHandler:NewWidget()
   setfenv(chunk, widget)
   local success, err = pcall(chunk)
@@ -439,6 +449,7 @@ function widgetHandler:LoadWidget(filename, fromZip)
     knownInfo.author   = widget.whInfo.author
     knownInfo.basename = widget.whInfo.basename
     knownInfo.filename = widget.whInfo.filename
+    knownInfo.enabled  = widget.whInfo.enabled
     knownInfo.fromZip  = fromZip
     self.knownWidgets[name] = knownInfo
     self.knownCount = self.knownCount + 1
@@ -468,12 +479,12 @@ function widgetHandler:LoadWidget(filename, fromZip)
     return nil
   end
 
-  -- load the config data  
+  -- load the config data
   local config = self.configData[name]
   if (widget.SetConfigData and config) then
     widget:SetConfigData(config)
   end
-    
+
   return widget
 end
 
@@ -770,9 +781,9 @@ function widgetHandler:RemoveWidget(widget)
     ArrayRemove(self[listname..'List'], widget)
   end
   self:UpdateCallIns()
-  
-  if (widget.whInfo.basename == SELECTOR_BASENAME) then 
-    Spring.SendCommands({"luaui update"})  
+
+  if (widget.whInfo.basename == SELECTOR_BASENAME) then
+    Spring.SendCommands({"luaui update"})
   end
 end
 
@@ -865,11 +876,11 @@ function widgetHandler:EnableWidget(name)
     self:InsertWidget(w)
     self:SaveConfigData()
   end
-  
+
   if (not self:SelectorActive()) then
     Spring.SendCommands({"luaui update"})
   end
-  
+
   return true
 end
 
@@ -888,11 +899,11 @@ function widgetHandler:DisableWidget(name)
     self.orderList[name] = 0 -- disable
     self:SaveConfigData()
   end
-  
+
   if (not self:SelectorActive()) then
     Spring.SendCommands({"luaui update"})
   end
-  
+
   return true
 end
 
@@ -1099,7 +1110,7 @@ function widgetHandler:Shutdown()
 end
 
 function widgetHandler:Update()
-  local deltaTime = Spring.GetLastUpdateSeconds()  
+  local deltaTime = Spring.GetLastUpdateSeconds()
   -- update the hour timer
   hourTimer = (hourTimer + deltaTime) % 3600.0
   for _,w in ipairs(self.UpdateList) do
@@ -1212,7 +1223,7 @@ function widgetHandler:ViewResize(vsx, vsy)
     vsx = vsx.viewSizeX
     print('real ViewResize') -- FIXME
   end
-    
+
   for _,w in ipairs(self.ViewResizeList) do
     w:ViewResize(vsx, vsy)
   end
@@ -1355,6 +1366,18 @@ function widgetHandler:KeyRelease(key, mods, label, unicode)
   return false
 end
 
+function widgetHandler:TextInput(utf8, ...)
+  if (self.tweakMode) then
+    return true
+  end
+
+  for _,w in ipairs(self.TextInputList) do
+    if (w:TextInput(utf8, ...)) then
+      return true
+    end
+  end
+  return false
+end
 
 --------------------------------------------------------------------------------
 --
@@ -1684,9 +1707,9 @@ end
 --  Unit call-ins
 --
 
-function widgetHandler:UnitCreated(unitID, unitDefID, unitTeam)
+function widgetHandler:UnitCreated(unitID, unitDefID, unitTeam, builderID)
   for _,w in ipairs(self.UnitCreatedList) do
-    w:UnitCreated(unitID, unitDefID, unitTeam)
+    w:UnitCreated(unitID, unitDefID, unitTeam, builderID)
   end
   return
 end
@@ -1710,9 +1733,24 @@ function widgetHandler:UnitFromFactory(unitID, unitDefID, unitTeam,
 end
 
 
+function widgetHandler:UnitReverseBuilt(unitID, unitDefID, unitTeam)
+  for _,w in ipairs(self.UnitReverseBuiltList) do
+    w:UnitReverseBuilt(unitID, unitDefID, unitTeam)
+  end
+  return
+end
+
+
 function widgetHandler:UnitDestroyed(unitID, unitDefID, unitTeam)
   for _,w in ipairs(self.UnitDestroyedList) do
     w:UnitDestroyed(unitID, unitDefID, unitTeam)
+  end
+  return
+end
+
+function widgetHandler:RenderUnitDestroyed(unitID, unitDefID, unitTeam)
+  for _,w in ipairs(self.RenderUnitDestroyedList) do
+    w:RenderUnitDestroyed(unitID, unitDefID, unitTeam)
   end
   return
 end
@@ -1742,19 +1780,17 @@ function widgetHandler:UnitIdle(unitID, unitDefID, unitTeam)
 end
 
 
-function widgetHandler:UnitCommand(unitID, unitDefID, unitTeam,
-                                   cmdId, cmdOpts, cmdParams)
+function widgetHandler:UnitCommand(unitID, unitDefID, unitTeam, cmdId, cmdParams, cmdOpts, cmdTag)
   for _,w in ipairs(self.UnitCommandList) do
-    w:UnitCommand(unitID, unitDefID, unitTeam,
-                  cmdId, cmdOpts, cmdParams)
+    w:UnitCommand(unitID, unitDefID, unitTeam, cmdId, cmdParams, cmdOpts, cmdTag)
   end
   return
 end
 
 
-function widgetHandler:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdTag)
+function widgetHandler:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
   for _,w in ipairs(self.UnitCmdDoneList) do
-    w:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdTag)
+    w:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
   end
   return
 end
@@ -1764,6 +1800,13 @@ function widgetHandler:UnitDamaged(unitID, unitDefID, unitTeam,
                                    damage, paralyzer)
   for _,w in ipairs(self.UnitDamagedList) do
     w:UnitDamaged(unitID, unitDefID, unitTeam, damage, paralyzer)
+  end
+  return
+end
+
+function widgetHandler:UnitStunned(unitID, unitDefID, unitTeam, stunned)
+  for _,w in ipairs(self.UnitStunnedList) do
+    w:UnitStunned(unitID, unitDefID, unitTeam, stunned)
   end
   return
 end
@@ -1919,6 +1962,40 @@ function widgetHandler:StockpileChanged(unitID, unitDefID, unitTeam,
   return
 end
 
+--------------------------------------------------------------------------------
+--
+--  Download call-ins
+--
+
+function widgetHandler:DownloadStarted(id)
+  for _,w in ipairs(self.DownloadStartedList) do
+    w:DownloadStarted(id)
+  end
+end
+
+function widgetHandler:DownloadQueued(id)
+  for _,w in ipairs(self.DownloadQueuedList) do
+    w:DownloadQueued(id)
+  end
+end
+
+function widgetHandler:DownloadFinished(id)
+  for _,w in ipairs(self.DownloadFinishedList) do
+    w:DownloadFinished(id)
+  end
+end
+
+function widgetHandler:DownloadFailed(id, errorid)
+  for _,w in ipairs(self.DownloadFailedList) do
+    w:DownloadFailed(id, errorid)
+  end
+end
+
+function widgetHandler:DownloadProgress(id, downloaded, total)
+  for _,w in ipairs(self.DownloadProgressList) do
+    w:DownloadProgress(id, downloaded, total)
+  end
+end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------

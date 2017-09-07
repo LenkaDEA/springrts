@@ -18,13 +18,14 @@
 #include "StarburstLauncher.h"
 #include "TorpedoLauncher.h"
 
+#include "Game/TraceRay.h"
+#include "Sim/Misc/DamageArray.h"
 #include "Sim/Misc/GlobalConstants.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "System/Exceptions.h"
+#include "System/Util.h"
 #include "System/Log/ILog.h"
-
-#define DEG2RAD(a) ((a) * (3.141592653f / 180.0f))
 
 CWeaponLoader* CWeaponLoader::GetInstance()
 {
@@ -43,11 +44,10 @@ void CWeaponLoader::LoadWeapons(CUnit* unit)
 
 	weapons.reserve(defWeapons.size());
 
-	for (unsigned int i = 0; i < defWeapons.size(); i++) {
-		const UnitDefWeapon* defWeapon = &defWeapons[i];
-		CWeapon* weapon = LoadWeapon(unit, defWeapon);
-
-		weapons.push_back(InitWeapon(unit, weapon, defWeapon));
+	for (const UnitDefWeapon& defWeapon: defWeapons) {
+		CWeapon* weapon = LoadWeapon(unit, &defWeapon);
+		weapons.push_back(InitWeapon(unit, weapon, &defWeapon));
+		unit->maxRange = std::max(weapon->range, unit->maxRange);
 	}
 }
 
@@ -60,69 +60,48 @@ CWeapon* CWeaponLoader::LoadWeapon(CUnit* owner, const UnitDefWeapon* defWeapon)
 	const WeaponDef* weaponDef = defWeapon->def;
 	const std::string& weaponType = weaponDef->type;
 
-	if (weaponType == "Cannon") {
-		CCannon* cannon = new CCannon(owner);
-		cannon->selfExplode = weaponDef->selfExplode;
-		weapon = cannon;
+	if (StringToLower(weaponDef->name) == "noweapon") {
+		weapon = new CNoWeapon(owner, weaponDef);
+	} else if (weaponType == "Cannon") {
+		weapon = new CCannon(owner, weaponDef);
 	} else if (weaponType == "Rifle") {
-		weapon = new CRifle(owner);
+		weapon = new CRifle(owner, weaponDef);
 	} else if (weaponType == "Melee") {
-		weapon = new CMeleeWeapon(owner);
-	} else if (weaponType == "AircraftBomb") {
-		weapon = new CBombDropper(owner, false);
+		weapon = new CMeleeWeapon(owner, weaponDef);
 	} else if (weaponType == "Shield") {
-		weapon = new CPlasmaRepulser(owner);
+		weapon = new CPlasmaRepulser(owner, weaponDef);
 	} else if (weaponType == "Flame") {
-		weapon = new CFlameThrower(owner);
+		weapon = new CFlameThrower(owner, weaponDef);
 	} else if (weaponType == "MissileLauncher") {
-		weapon = new CMissileLauncher(owner);
+		weapon = new CMissileLauncher(owner, weaponDef);
+	} else if (weaponType == "AircraftBomb") {
+		weapon = new CBombDropper(owner, weaponDef, false);
 	} else if (weaponType == "TorpedoLauncher") {
 		if (owner->unitDef->canfly && !weaponDef->submissile) {
-			CBombDropper* bombDropper = new CBombDropper(owner, true);
-
-			if (weaponDef->tracks)
-				bombDropper->tracking = weaponDef->turnrate;
-
-			bombDropper->bombMoveRange = weaponDef->range;
-			weapon = bombDropper;
+			weapon = new CBombDropper(owner, weaponDef, true);
 		} else {
-			CTorpedoLauncher* torpLauncher = new CTorpedoLauncher(owner);
-
-			if (weaponDef->tracks)
-				torpLauncher->tracking = weaponDef->turnrate;
-
-			weapon = torpLauncher;
+			weapon = new CTorpedoLauncher(owner, weaponDef);
 		}
 	} else if (weaponType == "LaserCannon") {
-		CLaserCannon* laserCannon = new CLaserCannon(owner);
-		laserCannon->color = weaponDef->visuals.color;
-		weapon = laserCannon;
+		weapon = new CLaserCannon(owner, weaponDef);
 	} else if (weaponType == "BeamLaser") {
-		CBeamLaser* beamLaser = new CBeamLaser(owner);
-		beamLaser->color = weaponDef->visuals.color;
-		weapon = beamLaser;
+		weapon = new CBeamLaser(owner, weaponDef);
 	} else if (weaponType == "LightningCannon") {
-		CLightningCannon* lightningCannon = new CLightningCannon(owner);
-		lightningCannon->color = weaponDef->visuals.color;
-		weapon = lightningCannon;
+		weapon = new CLightningCannon(owner, weaponDef);
 	} else if (weaponType == "EmgCannon") {
-		weapon = new CEmgCannon(owner);
+		weapon = new CEmgCannon(owner, weaponDef);
 	} else if (weaponType == "DGun") {
 		// NOTE: no special connection to UnitDef::canManualFire
 		// (any type of weapon may be slaved to the button which
 		// controls manual firing) or the CMD_MANUALFIRE command
-		weapon = new CDGunWeapon(owner);
+		weapon = new CDGunWeapon(owner, weaponDef);
 	} else if (weaponType == "StarburstLauncher") {
-		CStarburstLauncher* vLauncher = new CStarburstLauncher(owner);
-		vLauncher->tracking = weaponDef->tracks? weaponDef->turnrate: 0;
-		vLauncher->uptime = weaponDef->uptime * GAME_SPEED;
-		weapon = vLauncher;
+		weapon = new CStarburstLauncher(owner, weaponDef);
 	} else {
-		weapon = new CNoWeapon(owner);
-		LOG_L(L_ERROR, "weapon-type %s unknown or NOWEAPON", weaponType.c_str());
+		weapon = new CNoWeapon(owner, weaponDef);
+		LOG_L(L_ERROR, "weapon-type %s unknown, using noweapon", weaponType.c_str());
 	}
 
-	weapon->weaponDef = weaponDef;
 	return weapon;
 }
 
@@ -131,59 +110,44 @@ CWeapon* CWeaponLoader::InitWeapon(CUnit* owner, CWeapon* weapon, const UnitDefW
 	const WeaponDef* weaponDef = defWeapon->def;
 
 	weapon->reloadTime = std::max(1, int(weaponDef->reload * GAME_SPEED));
-	weapon->range = weaponDef->range;
-	weapon->heightMod = weaponDef->heightmod;
 	weapon->projectileSpeed = weaponDef->projectilespeed;
 
-	weapon->damageAreaOfEffect = weaponDef->damageAreaOfEffect;
-	weapon->craterAreaOfEffect = weaponDef->craterAreaOfEffect;
-	weapon->accuracy = weaponDef->accuracy;
+	weapon->accuracyError = weaponDef->accuracy;
 	weapon->sprayAngle = weaponDef->sprayAngle;
-
-	weapon->stockpileTime = int(weaponDef->stockpileTime * GAME_SPEED);
 
 	weapon->salvoSize = weaponDef->salvosize;
 	weapon->salvoDelay = int(weaponDef->salvodelay * GAME_SPEED);
 	weapon->projectilesPerShot = weaponDef->projectilespershot;
 
-	weapon->metalFireCost = weaponDef->metalcost;
-	weapon->energyFireCost = weaponDef->energycost;
-
 	weapon->fireSoundId = weaponDef->fireSound.getID(0);
 	weapon->fireSoundVolume = weaponDef->fireSound.getVolume(0);
 
 	weapon->onlyForward = weaponDef->onlyForward;
-	weapon->maxForwardAngleDif = math::cos(DEG2RAD(weaponDef->maxAngle));
+	weapon->maxForwardAngleDif = math::cos(weaponDef->maxAngle);
 	weapon->maxMainDirAngleDif = defWeapon->maxMainDirAngleDif;
 	weapon->mainDir = defWeapon->mainDir;
 
 	weapon->badTargetCategory = defWeapon->badTargetCat;
 	weapon->onlyTargetCategory = defWeapon->onlyTargetCat;
 
-	if (defWeapon->slavedTo) {
-		const int index = (defWeapon->slavedTo - 1);
-
-		// can only slave to an already-loaded weapon
-		if ((index < 0) || (static_cast<size_t>(index) >= owner->weapons.size())) {
-			throw content_error("Bad weapon slave in " + owner->unitDef->name);
-		}
-
-		weapon->slavedTo = owner->weapons[index];
+	// can only slave to an already-loaded weapon
+	if (defWeapon->slavedTo > 0 && defWeapon->slavedTo <= owner->weapons.size()) {
+		weapon->slavedTo = owner->weapons[defWeapon->slavedTo - 1];
 	}
 
-	weapon->fuelUsage = defWeapon->fuelUsage;
-	weapon->avoidFriendly = weaponDef->avoidFriendly;
-	weapon->avoidFeature = weaponDef->avoidFeature;
-	weapon->avoidNeutral = weaponDef->avoidNeutral;
-	weapon->targetBorder = weaponDef->targetBorder;
-	weapon->cylinderTargeting = weaponDef->cylinderTargeting;
-	weapon->minIntensity = weaponDef->minIntensity;
 	weapon->heightBoostFactor = weaponDef->heightBoostFactor;
 	weapon->collisionFlags = weaponDef->collisionFlags;
 
+	if (!weaponDef->avoidNeutral)  weapon->avoidFlags |= Collision::NONEUTRALS;
+	if (!weaponDef->avoidFriendly) weapon->avoidFlags |= Collision::NOFRIENDLIES;
+	if (!weaponDef->avoidFeature)  weapon->avoidFlags |= Collision::NOFEATURES;
+	if (!weaponDef->avoidGround)   weapon->avoidFlags |= Collision::NOGROUND;
+
+	weapon->damages = DynDamageArray::IncRef(&weaponDef->damages);
+
 	weapon->SetWeaponNum(owner->weapons.size());
 	weapon->Init();
-
+	weapon->UpdateRange(weaponDef->range);
 	return weapon;
 }
 

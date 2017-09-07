@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
+#include "Rendering/GL/myGL.h"
 #include "S3OTextureHandler.h"
 
 #include "System/FileSystem/FileHandler.h"
@@ -27,6 +27,9 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_TEXTURE)
 #endif
 #define LOG_SECTION_CURRENT LOG_SECTION_TEXTURE
 
+#define TEX_MAT_UID(pTxID, sTxID) ((boost::uint64_t(pTxID) << 32u) | sTxID)
+
+
 // The S3O texture handler uses two textures.
 // The first contains diffuse color (RGB) and teamcolor (A)
 // The second contains glow (R), reflectivity (G) and 1-bit Alpha (A).
@@ -35,131 +38,140 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_TEXTURE)
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CS3OTextureHandler* texturehandlerS3O = NULL;
+CS3OTextureHandler* texturehandlerS3O = nullptr;
 
 CS3OTextureHandler::CS3OTextureHandler()
 {
-	s3oTextures.push_back(new S3oTex());
-	s3oTextures.push_back(new S3oTex());
-	if (GML::SimEnabled() && GML::ShareLists())
-		DoUpdateDraw();
+	textures.reserve(128);
+
+	// dummies
+	textures.emplace_back();
+	textures.emplace_back();
 }
 
 CS3OTextureHandler::~CS3OTextureHandler()
 {
-	for (int i = 0; i < s3oTextures.size(); ++i){
-		glDeleteTextures (1, &s3oTextures[i]->tex1);
-		glDeleteTextures (1, &s3oTextures[i]->tex2);
-		delete s3oTextures[i];
+	for (S3OTexMat& texture: textures){
+		glDeleteTextures(1, &(texture.tex1));
+		glDeleteTextures(1, &(texture.tex2));
 	}
 }
 
-void CS3OTextureHandler::LoadS3OTexture(S3DModel* model) {
-	model->textureType = GML::SimEnabled() && !GML::ShareLists() && GML::IsSimThread() ? -1 : LoadS3OTextureNow(model);
-}
 
-void CS3OTextureHandler::Update() {
-}
-
-int CS3OTextureHandler::LoadS3OTextureNow(const S3DModel* model)
+void CS3OTextureHandler::PreloadTexture(S3DModel* model, bool invertAxis, bool invertAlpha)
 {
-	GML_RECMUTEX_LOCK(model); // LoadS3OTextureNow
-	LOG("Load S3O texture now (Flip Y Axis: %s, Invert Team Alpha: %s)",
-			model->flipTexY ? "yes" : "no",
-			model->invertTexAlpha ? "yes" : "no");
-
-	const string totalName = model->tex1 + model->tex2;
-
-	if (s3oTextureNames.find(totalName) != s3oTextureNames.end()) {
-		if (GML::SimEnabled() && GML::ShareLists() && !GML::IsSimThread())
-			DoUpdateDraw();
-		return s3oTextureNames[totalName];
-	}
-
-	CBitmap tex1bm;
-	CBitmap tex2bm;
-	S3oTex* tex = new S3oTex();
-
-	if (!tex1bm.Load(std::string("unittextures/" + model->tex1))) {
-		LOG_L(L_WARNING, "[%s] could not load texture \"%s\" from model \"%s\"",
-				__FUNCTION__, model->tex1.c_str(), model->name.c_str());
-
-		// file not found (or headless build), set single pixel to red so unit is visible
-		tex1bm.channels = 4;
-		tex1bm.Alloc(1, 1);
-		tex1bm.mem[0] = 255;
-		tex1bm.mem[1] =   0;
-		tex1bm.mem[2] =   0;
-		tex1bm.mem[3] = 255;
-	}
-	if (model->flipTexY) tex1bm.ReverseYAxis();
-	if (model->invertTexAlpha) tex1bm.InvertAlpha();
-
-	tex->num       = s3oTextures.size();
-	tex->tex1      = tex1bm.CreateTexture(true);
-	tex->tex1SizeX = tex1bm.xsize;
-	tex->tex1SizeY = tex1bm.ysize;
-
-	// No error checking here... other code relies on an empty texture
-	// being generated if it couldn't be loaded.
-	// Also many map features specify a tex2 but don't ship it with the map,
-	// so throwing here would cause maps to break.
-	if (!tex2bm.Load(std::string("unittextures/" + model->tex2))) {
-		tex2bm.channels = 4;
-		tex2bm.Alloc(1, 1);
-		tex2bm.mem[0] =   0; // self-illum
-		tex2bm.mem[1] =   0; // spec+refl
-		tex2bm.mem[2] =   0; // unused
-		tex2bm.mem[3] = 255; // team-color
-	}
-	if (model->flipTexY) tex2bm.ReverseYAxis();
-
-	tex->tex2      = tex2bm.CreateTexture(true);
-	tex->tex2SizeX = tex2bm.xsize;
-	tex->tex2SizeY = tex2bm.ysize;
-
-	s3oTextures.push_back(tex);
-	s3oTextureNames[totalName] = tex->num;
-
-	if (GML::SimEnabled() && GML::ShareLists() && !GML::IsSimThread())
-		DoUpdateDraw();
-
-	return tex->num;
+	cacheMutex.lock();
+	LoadAndCacheTexture(model, 0, invertAxis, invertAlpha, true);
+	LoadAndCacheTexture(model, 1, invertAxis,       false, true); // never invert alpha for tex2
+	cacheMutex.unlock();
 }
 
 
-inline void DoSetS3oTexture(int num, std::vector<CS3OTextureHandler::S3oTex *>& s3oTex) {
-	if (shadowHandler->inShadowPass) {
-		glBindTexture(GL_TEXTURE_2D, s3oTex[num]->tex2);
+void CS3OTextureHandler::LoadTexture(S3DModel* model)
+{
+	cacheMutex.lock();
+
+	const unsigned int tex1ID = LoadAndCacheTexture(model, 0, false, false, false);
+	const unsigned int tex2ID = LoadAndCacheTexture(model, 1, false, false, false);
+
+	const auto texTableIter = textureTable.find(TEX_MAT_UID(tex1ID, tex2ID));
+
+	// even if both textures were already loaded as parts of
+	// other models, their pair might form a unique material
+	if (texTableIter == textureTable.end()) {
+		model->textureType = InsertTextureMat(model);
 	} else {
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-		glBindTexture(GL_TEXTURE_2D, s3oTex[num]->tex1);
-		glActiveTextureARB(GL_TEXTURE1_ARB);
-		glBindTexture(GL_TEXTURE_2D, s3oTex[num]->tex2);
+		model->textureType = texTableIter->second;
 	}
+
+	cacheMutex.unlock();
 }
 
+unsigned int CS3OTextureHandler::LoadAndCacheTexture(
+	const S3DModel* model,
+	unsigned int texNum,
+	bool invertAxis,
+	bool invertAlpha,
+	bool preloadCall
+) {
+	CBitmap* bitmap = nullptr;
 
-void CS3OTextureHandler::SetS3oTexture(int num)
-{
-	if (GML::SimEnabled() && GML::ShareLists()) {
-		if (!GML::IsSimThread()) {
-			DoSetS3oTexture(num, s3oTexturesDraw);
-			return;
+	const auto& textureName = model->texs[texNum];
+	const auto textureIt = textureCache.find(textureName);
+
+	if (textureIt != textureCache.end())
+		return textureIt->second.texID;
+
+	const auto bitmapIt = bitmapCache.find(textureName);
+
+	if (bitmapIt != bitmapCache.end()) {
+		// bitmap was previously preloaded but not yet loaded
+		// if !preloading, we will now turn the bitmap into a
+		// texture and cache it
+		bitmap = &(bitmapIt->second);
+	} else {
+		// bitmap was not yet preloaded, meaning we are the
+		// first to (all non-3DO model textures are always
+		// preloaded)
+		assert(preloadCall);
+
+		auto pair = bitmapCache.emplace(textureName, CBitmap());
+		auto iter = pair.first;
+
+		bitmap = &(iter->second);
+
+		if (!bitmap->Load(textureName)) {
+			if (!bitmap->Load("unittextures/" + textureName)) {
+				LOG_L(L_WARNING, "[%s] could not load texture \"%s\" from model \"%s\"",
+					__FUNCTION__, textureName.c_str(), model->name.c_str());
+
+				// file not found (or headless build), set a single pixel so unit is visible
+				bitmap->AllocDummy(SColor(255 * (texNum == 0), 0, 0, 255));
+			}
 		}
-		// it seems this is only accessed by draw thread, but just in case..
-		GML_RECMUTEX_LOCK(model); // SetS3oTexture
-		DoSetS3oTexture(num, s3oTextures);
+
+		if (invertAxis)
+			bitmap->ReverseYAxis();
+		if (invertAlpha)
+			bitmap->InvertAlpha();
 	}
-	else {
-		DoSetS3oTexture(num, s3oTextures);
-	}
+
+	// don't generate a texture yet, just save the bitmap for later
+	if (preloadCall)
+		return 0;
+
+	const unsigned int texID = bitmap->CreateMipMapTexture();
+
+	textureCache[textureName] = {
+		texID,
+		static_cast<unsigned int>(bitmap->xsize),
+		static_cast<unsigned int>(bitmap->ysize)
+	};
+
+	bitmapCache.erase(textureName);
+	return texID;
 }
 
-void CS3OTextureHandler::UpdateDraw() {
-	if (GML::SimEnabled() && GML::ShareLists()) {
-		GML_RECMUTEX_LOCK(model); // UpdateDraw
 
-		DoUpdateDraw();
-	}
+unsigned int CS3OTextureHandler::InsertTextureMat(const S3DModel* model)
+{
+	const CachedS3OTex& tex1 = textureCache[ model->texs[0] ];
+	const CachedS3OTex& tex2 = textureCache[ model->texs[1] ];
+
+	textures.emplace_back();
+
+	S3OTexMat& texMat = textures.back();
+
+	texMat.num       = textures.size() - 1;
+	texMat.tex1      = tex1.texID;
+	texMat.tex2      = tex2.texID;
+	texMat.tex1SizeX = tex1.xsize;
+	texMat.tex1SizeY = tex1.ysize;
+	texMat.tex2SizeX = tex2.xsize;
+	texMat.tex2SizeY = tex2.ysize;
+
+	textureTable[TEX_MAT_UID(texMat.tex1, texMat.tex2)] = texMat.num;
+
+	return texMat.num;
 }
+

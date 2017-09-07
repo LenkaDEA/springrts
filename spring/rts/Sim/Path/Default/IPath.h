@@ -5,16 +5,14 @@
 
 #include <vector>
 #include "System/float3.h"
-#include "System/Vec2.h"
+#include "System/type2.h"
 
-class IPath {
-public:
-	virtual ~IPath() {}
-
+namespace IPath {
+	// note: ordered from best to worst
 	enum SearchResult {
 		Ok,
-		GoalOutOfRange,
 		CantGetCloser,
+		GoalOutOfRange,
 		Error
 	};
 
@@ -24,19 +22,22 @@ public:
 	struct Path {
 		Path()
 			: desiredGoal(ZeroVector)
-			, goalRadius(-1.0f)
 			, pathGoal(ZeroVector)
+			, goalRadius(-1.0f)
 			, pathCost(-1.0f)
 		{}
+
 		// Information about the requested path.
 		float3 desiredGoal;
-		float goalRadius;
 		// Information about the generated path.
 		float3 pathGoal;
+
 		path_list_type path;
 		square_list_type squares;
+
+		float goalRadius;
 		float pathCost;
 	};
-};
+}
 
 #endif

@@ -7,41 +7,39 @@
 
 class CUnit;
 class CFeature;
+class CStrafeAirMoveType;
 struct Command;
 class AAirMoveType;
 
 class CAirCAI : public CMobileCAI
 {
 public:
-	CR_DECLARE(CAirCAI);
+	CR_DECLARE(CAirCAI)
 	CAirCAI(CUnit* owner);
 	CAirCAI();
 
 	int GetDefaultCmd(const CUnit* pointed, const CFeature* feature);
 	void SlowUpdate();
-	void GiveCommandReal(const Command& c);
+	void GiveCommandReal(const Command& c, bool fromSynced = true);
 	void AddUnit(CUnit* unit);
 	void FinishCommand();
 	void BuggerOff(const float3& pos, float radius);
 //	void StopMove();
-	
-	void SetGoal(const float3& pos, const float3& curPos, float goalRadius = SQUARE_SIZE);
-	
+
 	void ExecuteGuard(Command& c);
 	void ExecuteAreaAttack(Command& c);
 	void ExecuteAttack(Command& c);
 	void ExecuteFight(Command& c);
-//	void ExecuteMove(Command& c);
+	void ExecuteMove(Command& c);
 
 	bool IsValidTarget(const CUnit* enemy) const;
 
 private:
 	bool AirAutoGenerateTarget(AAirMoveType*);
-	void SelectNewAreaAttackTargetOrPos(const Command& ac);
+	bool SelectNewAreaAttackTargetOrPos(const Command& ac);
 	void PushOrUpdateReturnFight() {
 		CCommandAI::PushOrUpdateReturnFight(commandPos1, commandPos2);
 	}
-
 
 	float3 basePos;
 	float3 baseDir;

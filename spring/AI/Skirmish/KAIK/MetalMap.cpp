@@ -1,7 +1,7 @@
 #include <string>
 #include <sstream>
 
-#include "System/StringUtil.h"
+#include "System/Util.h"
 
 #include "IncExternAI.h"
 #include "IncGlobalAI.h"

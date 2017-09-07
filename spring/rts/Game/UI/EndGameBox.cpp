@@ -3,18 +3,16 @@
 #include "EndGameBox.h"
 
 #include "MouseHandler.h"
-#include "Game/Player.h"
-#include "Game/PlayerHandler.h"
 #include "Game/Game.h"
 #include "Game/GlobalUnsynced.h"
-#include "Game/SelectedUnits.h"
-#include "Rendering/glFont.h"
-#include "Rendering/GL/myGL.h"
+#include "Game/SelectedUnitsHandler.h"
+#include "Game/Players/Player.h"
+#include "Game/Players/PlayerHandler.h"
+#include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/VertexArray.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Misc/TeamStatistics.h"
-#include "System/mmgr.h"
 #include "System/Exceptions.h"
 
 #include <cstdio>
@@ -40,11 +38,11 @@ static std::string FloatToSmallString(float num, float mul = 1) {
 	}
 
 	return c;
-};
+}
 
 
 bool CEndGameBox::enabled = true;
-
+CEndGameBox* CEndGameBox::endGameBox = NULL;
 
 CEndGameBox::CEndGameBox(const std::vector<unsigned char>& winningAllyTeams)
 	: CInputReceiver()
@@ -55,6 +53,7 @@ CEndGameBox::CEndGameBox(const std::vector<unsigned char>& winningAllyTeams)
 	, winners(winningAllyTeams)
 	, graphTex(0)
 {
+	endGameBox = this;
 	box.x1 = 0.14f;
 	box.y1 = 0.1f;
 	box.x2 = 0.86f;
@@ -90,6 +89,7 @@ CEndGameBox::~CEndGameBox()
 	if (graphTex) {
 		glDeleteTextures(1,&graphTex);
 	}
+	endGameBox = NULL;
 }
 
 bool CEndGameBox::MousePress(int x, int y, int button)
@@ -254,35 +254,32 @@ void CEndGameBox::Draw()
 		      bool playedAndWon = false;
 
 		for (unsigned int i = 0; i < winners.size(); i++) {
-			const int winner = winners[i];
+			const int winnerAllyTeam = winners[i];
 
-			if (!neverPlayed && winner == gu->myPlayingAllyTeam) {
+			if (!neverPlayed && winnerAllyTeam == gu->myPlayingAllyTeam) {
 				// we actually played and won!
 				playedAndWon = true; break;
 			}
 
-			winnersList << winner;
-
-			if (i < (winners.size() - 1))
-				winnersList << ", ";
+			winnersList << (((i > 0)? ((i < (winners.size() - 1))? ", ": " and "): ""));
+			winnersList << winnerAllyTeam;
 		}
 
 		if (neverPlayed) {
-			winnersText << "Game Over! Winning ally-teams are: ";
-			winnersText << winnersList.str();
+			winnersText << "Game Over! Ally-team(s) ";
+			winnersText << winnersList.str() << " won!";
 
 			font->glPrint(box.x1 + 0.25f, box.y1 + 0.65f, 1.0f, FONT_SCALE | FONT_NORM, (winnersText.str()).c_str());
 		} else {
 			winnersText.str("");
 			winnersText << "Game Over! Your ally-team ";
-			winnersText << (playedAndWon? "won the game": "lost the game");
+			winnersText << (playedAndWon? "won!": "lost!");
 			font->glPrint(box.x1 + 0.25f, box.y1 + 0.65f, 1.0f, FONT_SCALE | FONT_NORM, (winnersText.str()).c_str());
 		}
 	}
 
-	if (gs->frameNum <= 0) {
+	if (gs->PreSimFrame())
 		return;
-	}
 
 	if (dispMode == 0) {
 		float xpos = 0.01f;
@@ -513,7 +510,7 @@ void CEndGameBox::FillTeamStats()
 			continue;
 		}
 
-		for (std::list<CTeam::Statistics>::const_iterator si = pteam->statHistory.begin(); si != pteam->statHistory.end(); ++si) {
+		for (std::list<TeamStatistics>::const_iterator si = pteam->statHistory.begin(); si != pteam->statHistory.end(); ++si) {
 			stats[0].AddStat(team, 0);
 
 			stats[1].AddStat(team, si->metalUsed);

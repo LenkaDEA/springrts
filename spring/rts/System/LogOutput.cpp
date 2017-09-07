@@ -2,7 +2,6 @@
 
 #include "System/LogOutput.h"
 
-#include "lib/gml/gmlmut.h"
 #include "System/Util.h"
 #include "Game/GameVersion.h"
 #include "System/Config/ConfigHandler.h"
@@ -11,7 +10,8 @@
 #include "System/Log/FileSink.h"
 #include "System/Log/ILog.h"
 #include "System/Log/Level.h"
-#include "System/mmgr.h"
+#include "System/Log/LogUtil.h"
+#include "System/Platform/Misc.h"
 
 #include <string>
 #include <set>
@@ -29,179 +29,28 @@
 /******************************************************************************/
 /******************************************************************************/
 
-CONFIG(std::string, RotateLogFiles).defaultValue("auto")
-		.description("rotate logfiles, valid values are \"always\" (default in debug builds) and \"never\" (default in release builds).");
+CONFIG(bool, RotateLogFiles).defaultValue(false)
+		.description("rotate logfiles, old logfiles will be moved into the subfolder \"log\".");
+
 CONFIG(std::string, LogSections).defaultValue("")
 		.description("Comma seperated list of enabled logsections, see infolog.txt / console output for possible values");
-CONFIG(bool, LogFlush).defaultValue(false)
-		.description("Instantly write to the logfile, use only for debugging as it will cause a slowdown");
+
+CONFIG(int, LogFlushLevel).defaultValue(LOG_LEVEL_ERROR)
+		.description("Flush the logfile when level of message is above LogFlushLevel. i.e. ERROR is flushed as default, WARNING isn't.");
 
 /******************************************************************************/
 /******************************************************************************/
 
-CLogOutput logOutput;
+static std::map<std::string, int> GetEnabledSections() {
+	std::map<std::string, int> sectionLevelMap;
 
-static std::ofstream* filelog = NULL;
-static bool initialized = false;
-
-CLogOutput::CLogOutput()
-	: fileName("")
-	, filePath("")
-{
-	// multiple infologs can't exist together!
-	assert(this == &logOutput);
-	assert(!filelog);
-
-	SetFileName("infolog.txt");
-
-	bool doRotateLogFiles = false;
-	std::string rotatePolicy = "auto";
-	if (configHandler != NULL) {
-		rotatePolicy = configHandler->GetString("RotateLogFiles");
-	}
-	if (rotatePolicy == "always") {
-		doRotateLogFiles = true;
-	} else if (rotatePolicy == "never") {
-		doRotateLogFiles = false;
-	} else { // auto
-#ifdef DEBUG
-		doRotateLogFiles = true;
-#else
-		doRotateLogFiles = false;
-#endif
-	}
-	SetLogFileRotating(doRotateLogFiles);
-}
-
-
-CLogOutput::~CLogOutput()
-{
-	End();
-}
-
-
-void CLogOutput::End()
-{
-	GML_STDMUTEX_LOCK_NOPROF(log); // End
-
-	SafeDelete(filelog);
-	//log_file_removeLogFile(filePath.c_str());
-}
-
-const std::string& CLogOutput::GetFileName() const
-{
-	return fileName;
-}
-const std::string& CLogOutput::GetFilePath() const
-{
-	assert(initialized);
-	return filePath;
-}
-void CLogOutput::SetFileName(std::string fname)
-{
-	GML_STDMUTEX_LOCK_NOPROF(log); // SetFileName
-
-	assert(!initialized);
-	fileName = fname;
-}
-
-std::string CLogOutput::CreateFilePath(const std::string& fileName)
-{
-	return FileSystem::GetCwd() + (char)FileSystem::GetNativePathSeparator() + fileName;
-}
-
-
-void CLogOutput::SetLogFileRotating(bool enabled)
-{
-	assert(!initialized);
-	rotateLogFiles = enabled;
-}
-bool CLogOutput::IsLogFileRotating() const
-{
-	return rotateLogFiles;
-}
-
-void CLogOutput::RotateLogFile() const
-{
-	if (IsLogFileRotating()) {
-		if (FileSystem::FileExists(filePath)) {
-			// logArchiveDir: /absolute/writeable/data/dir/log/
-			std::string logArchiveDir = filePath.substr(0, filePath.find_last_of("/\\") + 1);
-			logArchiveDir = logArchiveDir + "log" + (char)FileSystem::GetNativePathSeparator();
-
-			const std::string archivedLogFile = logArchiveDir + FileSystem::GetFileModificationDate(filePath) + "_" + fileName;
-
-			// create the log archive dir if it does not exist yet
-			if (!FileSystem::DirExists(logArchiveDir)) {
-				FileSystem::CreateDirectory(logArchiveDir);
-			}
-
-			// move the old log to the archive dir
-			const int moveError = rename(filePath.c_str(), archivedLogFile.c_str());
-			if (moveError != 0) {
-				// no log here yet
-				std::cerr << "Failed rotating the log file" << std::endl;
-			}
-		}
-	}
-}
-
-void CLogOutput::Initialize()
-{
-	if (initialized) return;
-
-	filePath = CreateFilePath(fileName);
-	RotateLogFile();
-
-	/*filelog = new std::ofstream(filePath.c_str());
-	if (filelog->bad())
-		SafeDelete(filelog);*/
-	const bool flush = configHandler->GetBool("LogFlush");
-	log_file_addLogFile(filePath.c_str(), NULL, LOG_LEVEL_ALL, flush);
-
-	initialized = true;
-	InitializeSections();
-
-	/*std::vector<std::string>::iterator pili;
-	for (pili = preInitLog().begin(); pili != preInitLog().end(); ++pili) {
-		ToFile(*pili);
-	}
-	preInitLog().clear();*/
-
-	LOG("LogOutput initialized.");
-	LOG("Spring %s", SpringVersion::GetFull().c_str());
-	LOG("Build date/time: %s", SpringVersion::GetBuildTime().c_str());
-	LOG("Build environment: %s", SpringVersion::GetBuildEnvironment().c_str());
-	LOG("Compiler: %s", SpringVersion::GetCompiler().c_str());
-}
-
-void CLogOutput::InitializeSections()
-{
-	// the new systems (ILog.h) log-sub-systems are called sections:
-	const std::set<const char*> sections = log_filter_section_getRegisteredSet();
-
-	{
-		std::stringstream logSectionsStr;
-		logSectionsStr << "Available log sections: ";
-		int numSec = 0;
-		std::set<const char*>::const_iterator si;
-		for (si = sections.begin(); si != sections.end(); ++si) {
-			if (numSec > 0) {
-				logSectionsStr << ", ";
-			}
-			logSectionsStr << *si;
-			numSec++;
-		}
-		LOG("%s", logSectionsStr.str().c_str());
-	}
-
-	// enabled sections is a superset of the ones specified in the environment
-	// and the ones specified in the configuration file.
-	// configHandler cannot be accessed here in unitsync, as it may not exist.
 	std::string enabledSections = ",";
+	std::string envSections = ",";
+
 #if defined(UNITSYNC)
 	#if defined(DEBUG)
 	// unitsync logging in debug mode always on
+	// configHandler cannot be accessed here in unitsync, as it may not exist.
 	enabledSections += "unitsync,ArchiveScanner,";
 	#endif
 #else
@@ -212,57 +61,221 @@ void CLogOutput::InitializeSections()
 	// Always show at least INFO level of these sections
 	enabledSections += "Sound,";
 	#endif
-	enabledSections += StringToLower(configHandler->GetString("LogSections")) + ",";
+	enabledSections += StringToLower(configHandler->GetString("LogSections"));
 #endif
 
-	const char* const envSec = getenv("SPRING_LOG_SECTIONS");
-	std::string env;
-	if (envSec != NULL) {
-		env += ",";
-		env += envSec;
-	}
+	if (getenv("SPRING_LOG_SECTIONS") != NULL) {
+		// allow disabling all sections from the env var by setting it to "none"
+		envSections += getenv("SPRING_LOG_SECTIONS");
+		envSections = StringToLower(envSections);
 
-	if (!env.empty()) {
-		// this allows to disable all sections from the env var
-		std::string envSections(StringToLower(env));
-		if (envSections == std::string("none")) {
+		if (envSections == "none") {
 			enabledSections = "";
 		} else {
-			enabledSections += envSections + ",";
+			enabledSections += envSections;
 		}
 	}
-	const std::string enabledSectionsLC = StringToLower(enabledSections);
 
-	{
-		std::stringstream enabledLogSectionsStr;
-		enabledLogSectionsStr << "Enabled log sections: ";
-		int numSec = 0;
+	enabledSections = StringToLower(enabledSections);
+	enabledSections = StringStrip(enabledSections, " \t\n\r");
 
-		// new log sections
-		std::set<const char*>::const_iterator si;
-		for (si = sections.begin(); si != sections.end(); ++si) {
-			const std::string name = StringToLower(*si);
-			const bool found = (enabledSectionsLC.find("," + name + ",") != std::string::npos);
+	// make the last "section:level" substring findable
+	if (!enabledSections.empty() && enabledSections.back() != ',')
+		enabledSections += ",";
 
-			if (found) {
-				if (numSec > 0) {
-					enabledLogSectionsStr << ", ";
+	// n=1 because <enabledSections> always starts with a ',' (if non-empty)
+	for (size_t n = 1; n < enabledSections.size(); ) {
+		const size_t k = enabledSections.find(",", n);
+
+		if (k != std::string::npos) {
+			const std::string& sub = enabledSections.substr(n, k - n);
+
+			if (!sub.empty()) {
+				const size_t sepChr = sub.find(":");
+
+				const std::string& logSec = (sepChr != std::string::npos)? sub.substr(         0,            sepChr): sub;
+				const std::string& logLvl = (sepChr != std::string::npos)? sub.substr(sepChr + 1, std::string::npos):  "";
+
+				if (!logLvl.empty()) {
+					sectionLevelMap[logSec] = StringToInt(logLvl);
+				} else {
+					#if defined(DEBUG)
+					sectionLevelMap[logSec] = LOG_LEVEL_DEBUG;
+					#else
+					sectionLevelMap[logSec] = DEFAULT_LOG_LEVEL;
+					#endif
+
 				}
-#if       defined(DEBUG)
-				log_filter_section_setMinLevel(*si, LOG_LEVEL_DEBUG);
-				enabledLogSectionsStr << *si << "(LOG_LEVEL_DEBUG)";
-#else  // defined(DEBUG)
-				log_filter_section_setMinLevel(*si, LOG_LEVEL_INFO);
-				enabledLogSectionsStr << *si << "(LOG_LEVEL_INFO)";
-#endif // defined(DEBUG)
-				numSec++;
 			}
+
+			n = k + 1;
+		} else {
+			n = k;
 		}
-		LOG("%s", enabledLogSectionsStr.str().c_str());
 	}
+
+	return sectionLevelMap;
+}
+
+/**
+ * @brief initialize the log sections
+ *
+ * This writes a list of all available and all enabled sections to the log.
+ *
+ * Log sections can be enabled using the configuration key "LogSections",
+ * or the environment variable "SPRING_LOG_SECTIONS".
+ *
+ * Both specify a comma-separated list of sections that should be enabled.
+ * The lists from both sources are combined, there is no overriding.
+ *
+ * A section that is enabled by default, can not be disabled.
+ */
+static void InitializeLogSections()
+{
+	// the new systems (ILog.h) log-sub-systems are called sections
+	const std::set<const char*>& registeredSections = log_filter_section_getRegisteredSet();
+
+	// enabled sections is a superset of the ones specified in the
+	// environment and the ones specified in the configuration file.
+	const std::map<std::string, int>& enabledSections = GetEnabledSections();
+
+	std::stringstream availableLogSectionsStr;
+	std::stringstream enabledLogSectionsStr;
+
+	availableLogSectionsStr << "Available log sections: ";
+	enabledLogSectionsStr << "Enabled log sections: ";
+
+	unsigned int numRegisteredSections = 0;
+	unsigned int numEnabledSections = 0;
+
+	for (auto si = registeredSections.begin(); si != registeredSections.end(); ++si) {
+		numRegisteredSections++;
+
+		availableLogSectionsStr << ((numRegisteredSections > 1)? ", ": "");
+		availableLogSectionsStr << *si;
+
+		// enabled sections (keys) are in lower-case
+		const auto sectionIter = enabledSections.find(StringToLower(*si));
+
+		// skip if section is registered but not enabled
+		if (sectionIter == enabledSections.end())
+			continue;
+
+		// user-specified wanted level for this section
+		const int sectionLevel = sectionIter->second;
+
+		if (sectionLevel >= LOG_LEVEL_NONE)
+			continue;
+
+		// find the nearest lower known log-level (in descending order)
+		const int logLevel = log_util_getNearestLevel(sectionLevel);
+
+		// levels can't go lower than this
+		if (logLevel < 0)
+			continue;
+
+		log_filter_section_setMinLevel(*si, logLevel);
+
+		enabledLogSectionsStr << ((numEnabledSections > 0)? ", ": "");
+		enabledLogSectionsStr << *si << "(" << log_util_levelToString(logLevel) << ")";
+
+		numEnabledSections++;
+	}
+
+	LOG("%s", (availableLogSectionsStr.str()).c_str());
+	LOG("%s", (enabledLogSectionsStr.str()).c_str());
 
 	LOG("Enable or disable log sections using the LogSections configuration key");
 	LOG("  or the SPRING_LOG_SECTIONS environment variable (both comma separated).");
 	LOG("  Use \"none\" to disable the default log sections.");
+}
+
+
+
+
+CLogOutput logOutput;
+
+CLogOutput::CLogOutput()
+	: fileName("")
+	, filePath("")
+{
+	// multiple infologs can't exist together!
+	assert(this == &logOutput);
+
+	SetFileName("infolog.txt");
+}
+
+CLogOutput::~CLogOutput()
+{
+}
+
+void CLogOutput::SetFileName(std::string fname)
+{
+	assert(!IsInitialized());
+	fileName = fname;
+}
+
+std::string CLogOutput::CreateFilePath(const std::string& fileName)
+{
+	return (FileSystem::EnsurePathSepAtEnd(FileSystem::GetCwd()) + fileName);
+}
+
+
+void CLogOutput::RotateLogFile() const
+{
+	if (!FileSystem::FileExists(filePath))
+		return;
+
+	// logArchiveDir: /absolute/writeable/data/dir/log/
+	const std::string logArchiveDir = filePath.substr(0, filePath.find_last_of("/\\") + 1) + "log" + FileSystem::GetNativePathSeparator();
+	const std::string archivedLogFile = logArchiveDir + FileSystem::GetFileModificationDate(filePath) + "_" + fileName;
+
+	// create the log archive dir if it does not exist yet
+	if (!FileSystem::DirExists(logArchiveDir))
+		FileSystem::CreateDirectory(logArchiveDir);
+
+	// move the old log to the archive dir
+	if (rename(filePath.c_str(), archivedLogFile.c_str()) != 0) {
+		// no log here yet
+		std::cerr << "Failed rotating the log file" << std::endl;
+	}
+}
+
+
+
+void CLogOutput::Initialize()
+{
+	assert(configHandler != NULL);
+
+	if (IsInitialized())
+		return;
+
+	filePath = CreateFilePath(fileName);
+
+	if (configHandler->GetBool("RotateLogFiles"))
+		RotateLogFile();
+
+	log_file_addLogFile(filePath.c_str(), NULL, LOG_LEVEL_ALL, configHandler->GetInt("LogFlushLevel"));
+	InitializeLogSections();
+
+	LOG("LogOutput initialized.");
+}
+
+
+
+void CLogOutput::LogSystemInfo()
+{
+	LOG("Spring %s", SpringVersion::GetFull().c_str());
+	LOG("Build Environment: %s", SpringVersion::GetBuildEnvironment().c_str());
+	LOG("Compiler Version:  %s", SpringVersion::GetCompiler().c_str());
+	LOG("Operating System:  %s", Platform::GetOS().c_str());
+
+	if (Platform::Is64Bit()) {
+		LOG("Word Size:         64-bit (native mode)");
+	} else if (Platform::Is32BitEmulation()) {
+		LOG("Word Size:         32-bit (emulated)");
+	} else {
+		LOG("Word Size:         32-bit (native mode)");
+	}
 }
 

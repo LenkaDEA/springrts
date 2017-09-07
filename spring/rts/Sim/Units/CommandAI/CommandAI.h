@@ -7,25 +7,29 @@
 #include <set>
 
 #include "System/Object.h"
+#include "CommandDescription.h"
 #include "CommandQueue.h"
 #include "System/float3.h"
 
 class CUnit;
 class CFeature;
 class CWeapon;
-class CLoadSaveInterface;
 struct Command;
 
 class CCommandAI : public CObject
 {
-	CR_DECLARE(CCommandAI);
+	CR_DECLARE(CCommandAI)
 
 public:
 	CCommandAI(CUnit* owner);
 	CCommandAI();
 	virtual ~CCommandAI();
-	void PostLoad() {}
+
 	void DependentDied(CObject* o);
+
+	static void InitCommandDescriptionCache();
+	static void KillCommandDescriptionCache();
+
 	inline void SetOrderTarget(CUnit* o);
 
 	void SetScriptMaxSpeed(float speed, bool persistent);
@@ -33,30 +37,33 @@ public:
 
 	virtual void AddDeathDependence(CObject* o, DependenceType dep);
 	virtual void DeleteDeathDependence(CObject* o, DependenceType dep);
-	void AddCommandDependency(const Command &c);
+	void AddCommandDependency(const Command& c);
 	void ClearCommandDependencies();
 	/// feeds into GiveCommandReal()
 	void GiveCommand(const Command& c, bool fromSynced = true);
+	void ClearTargetLock(const Command& fc);
+	virtual bool CanWeaponAutoTarget(const CWeapon* weapon) const { return true; }
 	virtual int GetDefaultCmd(const CUnit* pointed, const CFeature* feature);
 	virtual void SlowUpdate();
 	virtual void GiveCommandReal(const Command& c, bool fromSynced = true);
-	virtual std::vector<CommandDescription>& GetPossibleCommands();
 	virtual void FinishCommand();
-	virtual void WeaponFired(CWeapon* weapon, bool mainWeapon, bool lastSalvo);
+	void WeaponFired(CWeapon* weapon, const bool searchForNewTarget);
 	virtual void BuggerOff(const float3& pos, float radius) {}
-	virtual void LoadSave(CLoadSaveInterface* file, bool loading);
 	/**
 	 * @brief Determines if c will cancel a queued command
 	 * @return true if c will cancel a queued command
 	 */
-	virtual bool WillCancelQueued(const Command& c);
+		bool WillCancelQueued(const Command& c);
 	virtual bool CanSetMaxSpeed() const { return false; }
 	virtual void StopMove() { return; }
-	virtual bool HasMoreMoveCommands();
+
 	/**
 	 * Removes attack commands targeted at our new ally.
 	 */
-	virtual void StopAttackingAllyTeam(int ally);
+	void StopAttackingAllyTeam(int ally);
+
+	bool HasCommand(int cmdID) const;
+	bool HasMoreMoveCommands(bool skipFirstCmd = true) const;
 
 	int CancelCommands(const Command& c, CCommandQueue& queue, bool& first);
 	/**
@@ -73,6 +80,9 @@ public:
 	std::vector<Command> GetOverlapQueued(const Command& c);
 	std::vector<Command> GetOverlapQueued(const Command& c,
 	                                      CCommandQueue& queue);
+
+	const std::vector<const SCommandDescription*>& GetPossibleCommands() const { return possibleCommands; }
+
 	/**
 	 * @brief Causes this CommandAI to execute the attack order c
 	 */
@@ -82,6 +92,13 @@ public:
 	 * @brief executes the stop command c
 	 */
 	virtual void ExecuteStop(Command& c);
+
+	void UpdateCommandDescription(unsigned int cmdDescIdx, const Command& cmd);
+	void UpdateCommandDescription(unsigned int cmdDescIdx, const SCommandDescription& modCmdDesc);
+	void InsertCommandDescription(unsigned int cmdDescIdx, const SCommandDescription& cmdDesc);
+	bool RemoveCommandDescription(unsigned int cmdDescIdx);
+
+	void UpdateNonQueueingCommands();
 
 	void SetCommandDescParam0(const Command& c);
 	bool ExecuteStateCommand(const Command& c);
@@ -94,15 +111,15 @@ public:
 	void UpdateStockpileIcon();
 	bool CanChangeFireState();
 
+	virtual bool AllowedCommand(const Command& c, bool fromSynced);
+
 	CWeapon* stockpileWeapon;
 
-	std::vector<CommandDescription> possibleCommands;
-	CCommandQueue commandQue;
-	/**
-	 * commands that will not go into the command queue
-	 * (and therefore not reseting it if given without shift
-	 */
+	std::vector<const SCommandDescription*> possibleCommands;
 	std::set<int> nonQueingCommands;
+
+	CCommandQueue commandQue;
+
 	int lastUserCommand;
 	int selfDCountdown;
 	int lastFinishCommand;
@@ -117,8 +134,8 @@ public:
 	bool unimportantMove;
 
 protected:
-	virtual bool AllowedCommand(const Command& c, bool fromSynced);
-	virtual void SelectNewAreaAttackTargetOrPos(const Command& ac) {}
+	// return true by default so non-AirCAI's trigger FinishCommand
+	virtual bool SelectNewAreaAttackTargetOrPos(const Command& ac) { return true; }
 
 	bool IsAttackCapable() const;
 	bool SkipParalyzeTarget(const CUnit* target);
@@ -149,11 +166,11 @@ inline void CCommandAI::SetOrderTarget(CUnit* o) {
 		// NOTE As we do not include Unit.h,
 		//   the compiler does not know that CUnit derives from CObject,
 		//   and thus we can not use static_cast<CObject*>(...) here.
-		DeleteDeathDependence((CObject*)orderTarget, DEPENDENCE_ORDERTARGET);
+		DeleteDeathDependence(reinterpret_cast<CObject*>(orderTarget), DEPENDENCE_ORDERTARGET);
 	}
 	orderTarget = o;
 	if (orderTarget != NULL) {
-		AddDeathDependence((CObject*)orderTarget, DEPENDENCE_ORDERTARGET);
+		AddDeathDependence(reinterpret_cast<CObject*>(orderTarget), DEPENDENCE_ORDERTARGET);
 	}
 }
 

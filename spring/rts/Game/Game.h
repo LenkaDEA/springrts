@@ -5,35 +5,32 @@
 
 #include <string>
 #include <map>
-#include <set>
+#include <vector>
 
 #include "GameController.h"
+#include "Game/UI/KeySet.h"
 #include "System/creg/creg_cond.h"
 #include "System/Misc/SpringTime.h"
 
-class IWater;
+class JobDispatcher;
 class CConsoleHistory;
-class CKeySet;
 class CInfoConsole;
 class LuaParser;
-class LuaInputReceiver;
 class ILoadSaveHandler;
 class Action;
-class ISyncedActionExecutor;
-class IUnsyncedActionExecutor;
 class ChatMessage;
-class SkirmishAIData;
 class CWorldDrawer;
 
 
 class CGame : public CGameController
 {
 private:
-	CR_DECLARE(CGame);	// Do not use CGame pointer in CR_MEMBER()!!!
+	CR_DECLARE_STRUCT(CGame)
 
 public:
 	CGame(const std::string& mapName, const std::string& modName, ILoadSaveHandler* saveFile);
 	virtual ~CGame();
+	void KillLua();
 
 public:
 	enum GameDrawMode {
@@ -41,7 +38,8 @@ public:
 		gameNormalDraw     = 1,
 		gameShadowDraw     = 2,
 		gameReflectionDraw = 3,
-		gameRefractionDraw = 4
+		gameRefractionDraw = 4,
+		gameDeferredDraw   = 5,
 	};
 
 	struct PlayerTrafficInfo {
@@ -51,22 +49,36 @@ public:
 	};
 
 public:
-	void LoadGame(const std::string& mapName);
+	void LoadGame(const std::string& mapName, bool threaded);
 
 	/// show GameEnd-window, calculate mouse movement etc.
 	void GameEnd(const std::vector<unsigned char>& winningAllyTeams, bool timeout = false);
 
 private:
+	void AddTimedJobs();
+
+	void LoadMap(const std::string& mapName);
 	void LoadDefs();
-	void LoadSimulation(const std::string& mapName);
-	void LoadRendering();
+	void PreLoadSimulation();
+	void PostLoadSimulation();
+	void PreLoadRendering();
+	void PostLoadRendering();
 	void LoadInterface();
 	void LoadLua();
+	void LoadSkirmishAIs();
 	void LoadFinalize();
 	void PostLoad();
 
+	void KillMisc();
+	void KillRendering();
+	void KillInterface();
+	void KillSimulation();
+
 public:
-	bool HasLag() const;
+	volatile bool IsFinishedLoading() const { return finishedLoading; }
+	bool IsGameOver() const { return gameOver; }
+	bool IsLagging(float maxLatency = 500.0f) const;
+
 	const std::map<int, PlayerTrafficInfo>& GetPlayerTraffic() const {
 		return playerTraffic;
 	}
@@ -79,11 +91,6 @@ public:
 	bool ProcessKeyPressAction(unsigned int key, const Action& action);
 	bool ProcessAction(const Action& action, unsigned int key = -1, bool isRepeat = false);
 
-	void SetHotBinding(const std::string& action) { hotBinding = action; }
-
-	void SelectUnits(const std::string& line);
-	void SelectCycle(const std::string& command);
-
 	void ReloadCOB(const std::string& msg, int player);
 	void ReloadCEGs(const std::string& tag);
 
@@ -93,32 +100,29 @@ public:
 	void ParseInputTextGeometry(const std::string& geo);
 
 	void ReloadGame();
-	void SaveGame(const std::string& filename, bool overwrite);
-	void DumpState(int newMinFrameNum, int newMaxFrameNum, int newFramePeriod);
+	void SaveGame(const std::string& filename, bool overwrite, bool usecreg);
 
 	void ResizeEvent();
-	void SetupRenderingParams();
-	void         SetDrawMode(GameDrawMode mode) { gameDrawMode = mode; }
+
+	void SetDrawMode(GameDrawMode mode) { gameDrawMode = mode; }
 	GameDrawMode GetDrawMode() const { return gameDrawMode; }
 
 private:
 	bool Draw();
-	bool DrawMT();
-
-	static void DrawMTcb(void* c) { static_cast<CGame*>(c)->DrawMT(); }
-	bool UpdateUnsynced();
+	bool UpdateUnsynced(const spring_time currentTime);
 
 	void DrawSkip(bool blackscreen = true);
+	void DrawInputReceivers();
 	void DrawInputText();
-	void UpdateUI(bool cam);
-	
+	void DrawInterfaceWidgets();
+
 	/// Format and display a chat message received over network
 	void HandleChatMsg(const ChatMessage& msg);
 
 	/// Called when a key is released by the user
-	int KeyReleased(unsigned short k);
+	int KeyReleased(int k);
 	/// Called when the key is pressed by the user (can be called several times due to key repeat)
-	int KeyPressed(unsigned short k, bool isRepeat);
+	int KeyPressed(int k, bool isRepeat);
 
 	bool ActionPressed(unsigned int key, const Action& action, bool isRepeat);
 	bool ActionReleased(const Action& action);
@@ -127,43 +131,43 @@ private:
 
 	void ReColorTeams();
 
+	unsigned int GetNumQueuedSimFrameMessages(unsigned int maxFrames) const;
+	float GetNetMessageProcessingTimeLimit() const;
+
+	void SendClientProcUsage();
 	void ClientReadNet();
+	void UpdateNumQueuedSimFrames();
+	void UpdateNetMessageProcessingTimeLeft();
 	void SimFrame();
 	void StartPlaying();
 	bool Update();
 
 public:
-	volatile bool finishedLoading;
-	bool gameOver;
-
 	GameDrawMode gameDrawMode;
 
 	unsigned char gameID[16];
 
-	LuaParser* defsParser;
-
-	unsigned int thisFps;
-
 	int lastSimFrame;
+	int lastNumQueuedSimFrames;
+
+	// number of Draw() calls per 1000ms
+	unsigned int numDrawFrames;
 
 	spring_time frameStartTime;
-	spring_time lastUpdateTime;
 	spring_time lastSimFrameTime;
-	spring_time lastDrawFrameUpdate;
-	spring_time lastModGameTimeMeasure;
+	spring_time lastDrawFrameTime;
+	spring_time lastFrameTime;
+	spring_time lastReadNetTime; ///< time of previous ClientReadNet() call
+	spring_time lastNetPacketProcessTime;
+	spring_time lastReceivedNetPacketTime;
+	spring_time lastSimFrameNetPacketTime;
 
 	float updateDeltaSeconds;
-
-	float lastCpuUsageTime;
-
 	/// Time in seconds, stops at game end
 	float totalGameTime;
 
-	int lastTick;
 	int chatSound;
 
-	bool camMove[8];
-	bool camRot[4];
 	bool windowedEdgeMove;
 	bool fullscreenEdgeMove;
 
@@ -171,33 +175,28 @@ public:
 	bool showFPS;
 	bool showClock;
 	bool showSpeed;
-	int showMTInfo;
-	float mtInfoThreshold;
-	int mtInfoCtrl;
 
-	/// Prevents spectator msgs from being seen by players
-	bool noSpectatorChat;
-
-	std::string hotBinding;
 	float inputTextPosX;
 	float inputTextPosY;
 	float inputTextSizeX;
 	float inputTextSizeY;
+
 	bool skipping;
 	bool playing;
 	bool chatting;
-	std::string userInputPrefix;
 
-	spring_time lastFrameTime;
+	/// Prevents spectator msgs from being seen by players
+	bool noSpectatorChat;
+
+	CTimedKeyChain curKeyChain;
+	std::string userInputPrefix;
 
 	/// <playerID, <packetCode, total bytes> >
 	std::map<int, PlayerTrafficInfo> playerTraffic;
 
 	// to smooth out SimFrame calls
-	int leastQue;          ///< Lowest value of que in the past second.
-	float msgProcTimeLeft; ///< How many SimFrame() calls we still may do.
-	float consumeSpeed;    ///< How fast we should eat NETMSG_NEWFRAMEs.
-	spring_time lastframe; ///< time of previous ClientReadNet() call.
+	float msgProcTimeLeft;  ///< How many SimFrame() calls we still may do.
+	float consumeSpeedMult; ///< How fast we should eat NETMSG_NEWFRAMEs.
 
 	int skipStartFrame;
 	int skipEndFrame;
@@ -206,23 +205,28 @@ public:
 	bool skipSoundmute;
 	float skipOldSpeed;
 	float skipOldUserSpeed;
-	spring_time skipLastDraw;
+	spring_time skipLastDrawTime;
 
 	/**
 	 * @see CGameServer#speedControl
 	 */
 	int speedControl;
-	int luaLockTime;
-	int luaExportSize;
-
-	/// for reloading the savefile
-	ILoadSaveHandler* saveFile;
 
 	CInfoConsole* infoConsole;
 	CConsoleHistory* consoleHistory;
 
 private:
+	JobDispatcher* jobDispatcher;
+
 	CWorldDrawer* worldDrawer;
+
+	LuaParser* defsParser;
+
+	/// for reloading the savefile
+	ILoadSaveHandler* saveFile;
+
+	volatile bool finishedLoading;
+	bool gameOver;
 };
 
 

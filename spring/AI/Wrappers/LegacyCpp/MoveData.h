@@ -6,38 +6,39 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <functional>
 
 #include "System/creg/creg_cond.h"
 
 
 namespace springLegacyAI {
 
+// FIXME: this is a million years behind the engine version now
 struct MoveData {
-	CR_DECLARE_STRUCT(MoveData);
+	CR_DECLARE_STRUCT(MoveData)
 
-	MoveData() {
-		maxAcceleration = 0.0f;
-		maxBreaking     = 0.0f;
-		maxSpeed        = 0.0f;
-		maxTurnRate     = 0;
-
-		xsize           = 0;
-		zsize           = 0;
-		depth           = 0.0f;
-		maxSlope        = 0.0f;
-		slopeMod        = 0.0f;
-		depthMod        = 0.0f;
-		pathType        = 0;
-		crushStrength   = 0.0f;
-		moveType        = MoveData::Ground_Move;
-		moveFamily      = MoveData::Tank;
-		terrainClass    = MoveData::Mixed;
-		followGround    = true;
-		subMarine       = false;
-		name            = "tank";
-		heatMapping     = true;
-		heatMod	        = 0.05f;
-		heatProduced    = 30;
+	MoveData()
+		: moveType(MoveData::Ground_Move)
+		, moveFamily(MoveData::Tank)
+		, terrainClass(MoveData::Mixed)
+		, followGround(true)
+		, xsize(0)
+		, zsize(0)
+		, depth(0.0f)
+		, maxSlope(0.0f)
+		, slopeMod(0.0f)
+		, pathType(0)
+		, crushStrength(0.0f)
+		, name("tank")
+		, maxSpeed(0.0f)
+		, maxTurnRate(0)
+		, maxAcceleration(0.0f)
+		, maxBreaking(0.0f)
+		, subMarine(false)
+		, heatMapping(true)
+		, heatMod(0.05f)
+		, heatProduced(30)
+	{
 	}
 
 	enum MoveType {
@@ -74,7 +75,7 @@ struct MoveData {
 	float depth;
 	float maxSlope;
 	float slopeMod;
-	float depthMod;
+	std::function<float (float height)> GetDepthMod;
 
 	int pathType;
 	float crushStrength;
@@ -92,9 +93,9 @@ struct MoveData {
 	/// are we supposed to be a purely sub-surface ship?
 	bool subMarine;
 
-	/// heatmap this unit
+	/// heat-map this unit
 	bool heatMapping;
-	/// heatmap path cost modifier
+	/// heat-map path cost modifier
 	float heatMod;
 	/// heat produced by a path
 	int heatProduced;

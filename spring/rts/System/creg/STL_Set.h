@@ -5,28 +5,12 @@
 
 #include "creg_cond.h"
 
-#ifdef USING_CREG
-
-#ifdef _MSC_VER
-	#include <hash_set>
-	#define SPRING_HASH_SET stdext::hash_set
-#elif __GNUG__
-	/* Test for GCC >= 4.3.2 */
-	#if __GNUC__ > 4 || \
-		(__GNUC__ == 4 && (__GNUC_MINOR__ > 3 || \
-						(__GNUC_MINOR__ == 3 && \
-							__GNUC_PATCHLEVEL__ >= 2)))
-		#include <tr1/unordered_set>
-		#define SPRING_HASH_SET std::tr1::unordered_set
-	#else
-		#define SPRING_HASH_SET __gnu_cxx::hash_set
-		#include <ext/hash_set>
-	#endif
-#else
-	#error Unsupported compiler
-#endif
+#include <unordered_set>
+#define SPRING_HASH_SET std::unordered_set
 
 #include <set>
+
+#ifdef USING_CREG
 
 namespace creg
 {
@@ -50,6 +34,7 @@ namespace creg
 				for (iterator i = ct.begin(); i != ct.end(); ++i)
 					elemType->Serialize(s,(void*) &*i);
 			} else {
+				ct.clear();
 				int size;
 				s->SerializeInt(&size, sizeof(int));
 				for (int i = 0; i < size; i++) {
@@ -59,35 +44,33 @@ namespace creg
 				}
 			}
 		}
-		std::string GetName() { return "set<" + elemType->GetName() + ">"; }
+		std::string GetName() const { return "set<" + elemType->GetName() + ">"; }
+		size_t GetSize() const { return sizeof(T); }
 	};
 
 
 	// Set type
 	template<typename T, typename C>
 	struct DeduceType<std::set<T, C> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<T> elemtype;
-			return boost::shared_ptr<IType>(new SetType<std::set<T, C> >(elemtype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new SetType<std::set<T, C> >(DeduceType<T>::Get()));
 		}
 	};
 	// Multiset
 	template<typename T>
 	struct DeduceType<std::multiset<T> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<T> elemtype;
-			return boost::shared_ptr<IType>(new SetType<std::multiset<T> >(elemtype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new SetType<std::multiset<T> >(DeduceType<T>::Get()));
 		}
 	};
 	// Hash set
 	template<typename T>
 	struct DeduceType<SPRING_HASH_SET<T> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<T> elemtype;
-			return boost::shared_ptr<IType>(new SetType<SPRING_HASH_SET<T> >(elemtype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new SetType<SPRING_HASH_SET<T> >(DeduceType<T>::Get()));
 		}
 	};
-};
+}
 
 #endif // USING_CREG
 

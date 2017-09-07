@@ -4,108 +4,75 @@
 #include "Game/TraceRay.h"
 #include "Map/Ground.h"
 #include "Map/MapInfo.h"
-#include "Sim/Projectiles/Unsynced/HeatCloudProjectile.h"
-#include "Sim/Projectiles/Unsynced/SmokeProjectile.h"
-#include "Sim/Projectiles/WeaponProjectiles/ExplosiveProjectile.h"
+#include "Rendering/Env/Particles/Classes/HeatCloudProjectile.h"
+#include "Rendering/Env/Particles/Classes/SmokeProjectile.h"
+#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectileFactory.h"
 #include "Sim/Units/Unit.h"
 #include "System/Sync/SyncTracer.h"
 #include "WeaponDefHandler.h"
 #include "System/myMath.h"
 #include "System/FastMath.h"
-#include "System/mmgr.h"
 
-CR_BIND_DERIVED(CCannon, CWeapon, (NULL));
+CR_BIND_DERIVED(CCannon, CWeapon, (NULL, NULL))
 
 CR_REG_METADATA(CCannon,(
-	CR_MEMBER(maxPredict),
-	CR_MEMBER(minPredict),
 	CR_MEMBER(highTrajectory),
-	CR_MEMBER(selfExplode),
 	CR_MEMBER(rangeFactor),
 	CR_MEMBER(lastDiff),
 	CR_MEMBER(lastDir),
-	CR_MEMBER(gravity),
-	CR_RESERVED(32)
-	));
+	CR_MEMBER(gravity)
+))
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CCannon::CCannon(CUnit* owner)
-: CWeapon(owner),
-	lastDiff(0.f, 0.f, 0.f),
-	lastDir(0.f, -1.f, 0.f)
+CCannon::CCannon(CUnit* owner, const WeaponDef* def)
+	: CWeapon(owner, def)
+	, rangeFactor(1.0f)
+	, lastDir(-UpVector)
+	, highTrajectory(false)
+	, gravity(0.0f)
 {
-	highTrajectory = false;
-	rangeFactor = 1;
-	gravity = 0.0f;
-	selfExplode = false;
-	minPredict = 0.0f;
-	maxPredict = 0.0f;
 }
 
-void CCannon::Init(void)
+void CCannon::Init()
 {
-	gravity = weaponDef->myGravity==0 ? mapInfo->map.gravity : -(weaponDef->myGravity);
-	highTrajectory = weaponDef->highTrajectory == 1;
-	if(highTrajectory){
-		maxPredict=projectileSpeed*2/-gravity;
-		minPredict=projectileSpeed*1.41f/-gravity;
-	} else {
-		maxPredict=projectileSpeed*1.41f/-gravity;
-	}
+	gravity = (weaponDef->myGravity == 0)? mapInfo->map.gravity : -(weaponDef->myGravity);
+	highTrajectory = (weaponDef->highTrajectory == 1);
+
 	CWeapon::Init();
-
-	UpdateRange(range);
 }
 
-void CCannon::UpdateRange(float val)
+void CCannon::UpdateRange(const float val)
 {
+	// clamp so as to not extend range if projectile
+	// speed is too low to reach the *updated* range
+	// note: new range can be zero (!) making range
+	// and height factors irrelevant
 	range = val;
-	// initialize range factor
-	rangeFactor = 1;
-	rangeFactor = (float)range/GetRange2D(0);
-	// do not extend range if the modder specified speed too low
-	// for the projectile to reach specified range
-	if (rangeFactor > 1.f || rangeFactor <= 0.f)
-		rangeFactor = 1.f;
+	rangeFactor = Clamp(range / GetRange2D(0.0f, 1.0f), 0.0f, 1.0f);
+
 	// some magical (but working) equations
 	// useful properties: if rangeFactor == 1, heightBoostFactor == 1
 	// TODO find something better?
-	if (heightBoostFactor < 0.f)
-		heightBoostFactor = (2.f - rangeFactor) / math::sqrt(rangeFactor);
-}
-
-CCannon::~CCannon()
-{
-
-}
-
-void CCannon::Update()
-{
-	if(targetType!=Target_None){
-		weaponPos=owner->pos + owner->frontdir*relWeaponPos.z
-				 + owner->updir*relWeaponPos.y + owner->rightdir*relWeaponPos.x;
-		weaponMuzzlePos=owner->pos + owner->frontdir*relWeaponMuzzlePos.z
-				 + owner->updir*relWeaponMuzzlePos.y + owner->rightdir*relWeaponMuzzlePos.x;
-		float3 diff = targetPos-weaponPos;
-		wantedDir = GetWantedDir(diff);
-		float speed2D = wantedDir.Length2D() * projectileSpeed;
-		predict = ((speed2D == 0) ? 1 : (diff.Length2D()/speed2D));
-	} else {
-		predict=0;
+	if (heightBoostFactor < 0.0f && rangeFactor > 0.0f) {
+		heightBoostFactor = (2.0f - rangeFactor) / math::sqrt(rangeFactor);
 	}
-	CWeapon::Update();
 }
 
-bool CCannon::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
-{
-	if (!CWeapon::TryTarget(pos, userTarget, unit)) {
-		return false;
-	}
 
-	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
+void CCannon::UpdateWantedDir()
+{
+	const float3 targetVec = currentTargetPos - aimFromPos;
+	wantedDir = GetWantedDir(targetVec);
+}
+
+
+bool CCannon::HaveFreeLineOfFire(const float3 pos, const SWeaponTarget& trg, bool useMuzzle) const
+{
+	// assume we can still fire at partially submerged targets
+	if (!weaponDef->waterweapon && TargetUnderWater(pos, trg))
 		return false;
 
 	if (projectileSpeed == 0) {
@@ -113,7 +80,7 @@ bool CCannon::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
 	}
 
 	float3 dif(pos - weaponMuzzlePos);
-	float3 dir(GetWantedDir(dif));
+	float3 dir(GetWantedDir2(dif));
 
 	if (dir.SqLength() == 0) {
 		return false;
@@ -128,88 +95,66 @@ bool CCannon::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
 
 	const float linear = dir.y;
 	const float quadratic = gravity / (projectileSpeed * projectileSpeed) * 0.5f;
-	const float gc = ((collisionFlags & Collision::NOGROUND) == 0)?
-		ground->TrajectoryGroundCol(weaponMuzzlePos, flatDir, flatLength - 10, linear, quadratic):
+	const float groundDist = ((avoidFlags & Collision::NOGROUND) == 0)?
+		CGround::TrajectoryGroundCol(weaponMuzzlePos, flatDir, flatLength - 10, linear, quadratic):
 		-1.0f;
+	const float spread = (AccuracyExperience() + SprayAngleExperience()) * 0.6f * 0.9f;
 
-	if (gc > 0.0f) {
+	if (groundDist > 0.0f) {
 		return false;
 	}
 
-	const float spread =
-		((accuracy + sprayAngle) * 0.6f) *
-		((1.0f - owner->limExperience * weaponDef->ownerExpAccWeight) * 0.9f);
-	const float modFlatLength = flatLength - 30.0f;
-
-	if (avoidFriendly && TraceRay::TestTrajectoryCone(weaponMuzzlePos, flatDir, modFlatLength,
-		dir.y, quadratic, spread, 3, owner->allyteam, true, false, false, owner)) {
-		return false;
-	}
-	if (avoidNeutral && TraceRay::TestTrajectoryCone(weaponMuzzlePos, flatDir, modFlatLength,
-		dir.y, quadratic, spread, 3, owner->allyteam, false, true, false, owner )) {
-		return false;
-	}
-	if (avoidFeature && TraceRay::TestTrajectoryCone(weaponMuzzlePos, flatDir, modFlatLength,
-		dir.y, quadratic, spread, 3, owner->allyteam, false, false, true, owner)) {
+	//FIXME add a forcedUserTarget (a forced fire mode enabled with meta key or something) and skip the test below then
+	if (TraceRay::TestTrajectoryCone(weaponMuzzlePos, flatDir, flatLength,
+		dir.y, quadratic, spread, owner->allyteam, avoidFlags, owner)) {
 		return false;
 	}
 
 	return true;
 }
 
-
-void CCannon::FireImpl(void)
+void CCannon::FireImpl(const bool scriptCall)
 {
-	float3 diff = targetPos - weaponMuzzlePos;
-	float3 dir = (diff.SqLength() > 4.0) ? GetWantedDir(diff) : diff; // prevent vertical aim when emit-sfx firing the weapon
-	dir += 
-		(gs->randVector() * sprayAngle + salvoError) *
-		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
+	float3 diff = currentTargetPos - weaponMuzzlePos;
+	float3 dir = (diff.SqLength() > 4.0f) ? GetWantedDir(diff) : diff; // prevent vertical aim when emit-sfx firing the weapon
+
+	dir += (gs->randVector() * SprayAngleExperience() + SalvoErrorExperience());
 	dir.SafeNormalize();
 
 	int ttl = 0;
-	float sqSpeed2D = dir.SqLength2D() * projectileSpeed * projectileSpeed;
-	int predict = (int)math::ceil((sqSpeed2D == 0) ? (-2 * projectileSpeed * dir.y / gravity)
-			: math::sqrt(diff.SqLength2D() / sqSpeed2D));
-	if(weaponDef->flighttime > 0) {
+	const float sqSpeed2D = dir.SqLength2D() * projectileSpeed * projectileSpeed;
+	const int predict = math::ceil((sqSpeed2D == 0.0f) ?
+		(-2.0f * projectileSpeed * dir.y / gravity):
+		math::sqrt(diff.SqLength2D() / sqSpeed2D));
+
+	if (weaponDef->flighttime > 0) {
 		ttl = weaponDef->flighttime;
-	} else if(selfExplode) {
-		ttl = (int)(predict + gs->randFloat() * 2.5f - 0.5f);
-	} else if((weaponDef->groundBounce || weaponDef->waterBounce)
-			&& weaponDef->numBounce > 0) {
-		ttl = (int)(predict * (1 + weaponDef->numBounce * weaponDef->bounceRebound));
+	} else if (weaponDef->selfExplode) {
+		ttl = (predict + gs->randFloat() * 2.5f - 0.5f);
+	} else if ((weaponDef->groundBounce || weaponDef->waterBounce) && weaponDef->numBounce > 0) {
+		ttl = (predict * (1 + weaponDef->numBounce * weaponDef->bounceRebound));
 	} else {
-		ttl=predict*2;
+		ttl = predict * 2;
 	}
 
-	new CExplosiveProjectile(weaponMuzzlePos, dir * projectileSpeed, owner,
-		weaponDef, ttl, damageAreaOfEffect, gravity);
+	ProjectileParams params = GetProjectileParams();
+	params.pos = weaponMuzzlePos;
+	params.speed = dir * projectileSpeed;
+	params.ttl = ttl;
+	params.gravity = gravity;
+
+	WeaponProjectileFactory::LoadProjectile(params);
 }
 
-void CCannon::SlowUpdate(void)
+void CCannon::SlowUpdate()
 {
-	if(weaponDef->highTrajectory == 2 && owner->useHighTrajectory!=highTrajectory){
-		highTrajectory=owner->useHighTrajectory;
-		if(highTrajectory){
-			maxPredict=projectileSpeed*2/-gravity;
-			minPredict=projectileSpeed*1.41f/-gravity;
-		} else {
-			maxPredict=projectileSpeed*1.41f/-gravity;
-		}
+	if (weaponDef->highTrajectory == 2 && owner->useHighTrajectory != highTrajectory) {
+		highTrajectory = owner->useHighTrajectory;
 	}
+
 	CWeapon::SlowUpdate();
 }
 
-bool CCannon::AttackGround(float3 pos, bool userTarget)
-{
-	if (owner->fpsControlPlayer != NULL) {
-		// mostly prevents firing longer than max range using fps mode
-		pos.y = ground->GetHeightAboveWater(pos.x, pos.z);
-	}
-
-	// NOTE: this calls back into our derived TryTarget
-	return (CWeapon::AttackGround(pos, userTarget));
-}
 
 float3 CCannon::GetWantedDir(const float3& diff)
 {
@@ -222,10 +167,18 @@ float3 CCannon::GetWantedDir(const float3& diff)
 		return lastDir;
 	}
 
+	const float3 dir = GetWantedDir2(diff);
+	lastDiff = diff;
+	lastDir  = dir;
+	return dir;
+}
+
+float3 CCannon::GetWantedDir2(const float3& diff) const
+{
 	const float Dsq = diff.SqLength();
 	const float DFsq = diff.SqLength2D();
-	const float& g = gravity;
-	const float& v = projectileSpeed;
+	const float g = gravity;
+	const float v = projectileSpeed;
 	const float dy  = diff.y;
 	const float dxz = math::sqrt(DFsq);
 	float Vxz = 0.0f;
@@ -260,32 +213,37 @@ float3 CCannon::GetWantedDir(const float3& diff)
 		dir *= Vxz;
 		dir.y = Vy;
 		dir.SafeNormalize();
-
-		lastDiff = diff;
-		lastDir = dir;
 	}
 
 	return dir;
 }
 
-float CCannon::GetRange2D(float yDiff) const
+float CCannon::GetRange2D(float yDiff, float rFact) const
 {
-	const float factor = 0.7071067f; // sin pi/4 == cos pi/4
-	const float smoothHeight = 100.f;  // completely arbitrary
-	const float speed2d = projectileSpeed*factor; // speed in one direction in max-range case
-	const float speed2dSq = speed2d*speed2d;
+	const float speedFactor = 0.7071067f; // sin pi/4 == cos pi/4
+	const float smoothHeight = 100.0f;  // completely arbitrary
+	const float speed2d = projectileSpeed * speedFactor; // speed in one direction in max-range case
+	const float speed2dSq = speed2d * speed2d;
 
-	if (yDiff < -smoothHeight)
+	if (yDiff < -smoothHeight) {
 		yDiff *= heightBoostFactor;
-	else if (yDiff < 0.f)
+	} else if (yDiff < 0.0f) {
 		// smooth a bit
 		// f(0) == 1, f(smoothHeight) == heightBoostFactor
-		yDiff *= 1.f + (heightBoostFactor-1.f) * (-yDiff)/smoothHeight;
-
-	float root1 = speed2dSq + 2*gravity*yDiff;
-	if(root1 < 0.f){
-		return 0.f;
-	} else {
-		return rangeFactor * (speed2dSq + speed2d * math::sqrt(root1)) / (-gravity);
+		yDiff *= 1.0f + (heightBoostFactor - 1.0f) * (-yDiff)/smoothHeight;
 	}
+
+	const float root1 = speed2dSq + 2.0f * gravity * yDiff;
+
+	if (root1 < 0.0f) {
+		return 0.0f;
+	}
+
+	return (rFact * (speed2dSq + speed2d * math::sqrt(root1)) / (-gravity));
 }
+
+float CCannon::GetRange2D(const float yDiff) const
+{
+	return (GetRange2D(yDiff, rangeFactor));
+}
+

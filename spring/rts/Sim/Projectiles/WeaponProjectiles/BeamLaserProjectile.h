@@ -7,31 +7,28 @@
 
 class CBeamLaserProjectile: public CWeaponProjectile
 {
-	CR_DECLARE(CBeamLaserProjectile);
+	CR_DECLARE_DERIVED(CBeamLaserProjectile)
 public:
-	CBeamLaserProjectile(const float3& startPos, const float3& endPos,
-		float startAlpha, float endAlpha, const float3& color,
-		CUnit* owner, const WeaponDef* weaponDef);
-	~CBeamLaserProjectile() {}
+	CBeamLaserProjectile() { }
+	CBeamLaserProjectile(const ProjectileParams& params);
 
-	void Update();
-	void Draw();
-	virtual void DrawOnMinimap(CVertexArray& lines, CVertexArray& points);
+	void Update() override;
+	void Draw() override;
+	void DrawOnMinimap(CVertexArray& lines, CVertexArray& points) override;
+
+	virtual int GetProjectilesCount() const override;
 
 private:
-	float3 startPos;
-	float3 endPos;
-	unsigned char corecolstart[4];
-	unsigned char corecolend[4];
-	unsigned char kocolstart[4];
-	unsigned char kocolend[4];
+	unsigned char coreColStart[4];
+	unsigned char coreColEnd[4];
+	unsigned char edgeColStart[4];
+	unsigned char edgeColEnd[4];
 
 	float thickness;
 	float corethickness;
 	float flaresize;
-	float midtexx;
-	
 	float decay;
+	float midtexx;
 };
 
 #endif // BEAM_LASER_PROJECTILE_H

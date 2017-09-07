@@ -34,11 +34,23 @@ public:
 
 	// if a unit has a path to follow (and is not stunned,
 	// being built, etc) this gets called every sim-frame
+	#if 1
 	virtual short GetDeltaHeading(
 		unsigned int pathID,
 		short newHeading,
 		short oldHeading,
 		float maxTurnRate
+	) const = 0;
+	#endif
+
+	virtual short GetDeltaHeading(
+		unsigned int pathID,
+		short newHeading,
+		short oldHeading,
+		float maxTurnSpeed,
+		float maxTurnAccel,
+		float turnBrakeDist,
+		float* curTurnSpeed
 	) const = 0;
 
 	virtual bool AllowSetTempGoalPosition(unsigned int pathID, const float3& pos) const = 0;
@@ -72,18 +84,30 @@ public:
 		bool isReversing
 	) const;
 
+	#if 1
 	short GetDeltaHeading(
 		unsigned int pathID,
 		short newHeading,
 		short oldHeading,
 		float maxTurnRate
 	) const;
+	#endif
+
+	short GetDeltaHeading(
+		unsigned int pathID,
+		short newHeading,
+		short oldHeading,
+		float maxTurnSpeed,
+		float maxTurnAccel,
+		float turnBrakeDist,
+		float* curTurnSpeed
+	) const;
 
 	bool AllowSetTempGoalPosition(unsigned int pathID, const float3& pos) const { return true; }
 	void SetTempGoalPosition(unsigned int pathID, const float3& pos) { realGoalPos = pos; }
 	void SetRealGoalPosition(unsigned int pathID, const float3& pos) { tempGoalPos = pos; }
 
-	bool IgnoreTerrain(const MoveDef& md, const float3& pos) const { return false; }
+	bool IgnoreTerrain(const MoveDef& md, const float3& pos) const;
 	bool IgnoreCollision(const CUnit* collider, const CUnit* collidee) const { return false; }
 	bool IgnoreCollision(const CUnit* collider, const CFeature* collidee) const { return false; }
 

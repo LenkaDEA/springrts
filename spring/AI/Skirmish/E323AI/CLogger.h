@@ -7,25 +7,24 @@
 #include <iostream>
 #include <map>
 
-
 class AIClasses;
 
 class CLogger {
 	public:
 		enum type { LOG_FILE = (1<<0), LOG_STDOUT = (1<<1), LOG_SPRING = (1<<2) };
-		enum logLevel { LL_NONE = 0, LL_ERROR, LL_WARNING, LL_VERBOSE };
+		enum logLevel { NONE = 0, ERROR, WARNING, VERBOSE };
 
-		CLogger(AIClasses *_ai, unsigned int lt, logLevel lf = LL_VERBOSE);
+		CLogger(AIClasses *_ai, unsigned int lt, logLevel lf = VERBOSE);
 		~CLogger() {}
 
 		/* Error logging */
-		void e(std::string msg) { log(LL_ERROR, msg); }
+		void e(std::string msg) { log(ERROR, msg); }
 
 		/* Warning logging */
-		void w(std::string msg) { log(LL_WARNING, msg); }
+		void w(std::string msg) { log(WARNING, msg); }
 
 		/* Verbose logging */
-		void v(std::string msg) { log(LL_VERBOSE, msg); }
+		void v(std::string msg) { log(VERBOSE, msg); }
 
 		/* Log to spring */
 		void s(std::string msg);

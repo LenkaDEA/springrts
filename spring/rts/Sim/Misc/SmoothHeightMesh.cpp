@@ -10,16 +10,15 @@
 #include "Map/ReadMap.h"
 #include "System/float3.h"
 #include "System/myMath.h"
-#include "System/OpenMP_cond.h"
 #include "System/TimeProfiler.h"
+#include "System/ThreadPool.h"
 
-#include "System/mmgr.h"
 
 
 SmoothHeightMesh* smoothGround = NULL;
 
 
-static float Interpolate(float x, float y, const int& maxx, const int& maxy, const float& res, const float* heightmap)
+static float Interpolate(float x, float y, const int maxx, const int maxy, const float res, const float* heightmap)
 {
 	x = Clamp(x / res, 0.0f, maxx - 1.0f);
 	y = Clamp(y / res, 0.0f, maxy - 1.0f);
@@ -42,7 +41,7 @@ static float Interpolate(float x, float y, const int& maxx, const int& maxy, con
 }
 
 
-SmoothHeightMesh::SmoothHeightMesh(const CGround* ground, float mx, float my, float res, float smoothRad)
+SmoothHeightMesh::SmoothHeightMesh(float mx, float my, float res, float smoothRad)
 	: maxx((mx / res) + 1)
 	, maxy((my / res) + 1)
 	, fmaxx(mx)
@@ -50,7 +49,7 @@ SmoothHeightMesh::SmoothHeightMesh(const CGround* ground, float mx, float my, fl
 	, resolution(res)
 	, smoothRadius(std::max(1.0f, smoothRad))
 {
-	MakeSmoothMesh(ground);
+	MakeSmoothMesh();
 }
 
 SmoothHeightMesh::~SmoothHeightMesh() {
@@ -106,7 +105,7 @@ inline static void FindMaximumColumnHeights(
 		for (int x = 0; x <= maxx; ++x)  {
 			const float curx = x * resolution;
 			const float cury = y * resolution;
-			const float curh = ground->GetHeightAboveWater(curx, cury);
+			const float curh = CGround::GetHeightAboveWater(curx, cury);
 
 			if (curh > colsMaxima[x]) {
 				colsMaxima[x] = curh;
@@ -129,7 +128,7 @@ inline static void AdvanceMaximaRows(
 	for (int x = 0; x <= maxx; ++x) {
 		if (maximaRows[x] == (y - 1)) {
 			const float curx = x * resolution;
-			const float curh = ground->GetHeightAboveWater(curx, cury);
+			const float curh = CGround::GetHeightAboveWater(curx, cury);
 
 			if (curh == colsMaxima[x]) {
 				maximaRows[x] = y;
@@ -163,15 +162,15 @@ inline static void FindRadialMaximum(
 		for (int i = startx; i <= endx; ++i) {
 			assert(i >= 0);
 			assert(i <= maxx);
-			assert(ground->GetHeightReal(i * resolution, cury) <= colsMaxima[i]);
+			assert(CGround::GetHeightReal(i * resolution, cury) <= colsMaxima[i]);
 
 			maxRowHeight = std::max(colsMaxima[i], maxRowHeight);
 		}
 
 #ifndef NDEBUG
 		const float curx = x * resolution;
-		assert(maxRowHeight <= std::max(readmap->currMaxHeight, 0.0f));
-		assert(maxRowHeight >= ground->GetHeightAboveWater(curx, cury));
+		assert(maxRowHeight <= std::max(readMap->GetCurrMaxHeight(), 0.0f));
+		assert(maxRowHeight >= CGround::GetHeightAboveWater(curx, cury));
 
 	#ifdef SMOOTHMESH_CORRECTNESS_CHECK
 		// naive algorithm
@@ -179,7 +178,7 @@ inline static void FindRadialMaximum(
 
 		for (float y1 = cury - smoothRadius; y1 <= cury + smoothRadius; y1 += resolution) {
 			for (float x1 = curx - smoothRadius; x1 <= curx + smoothRadius; x1 += resolution) {
-				maxRowHeightAlt = std::max(maxRowHeightAlt, ground->GetHeightAboveWater(x1, y1));
+				maxRowHeightAlt = std::max(maxRowHeightAlt, CGround::GetHeightAboveWater(x1, y1));
 			}
 		}
 
@@ -209,7 +208,7 @@ inline static void FixRemainingMaxima(
 	for (int x = 0; x <= maxx; ++x) {
 #ifdef _DEBUG
 		for (int y1 = std::max(0, y - intrad); y1 <= std::min(maxy, y + intrad); ++y1) {
-			assert(ground->GetHeightReal(x * resolution, y1 * resolution) <= colsMaxima[x]);
+			assert(CGround::GetHeightReal(x * resolution, y1 * resolution) <= colsMaxima[x]);
 		}
 #endif
 		const float curx = x * resolution;
@@ -219,7 +218,7 @@ inline static void FixRemainingMaxima(
 			colsMaxima[x] = -std::numeric_limits<float>::max();
 
 			for (int y1 = std::max(0, y - intrad + 1); y1 <= std::min(maxy, nextrow); ++y1) {
-				const float h = ground->GetHeightAboveWater(curx, y1 * resolution);
+				const float h = CGround::GetHeightAboveWater(curx, y1 * resolution);
 
 				if (h > colsMaxima[x]) {
 					colsMaxima[x] = h;
@@ -231,7 +230,7 @@ inline static void FixRemainingMaxima(
 			}
 		} else if (nextrow <= maxy) {
 			// else, just check if a new maximum has entered the window
-			const float h = ground->GetHeightAboveWater(curx, nextrowy);
+			const float h = CGround::GetHeightAboveWater(curx, nextrowy);
 
 			if (h > colsMaxima[x]) {
 				colsMaxima[x] = h;
@@ -244,7 +243,7 @@ inline static void FixRemainingMaxima(
 
 #ifdef _DEBUG
 		for (int y1 = std::max(0, y - intrad + 1); y1 <= std::min(maxy, y + intrad + 1); ++y1) {
-			assert(colsMaxima[x] >= ground->GetHeightReal(curx, y1 * resolution));
+			assert(colsMaxima[x] >= CGround::GetHeightReal(curx, y1 * resolution));
 		}
 #endif
 	}
@@ -262,18 +261,17 @@ inline static void BlurHorizontal(
 {
 	const float n = 2.0f * smoothrad + 1.0f;
 	const float recipn = 1.0f / n;
+	const int lineSize = maxx + 1;
 
-	int y;
-	#pragma omp parallel for private(y) schedule(static, 1000)
-	for (y = 0; y <= maxy; ++y) {
+	for_mt(0, maxy+1, [&](const int y) {
 		float avg = 0.0f;
 
 		for (int x = 0; x <= 2 * smoothrad; ++x) {
-			avg += mesh[x + y * maxx];
+			avg += mesh[x + y * lineSize];
 		}
 
 		for (int x = 0; x <= maxx; ++x) {
-			const int idx = x + y * maxx;
+			const int idx = x + y * lineSize;
 
 			if (x <= smoothrad || x > (maxx - smoothrad)) {
 				// map-border case
@@ -283,27 +281,27 @@ inline static void BlurHorizontal(
 				const int xend   = std::min(x + smoothrad, maxx);
 
 				for (int x1 = xstart; x1 <= xend; ++x1) {
-					smoothed[idx] += mesh[x1 + y * maxx];
+					smoothed[idx] += mesh[x1 + y * lineSize];
 				}
 
-				const float gh = ground->GetHeightAboveWater(x * resolution, y * resolution);
+				const float gh = CGround::GetHeightAboveWater(x * resolution, y * resolution);
 				const float sh = smoothed[idx] / (xend - xstart + 1);
 
-				smoothed[idx] = std::min(readmap->currMaxHeight, std::max(gh, sh));
+				smoothed[idx] = std::min(readMap->GetCurrMaxHeight(), std::max(gh, sh));
 			} else {
 				// non-border case
 				avg += mesh[idx + smoothrad] - mesh[idx - smoothrad - 1];
 
-				const float gh = ground->GetHeightAboveWater(x * resolution, y * resolution);
+				const float gh = CGround::GetHeightAboveWater(x * resolution, y * resolution);
 				const float sh = recipn * avg;
 
-				smoothed[idx] = std::min(readmap->currMaxHeight, std::max(gh, sh));
+				smoothed[idx] = std::min(readMap->GetCurrMaxHeight(), std::max(gh, sh));
 			}
 
-			assert(smoothed[idx] <= std::max(readmap->currMaxHeight, 0.0f));
-			assert(smoothed[idx] >=          readmap->currMinHeight       );
+			assert(smoothed[idx] <= std::max(readMap->GetCurrMaxHeight(), 0.0f));
+			assert(smoothed[idx] >=          readMap->GetCurrMinHeight()       );
 		}
-	}
+	});
 }
 
 inline static void BlurVertical(
@@ -316,18 +314,17 @@ inline static void BlurVertical(
 {
 	const float n = 2.0f * smoothrad + 1.0f;
 	const float recipn = 1.0f / n;
+	const int lineSize = maxx + 1;
 
-	int x;
-	#pragma omp parallel for private(x) schedule(static, 1000)
-	for (x = 0; x <= maxx; ++x) {
+	for_mt(0, maxx+1, [&](const int x) {
 		float avg = 0.0f;
 
 		for (int y = 0; y <= 2 * smoothrad; ++y) {
-			avg += mesh[x + y * maxx];
+			avg += mesh[x + y * lineSize];
 		}
 
 		for (int y = 0; y <= maxy; ++y) {
-			const int idx = x + y * maxx;
+			const int idx = x + y * lineSize;
 
 			if (y <= smoothrad || y > (maxy - smoothrad)) {
 				// map-border case
@@ -337,27 +334,27 @@ inline static void BlurVertical(
 				const int yend   = std::min(y + smoothrad, maxy);
 
 				for (int y1 = ystart; y1 <= yend; ++y1) {
-					smoothed[idx] += mesh[x + y1 * maxx];
+					smoothed[idx] += mesh[x + y1 * lineSize];
 				}
 
-				const float gh = ground->GetHeightAboveWater(x * resolution, y * resolution);
+				const float gh = CGround::GetHeightAboveWater(x * resolution, y * resolution);
 				const float sh = smoothed[idx] / (yend - ystart + 1);
 
-				smoothed[idx] = std::min(readmap->currMaxHeight, std::max(gh, sh));
+				smoothed[idx] = std::min(readMap->GetCurrMaxHeight(), std::max(gh, sh));
 			} else {
 				// non-border case
-				avg += mesh[x + (y + smoothrad) * maxx] - mesh[x + (y - smoothrad - 1) * maxx];
+				avg += mesh[x + (y + smoothrad) * lineSize] - mesh[x + (y - smoothrad - 1) * lineSize];
 
-				const float gh = ground->GetHeightAboveWater(x * resolution, y * resolution);
+				const float gh = CGround::GetHeightAboveWater(x * resolution, y * resolution);
 				const float sh = recipn * avg;
 
-				smoothed[idx] = std::min(readmap->currMaxHeight, std::max(gh, sh));
+				smoothed[idx] = std::min(readMap->GetCurrMaxHeight(), std::max(gh, sh));
 			}
 
-			assert(smoothed[idx] <= std::max(readmap->currMaxHeight, 0.0f));
-			assert(smoothed[idx] >=          readmap->currMinHeight       );
+			assert(smoothed[idx] <= std::max(readMap->GetCurrMaxHeight(), 0.0f));
+			assert(smoothed[idx] >=          readMap->GetCurrMinHeight()       );
 		}
-	}
+	});
 }
 
 
@@ -376,20 +373,20 @@ inline static void CheckInvariants(
 		for (int x = 0; x <= maxx; ++x) {
 			assert(maximaRows[x] > y - intrad);
 			assert(maximaRows[x] <= maxy);
-			assert(colsMaxima[x] <= std::max(readmap->currMaxHeight, 0.0f));
-			assert(colsMaxima[x] >=          readmap->currMinHeight       );
+			assert(colsMaxima[x] <= std::max(readMap->GetCurrMaxHeight(), 0.0f));
+			assert(colsMaxima[x] >=          readMap->GetCurrMinHeight()       );
 		}
 	}
 	for (int y1 = std::max(0, y - intrad + 1); y1 <= std::min(maxy, y + intrad + 1); ++y1) {
 		for (int x1 = 0; x1 <= maxx; ++x1) {
-			assert(ground->GetHeightReal(x1 * resolution, y1 * resolution) <= colsMaxima[x1]);
+			assert(CGround::GetHeightReal(x1 * resolution, y1 * resolution) <= colsMaxima[x1]);
 		}
 	}
 }
 
 
 
-void SmoothHeightMesh::MakeSmoothMesh(const CGround* ground)
+void SmoothHeightMesh::MakeSmoothMesh()
 {
 	ScopedOnceTimer timer("SmoothHeightMesh::MakeSmoothMesh");
 
@@ -418,7 +415,7 @@ void SmoothHeightMesh::MakeSmoothMesh(const CGround* ground)
 	std::vector<float> colsMaxima(maxx + 1, -std::numeric_limits<float>::max());
 	std::vector<int> maximaRows(maxx + 1, -1);
 	std::vector<float> smoothed(size);
-	
+
 	FindMaximumColumnHeights(maxx, maxy, intrad, resolution, colsMaxima, maximaRows);
 
 	for (int y = 0; y <= maxy; ++y) {

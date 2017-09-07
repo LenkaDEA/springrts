@@ -1,750 +1,18 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "Interface/AISCommands.h"
+#include "Sim/Units/CommandAI/Command.h"
 
 #include <limits.h>
 #include <stdlib.h>
 
-void initSUnitCommand(void* sUnitCommand) {
-
-	struct SStopUnitCommand* scmd = (struct SStopUnitCommand*) sUnitCommand;
-
-	scmd->unitId = -1;
-	scmd->groupId = -1;
-	scmd->options = 0;
-	scmd->timeOut = INT_MAX;
-}
-
-
-#ifdef __cplusplus
-#ifdef    BUILDING_AI
-#include "LegacyCpp/Command.h"
-#define CMD_MANUALFIRE CMD_DGUN
-using namespace springLegacyAI;
-#else  // BUILDING_AI
-#include "Sim/Units/CommandAI/Command.h"
-#endif // BUILDING_AI
-
-void freeSUnitCommand(void* sCommandData, int sCommandId) {
-
-	switch (sCommandId) {
-		case COMMAND_UNIT_LOAD_UNITS:
-		{
-			struct SLoadUnitsUnitCommand* cmd = (struct SLoadUnitsUnitCommand*) sCommandData;
-			FREE(cmd->toLoadUnitIds);
-			break;
-		}
-		case COMMAND_UNIT_MOVE:
-		{
-			struct SMoveUnitCommand* cmd = (struct SMoveUnitCommand*) sCommandData;
-			FREE(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_PATROL:
-		{
-			struct SPatrolUnitCommand* cmd = (struct SPatrolUnitCommand*) sCommandData;
-			FREE(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_FIGHT:
-		{
-			struct SFightUnitCommand* cmd = (struct SFightUnitCommand*) sCommandData;
-			FREE(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_ATTACK_AREA:
-		{
-			struct SAttackAreaUnitCommand* cmd = (struct SAttackAreaUnitCommand*) sCommandData;
-			FREE(cmd->toAttackPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_SET_BASE:
-		{
-			struct SSetBaseUnitCommand* cmd = (struct SSetBaseUnitCommand*) sCommandData;
-			FREE(cmd->basePos_posF3);
-			break;
-			}
-		case COMMAND_UNIT_LOAD_UNITS_AREA:
-		{
-			struct SLoadUnitsAreaUnitCommand* cmd = (struct SLoadUnitsAreaUnitCommand*) sCommandData;
-			FREE(cmd->pos_posF3);
-			break;
-			}
-		case COMMAND_UNIT_UNLOAD_UNIT:
-		{
-			struct SUnloadUnitCommand* cmd = (struct SUnloadUnitCommand*) sCommandData;
-			FREE(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_UNLOAD_UNITS_AREA:
-		{
-			struct SUnloadUnitsAreaUnitCommand* cmd = (struct SUnloadUnitsAreaUnitCommand*) sCommandData;
-			FREE(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_AREA:
-		{
-			struct SReclaimAreaUnitCommand* cmd = (struct SReclaimAreaUnitCommand*) sCommandData;
-			FREE(cmd->pos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_D_GUN_POS:
-		{
-			struct SDGunPosUnitCommand* cmd = (struct SDGunPosUnitCommand*) sCommandData;
-			FREE(cmd->pos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_RESTORE_AREA:
-		{
-			struct SRestoreAreaUnitCommand* cmd = (struct SRestoreAreaUnitCommand*) sCommandData;
-			FREE(cmd->pos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_RESURRECT_AREA:
-		{
-			struct SResurrectAreaUnitCommand* cmd = (struct SResurrectAreaUnitCommand*) sCommandData;
-			FREE(cmd->pos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_CAPTURE_AREA:
-		{
-			struct SCaptureAreaUnitCommand* cmd = (struct SCaptureAreaUnitCommand*) sCommandData;
-			FREE(cmd->pos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_BUILD:
-		{
-			struct SBuildUnitCommand* cmd = (struct SBuildUnitCommand*) sCommandData;
-			FREE(cmd->buildPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_CUSTOM:
-		{
-			struct SCustomUnitCommand* cmd = (struct SCustomUnitCommand*) sCommandData;
-			FREE(cmd->params);
-			break;
-		}
-	}
-
-	FREE(sCommandData);
-}
-
-static float* allocFloatArr3(const std::vector<float>& from, const size_t firstValIndex = 0) {
-
-	float* to = (float*) calloc(3, sizeof(float));
-
-	to[0] = from[firstValIndex + 0];
-	to[1] = from[firstValIndex + 1];
-	to[2] = from[firstValIndex + 2];
-
-	return to;
-}
-
-void* mallocSUnitCommand(int unitId, int groupId, const Command* c, int* sCommandId, int maxUnits) {
-
-	int aiCmdId = extractAICommandTopic(c, maxUnits);
-	void* sCommandData;
-
-	switch (aiCmdId) {
-		case COMMAND_UNIT_STOP:
-		{
-			SStopUnitCommand* cmd = (SStopUnitCommand*) malloc(sizeof (SStopUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_WAIT:
-		{
-			SWaitUnitCommand* cmd = (SWaitUnitCommand*) malloc(sizeof (SWaitUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_WAIT_TIME:
-		{
-			STimeWaitUnitCommand* cmd = (STimeWaitUnitCommand*) malloc(sizeof (STimeWaitUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->time = c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_WAIT_DEATH:
-		{
-			SDeathWaitUnitCommand* cmd = (SDeathWaitUnitCommand*) malloc(sizeof (SDeathWaitUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toDieUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_WAIT_SQUAD:
-		{
-			SSquadWaitUnitCommand* cmd = (SSquadWaitUnitCommand*) malloc(sizeof (SSquadWaitUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->numUnits = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_WAIT_GATHER:
-		{
-			SGatherWaitUnitCommand* cmd = (SGatherWaitUnitCommand*) malloc(sizeof (SGatherWaitUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_MOVE:
-		{
-			SMoveUnitCommand* cmd = (SMoveUnitCommand*) malloc(sizeof (SMoveUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toPos_posF3 = allocFloatArr3(c->params, 0);
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_PATROL:
-		{
-			SPatrolUnitCommand* cmd = (SPatrolUnitCommand*) malloc(sizeof (SPatrolUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toPos_posF3 = allocFloatArr3(c->params, 0);
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_FIGHT:
-		{
-			SFightUnitCommand* cmd = (SFightUnitCommand*) malloc(sizeof (SFightUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toPos_posF3 = allocFloatArr3(c->params, 0);
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_ATTACK:
-		{
-			SAttackUnitCommand* cmd = (SAttackUnitCommand*) malloc(sizeof (SAttackUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toAttackUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_ATTACK_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SAttackAreaUnitCommand* cmd = (SAttackAreaUnitCommand*) malloc(sizeof (SAttackAreaUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toAttackPos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_GUARD:
-		{
-			SGuardUnitCommand* cmd = (SGuardUnitCommand*) malloc(sizeof (SGuardUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toGuardUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_AI_SELECT:
-		{
-			SAiSelectUnitCommand* cmd = (SAiSelectUnitCommand*) malloc(sizeof (SAiSelectUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_GROUP_ADD:
-		{
-			SGroupAddUnitCommand* cmd = (SGroupAddUnitCommand*) malloc(sizeof (SGroupAddUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toGroupId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_GROUP_CLEAR:
-		{
-			SGroupClearUnitCommand* cmd = (SGroupClearUnitCommand*) malloc(sizeof (SGroupClearUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_REPAIR:
-		{
-			SRepairUnitCommand* cmd = (SRepairUnitCommand*) malloc(sizeof (SRepairUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toRepairUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_FIRE_STATE:
-		{
-			SSetFireStateUnitCommand* cmd = (SSetFireStateUnitCommand*) malloc(sizeof (SSetFireStateUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->fireState = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_MOVE_STATE:
-		{
-			SSetMoveStateUnitCommand* cmd = (SSetMoveStateUnitCommand*) malloc(sizeof (SSetMoveStateUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->moveState = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_BASE:
-		{
-			SSetBaseUnitCommand* cmd = (SSetBaseUnitCommand*) malloc(sizeof (SSetBaseUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->basePos_posF3 = allocFloatArr3(c->params, 0);
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SELF_DESTROY:
-		{
-			SSelfDestroyUnitCommand* cmd = (SSelfDestroyUnitCommand*) malloc(sizeof (SSelfDestroyUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_WANTED_MAX_SPEED:
-		{
-			SSetWantedMaxSpeedUnitCommand* cmd = (SSetWantedMaxSpeedUnitCommand*) malloc(sizeof (SSetWantedMaxSpeedUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->wantedMaxSpeed = c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_LOAD_UNITS:
-		{
-			//int numToLoadUnits = 1;
-			const int toLoadUnitIds_size = c->params.size();
-
-			SLoadUnitsUnitCommand* cmd = (SLoadUnitsUnitCommand*) malloc(sizeof (SLoadUnitsUnitCommand));
-			cmd->unitId  = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			cmd->toLoadUnitIds_size = toLoadUnitIds_size;
-			cmd->toLoadUnitIds      = (int*) calloc(toLoadUnitIds_size, sizeof(int));
-			int u;
-			for (u=0; u < toLoadUnitIds_size; ++u) {
-				cmd->toLoadUnitIds[u] = (int) c->params.at(u);
-			}
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_LOAD_UNITS_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SLoadUnitsAreaUnitCommand* cmd = (SLoadUnitsAreaUnitCommand*) malloc(sizeof (SLoadUnitsAreaUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->pos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_LOAD_ONTO:
-		{
-			SLoadOntoUnitCommand* cmd = (SLoadOntoUnitCommand*) malloc(sizeof (SLoadOntoUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->transporterUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_UNLOAD_UNIT:
-		{
-			SUnloadUnitCommand* cmd = (SUnloadUnitCommand*) malloc(sizeof (SUnloadUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toPos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->toUnloadUnitId = (int) c->params[3];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_UNLOAD_UNITS_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SUnloadUnitsAreaUnitCommand* cmd = (SUnloadUnitsAreaUnitCommand*) malloc(sizeof (SUnloadUnitsAreaUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toPos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_ON_OFF:
-		{
-			SSetOnOffUnitCommand* cmd = (SSetOnOffUnitCommand*) malloc(sizeof (SSetOnOffUnitCommand));
-			cmd->unitId  = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->on      = (bool) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_UNIT:
-		{
-			SReclaimUnitUnitCommand* cmd = (SReclaimUnitUnitCommand*) malloc(sizeof (SReclaimUnitUnitCommand));
-			cmd->unitId          = unitId;
-			cmd->groupId         = groupId;
-			cmd->options         = c->options;
-			cmd->timeOut         = c->timeOut;
-			cmd->toReclaimUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_FEATURE:
-		{
-			SReclaimFeatureUnitCommand* cmd = (SReclaimFeatureUnitCommand*) malloc(sizeof (SReclaimFeatureUnitCommand));
-			cmd->unitId             = unitId;
-			cmd->groupId            = groupId;
-			cmd->options            = c->options;
-			cmd->timeOut            = c->timeOut;
-			cmd->toReclaimFeatureId = ((int) c->params[0]) - maxUnits;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SReclaimAreaUnitCommand* cmd = (SReclaimAreaUnitCommand*) malloc(sizeof (SReclaimAreaUnitCommand));
-			cmd->unitId    = unitId;
-			cmd->groupId   = groupId;
-			cmd->options   = c->options;
-			cmd->timeOut   = c->timeOut;
-			cmd->pos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius    = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_CLOAK:
-		{
-			SCloakUnitCommand* cmd = (SCloakUnitCommand*) malloc(sizeof (SCloakUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->cloak = (bool) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_STOCKPILE:
-		{
-			SStockpileUnitCommand* cmd = (SStockpileUnitCommand*) malloc(sizeof (SStockpileUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_D_GUN:
-		{
-			SDGunUnitCommand* cmd = (SDGunUnitCommand*) malloc(sizeof (SDGunUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toAttackUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_D_GUN_POS:
-		{
-			SDGunPosUnitCommand* cmd = (SDGunPosUnitCommand*) malloc(sizeof (SDGunPosUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->pos_posF3 = allocFloatArr3(c->params, 0);
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_RESTORE_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SRestoreAreaUnitCommand* cmd = (SRestoreAreaUnitCommand*) malloc(sizeof (SRestoreAreaUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->pos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_REPEAT:
-		{
-			SSetRepeatUnitCommand* cmd = (SSetRepeatUnitCommand*) malloc(sizeof (SSetRepeatUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->repeat = (bool) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_TRAJECTORY:
-		{
-			SSetTrajectoryUnitCommand* cmd = (SSetTrajectoryUnitCommand*) malloc(sizeof (SSetTrajectoryUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->trajectory = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_RESURRECT:
-		{
-			SResurrectUnitCommand* cmd = (SResurrectUnitCommand*) malloc(sizeof (SResurrectUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toResurrectFeatureId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_RESURRECT_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SResurrectAreaUnitCommand* cmd = (SResurrectAreaUnitCommand*) malloc(sizeof (SResurrectAreaUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->pos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_CAPTURE:
-		{
-			SCaptureUnitCommand* cmd = (SCaptureUnitCommand*) malloc(sizeof (SCaptureUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toCaptureUnitId = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_CAPTURE_AREA:
-		{
-			float radius = 0.0f;
-			if (c->params.size() >= 4) radius = c->params[3];
-			SCaptureAreaUnitCommand* cmd = (SCaptureAreaUnitCommand*) malloc(sizeof (SCaptureAreaUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->pos_posF3 = allocFloatArr3(c->params, 0);
-			cmd->radius = radius;
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_AUTO_REPAIR_LEVEL:
-		{
-			SSetAutoRepairLevelUnitCommand* cmd = (SSetAutoRepairLevelUnitCommand*) malloc(sizeof (SSetAutoRepairLevelUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->autoRepairLevel = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_SET_IDLE_MODE:
-		{
-			SSetIdleModeUnitCommand* cmd = (SSetIdleModeUnitCommand*) malloc(sizeof (SSetIdleModeUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->idleMode = (int) c->params[0];
-
-			sCommandData = cmd;
-			break;
-		}
-		case COMMAND_UNIT_BUILD:
-		{
-			int toBuildUnitDefId = -c->GetID();
-			int facing = UNIT_COMMAND_BUILD_NO_FACING;
-			if (c->params.size() >= 4) facing = c->params[3];
-			SBuildUnitCommand* cmd = (SBuildUnitCommand*) malloc(sizeof (SBuildUnitCommand));
-			cmd->unitId = unitId;
-			cmd->groupId = groupId;
-			cmd->options = c->options;
-			cmd->timeOut = c->timeOut;
-			cmd->toBuildUnitDefId = toBuildUnitDefId;
-			if (c->params.size() >= 3) {
-				cmd->buildPos_posF3 = allocFloatArr3(c->params, 0);
-			} else {
-				cmd->buildPos_posF3 = NULL;
-			}
-			cmd->facing = facing;
-
-			sCommandData = cmd;
-			break;
-		}
-		default:
-		case COMMAND_UNIT_CUSTOM:
-		{
-			const int& cmdId         = c->GetID();
-			const size_t params_size = c->params.size();
-			SCustomUnitCommand* cmd  = (SCustomUnitCommand*) malloc(sizeof (SCustomUnitCommand));
-			cmd->unitId      = unitId;
-			cmd->groupId     = groupId;
-			cmd->options     = c->options;
-			cmd->timeOut     = c->timeOut;
-			cmd->cmdId       = cmdId;
-			cmd->params_size = params_size;
-			cmd->params      = (float*) calloc(params_size, sizeof(float));
-			int p;
-			for (p=0; p < params_size; ++p) {
-				cmd->params[p] = c->params.at(p);
-			}
-
-			sCommandData = cmd;
-			break;
-		}
-
-	}
-
-	*sCommandId = aiCmdId;
-
-	return sCommandData;
-}
-
-
 int toInternalUnitCommandTopic(int aiCmdTopic, const void* sUnitCommandData) {
-
 	int internalUnitCommandTopic;
 
 	switch (aiCmdTopic) {
 		case COMMAND_UNIT_BUILD:
 		{
-			SBuildUnitCommand* cmd = (SBuildUnitCommand*) sUnitCommandData;
+			const SBuildUnitCommand* cmd = reinterpret_cast<const SBuildUnitCommand*>(sUnitCommandData);
 			internalUnitCommandTopic = -cmd->toBuildUnitDefId;
 			break;
 		}
@@ -969,7 +237,7 @@ int toInternalUnitCommandTopic(int aiCmdTopic, const void* sUnitCommandData) {
 		}
 		case COMMAND_UNIT_CUSTOM:
 		{
-			SCustomUnitCommand* cmd = (SCustomUnitCommand*) sUnitCommandData;
+			const SCustomUnitCommand* cmd = reinterpret_cast<const SCustomUnitCommand*>(sUnitCommandData);
 			internalUnitCommandTopic = cmd->cmdId;
 			break;
 		}
@@ -985,7 +253,7 @@ int toInternalUnitCommandTopic(int aiCmdTopic, const void* sUnitCommandData) {
 
 int extractAICommandTopic(const Command* engineCmd, int maxUnits) {
 
-	const int& internalUnitCmdTopic = engineCmd->GetID();
+	const int internalUnitCmdTopic = engineCmd->GetID();
 	int aiCommandTopic;
 
 	switch (internalUnitCmdTopic) {
@@ -1212,400 +480,328 @@ int extractAICommandTopic(const Command* engineCmd, int maxUnits) {
 	return aiCommandTopic;
 }
 
-Command* newCommand(void* sUnitCommandData, int sCommandId, int maxUnits) {
-
-	Command* c = NULL;
-
+bool newCommand(void* sUnitCommandData, int sCommandId, int maxUnits, Command* c) {
 	switch (sCommandId) {
-		case COMMAND_UNIT_BUILD:
-		{
-			SBuildUnitCommand* cmd = (SBuildUnitCommand*) sUnitCommandData;
-			c = new Command(-cmd->toBuildUnitDefId, cmd->options);
+		case COMMAND_UNIT_BUILD: {
+			SBuildUnitCommand* cmd = static_cast<SBuildUnitCommand*>(sUnitCommandData);
+			*c = Command(-cmd->toBuildUnitDefId, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			if (cmd->buildPos_posF3 != NULL) {
 				c->PushPos(cmd->buildPos_posF3);
 			}
-			if (cmd->facing != UNIT_COMMAND_BUILD_NO_FACING) c->PushParam(cmd->facing);
-			break;
-		}
-		case COMMAND_UNIT_STOP:
-		{
-			SStopUnitCommand* cmd = (SStopUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_STOP, cmd->options);
-			c->timeOut = cmd->timeOut;
-			break;
-		}
-		case COMMAND_UNIT_WAIT:
-		{
-			SWaitUnitCommand* cmd = (SWaitUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_WAIT, cmd->options);
-			c->timeOut = cmd->timeOut;
-			break;
-		}
-		case COMMAND_UNIT_WAIT_TIME:
-		{
-			STimeWaitUnitCommand* cmd = (STimeWaitUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_TIMEWAIT, cmd->options, cmd->time);
-			c->timeOut = cmd->timeOut;
+			if (cmd->facing != UNIT_COMMAND_BUILD_NO_FACING) {
+				c->PushParam(cmd->facing);
+			}
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_WAIT_DEATH:
-		{
-			SDeathWaitUnitCommand* cmd = (SDeathWaitUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_DEATHWAIT, cmd->options, cmd->toDieUnitId);
+		case COMMAND_UNIT_STOP: {
+			SStopUnitCommand* cmd = static_cast<SStopUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_STOP, cmd->options);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_WAIT_SQUAD:
-		{
-			SSquadWaitUnitCommand* cmd = (SSquadWaitUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_SQUADWAIT, cmd->options, cmd->numUnits);
+		case COMMAND_UNIT_WAIT: {
+			SWaitUnitCommand* cmd = static_cast<SWaitUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_WAIT, cmd->options);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_WAIT_GATHER:
-		{
-			SGatherWaitUnitCommand* cmd = (SGatherWaitUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_GATHERWAIT, cmd->options);
+		case COMMAND_UNIT_WAIT_TIME: {
+			STimeWaitUnitCommand* cmd = static_cast<STimeWaitUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_TIMEWAIT, cmd->options, cmd->time);
 			c->timeOut = cmd->timeOut;
-			break;
-		}
-		case COMMAND_UNIT_MOVE:
-		{
-			SMoveUnitCommand* cmd = (SMoveUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_MOVE, cmd->options);
+		} break;
+
+		case COMMAND_UNIT_WAIT_DEATH: {
+			SDeathWaitUnitCommand* cmd = static_cast<SDeathWaitUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_DEATHWAIT, cmd->options, cmd->toDieUnitId);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_WAIT_SQUAD: {
+			SSquadWaitUnitCommand* cmd = static_cast<SSquadWaitUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_SQUADWAIT, cmd->options, cmd->numUnits);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_WAIT_GATHER: {
+			SGatherWaitUnitCommand* cmd = static_cast<SGatherWaitUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_GATHERWAIT, cmd->options);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_MOVE: {
+			SMoveUnitCommand* cmd = static_cast<SMoveUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_MOVE, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_PATROL:
-		{
-			SPatrolUnitCommand* cmd = (SPatrolUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_PATROL, cmd->options);
+		} break;
+
+		case COMMAND_UNIT_PATROL: {
+			SPatrolUnitCommand* cmd = static_cast<SPatrolUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_PATROL, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_FIGHT:
-		{
-			SFightUnitCommand* cmd = (SFightUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_FIGHT, cmd->options);
+		} break;
+
+		case COMMAND_UNIT_FIGHT: {
+			SFightUnitCommand* cmd = static_cast<SFightUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_FIGHT, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->toPos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_ATTACK:
-		{
-			SAttackUnitCommand* cmd = (SAttackUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_ATTACK, cmd->options, cmd->toAttackUnitId);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_ATTACK_AREA:
-		{
-			SAttackAreaUnitCommand* cmd = (SAttackAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_ATTACK, cmd->options);
+		case COMMAND_UNIT_ATTACK: {
+			SAttackUnitCommand* cmd = static_cast<SAttackUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_ATTACK, cmd->options, cmd->toAttackUnitId);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_ATTACK_AREA: {
+			SAttackAreaUnitCommand* cmd = static_cast<SAttackAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_ATTACK, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->toAttackPos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_GUARD:
-		{
-			SGuardUnitCommand* cmd = (SGuardUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_GUARD, cmd->options, cmd->toGuardUnitId);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_GROUP_ADD:
-		{
-			SGroupAddUnitCommand* cmd = (SGroupAddUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_GROUPADD, cmd->options, cmd->toGroupId);
+		case COMMAND_UNIT_GUARD: {
+			SGuardUnitCommand* cmd = static_cast<SGuardUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_GUARD, cmd->options, cmd->toGuardUnitId);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_GROUP_CLEAR:
-		{
-			SGroupClearUnitCommand* cmd = (SGroupClearUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_GROUPCLEAR, cmd->options);
+		case COMMAND_UNIT_GROUP_ADD: {
+			SGroupAddUnitCommand* cmd = static_cast<SGroupAddUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_GROUPADD, cmd->options, cmd->toGroupId);
 			c->timeOut = cmd->timeOut;
-			break;
-		}
-		case COMMAND_UNIT_REPAIR:
-		{
-			SRepairUnitCommand* cmd = (SRepairUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_REPAIR, cmd->options, cmd->toRepairUnitId);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_SET_FIRE_STATE:
-		{
-			SSetFireStateUnitCommand* cmd = (SSetFireStateUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_FIRE_STATE, cmd->options, cmd->fireState);
+		case COMMAND_UNIT_GROUP_CLEAR: {
+			SGroupClearUnitCommand* cmd = static_cast<SGroupClearUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_GROUPCLEAR, cmd->options);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_SET_MOVE_STATE:
-		{
-			SSetMoveStateUnitCommand* cmd = (SSetMoveStateUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_MOVE_STATE, cmd->options, cmd->moveState);
+		case COMMAND_UNIT_REPAIR: {
+			SRepairUnitCommand* cmd = static_cast<SRepairUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_REPAIR, cmd->options, cmd->toRepairUnitId);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_SET_BASE:
-		{
-			SSetBaseUnitCommand* cmd = (SSetBaseUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_SETBASE, cmd->options);
+		case COMMAND_UNIT_SET_FIRE_STATE: {
+			SSetFireStateUnitCommand* cmd = static_cast<SSetFireStateUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_FIRE_STATE, cmd->options, cmd->fireState);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_SET_MOVE_STATE: {
+			SSetMoveStateUnitCommand* cmd = static_cast<SSetMoveStateUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_MOVE_STATE, cmd->options, cmd->moveState);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_SET_BASE: {
+			SSetBaseUnitCommand* cmd = static_cast<SSetBaseUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_SETBASE, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->basePos_posF3);
-			break;
-		}
-		case COMMAND_UNIT_SELF_DESTROY:
-		{
-			SSelfDestroyUnitCommand* cmd = (SSelfDestroyUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_SELFD, cmd->options);
-			c->timeOut = cmd->timeOut;
-			break;
-		}
-		case COMMAND_UNIT_SET_WANTED_MAX_SPEED:
-		{
-			SSetWantedMaxSpeedUnitCommand* cmd = (SSetWantedMaxSpeedUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_SET_WANTED_MAX_SPEED, cmd->options, cmd->wantedMaxSpeed);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_LOAD_UNITS:
-		{
-			SLoadUnitsUnitCommand* cmd = (SLoadUnitsUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_LOAD_UNITS, cmd->options);
+		case COMMAND_UNIT_SELF_DESTROY: {
+			SSelfDestroyUnitCommand* cmd = static_cast<SSelfDestroyUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_SELFD, cmd->options);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_SET_WANTED_MAX_SPEED: {
+			SSetWantedMaxSpeedUnitCommand* cmd = static_cast<SSetWantedMaxSpeedUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_SET_WANTED_MAX_SPEED, cmd->options, cmd->wantedMaxSpeed);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_LOAD_UNITS: {
+			SLoadUnitsUnitCommand* cmd = static_cast<SLoadUnitsUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_LOAD_UNITS, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			for (int i = 0; i < cmd->toLoadUnitIds_size; ++i) {
 				c->PushParam(cmd->toLoadUnitIds[i]);
 			}
-			break;
-		}
-		case COMMAND_UNIT_LOAD_UNITS_AREA:
-		{
-			SLoadUnitsAreaUnitCommand* cmd = (SLoadUnitsAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_LOAD_UNITS, cmd->options);
+		} break;
+
+		case COMMAND_UNIT_LOAD_UNITS_AREA: {
+			SLoadUnitsAreaUnitCommand* cmd = static_cast<SLoadUnitsAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_LOAD_UNITS, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->pos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_LOAD_ONTO:
-		{
-			SLoadOntoUnitCommand* cmd = (SLoadOntoUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_LOAD_ONTO, cmd->options, cmd->transporterUnitId);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_UNLOAD_UNITS_AREA:
-		{
-			SUnloadUnitsAreaUnitCommand* cmd = (SUnloadUnitsAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_UNLOAD_UNITS, cmd->options);
+		case COMMAND_UNIT_LOAD_ONTO: {
+			SLoadOntoUnitCommand* cmd = static_cast<SLoadOntoUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_LOAD_ONTO, cmd->options, cmd->transporterUnitId);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_UNLOAD_UNITS_AREA: {
+			SUnloadUnitsAreaUnitCommand* cmd = static_cast<SUnloadUnitsAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_UNLOAD_UNITS, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->toPos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_UNLOAD_UNIT:
-		{
-			SUnloadUnitCommand* cmd = (SUnloadUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_UNLOAD_UNIT, cmd->options);
+		} break;
+
+		case COMMAND_UNIT_UNLOAD_UNIT: {
+			SUnloadUnitCommand* cmd = static_cast<SUnloadUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_UNLOAD_UNIT, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->toPos_posF3);
 			c->PushParam(cmd->toUnloadUnitId);
-			break;
-		}
-		case COMMAND_UNIT_SET_ON_OFF:
-		{
-			SSetOnOffUnitCommand* cmd = (SSetOnOffUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_ONOFF, cmd->options, cmd->on ? 1 : 0);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_UNIT:
-		{
-			SReclaimUnitUnitCommand* cmd = (SReclaimUnitUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_RECLAIM, cmd->options, cmd->toReclaimUnitId);
+		case COMMAND_UNIT_SET_ON_OFF: {
+			SSetOnOffUnitCommand* cmd = static_cast<SSetOnOffUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_ONOFF, cmd->options, cmd->on ? 1 : 0);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_FEATURE:
-		{
-			SReclaimFeatureUnitCommand* cmd = (SReclaimFeatureUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_RECLAIM, cmd->options, maxUnits + cmd->toReclaimFeatureId);
+		case COMMAND_UNIT_RECLAIM_UNIT: {
+			SReclaimUnitUnitCommand* cmd = static_cast<SReclaimUnitUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_RECLAIM, cmd->options, cmd->toReclaimUnitId);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_RECLAIM_AREA:
-		{
-			SReclaimAreaUnitCommand* cmd = (SReclaimAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_RECLAIM, cmd->options);
+		case COMMAND_UNIT_RECLAIM_FEATURE: {
+			SReclaimFeatureUnitCommand* cmd = static_cast<SReclaimFeatureUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_RECLAIM, cmd->options, maxUnits + cmd->toReclaimFeatureId);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_RECLAIM_AREA: {
+			SReclaimAreaUnitCommand* cmd = static_cast<SReclaimAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_RECLAIM, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->pos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_CLOAK:
-		{
-			SCloakUnitCommand* cmd = (SCloakUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_CLOAK, cmd->options, cmd->cloak ? 1 : 0);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_STOCKPILE:
-		{
-			SStockpileUnitCommand* cmd = (SStockpileUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_STOCKPILE, cmd->options);
+		case COMMAND_UNIT_CLOAK: {
+			SCloakUnitCommand* cmd = static_cast<SCloakUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_CLOAK, cmd->options, cmd->cloak ? 1 : 0);
 			c->timeOut = cmd->timeOut;
-			break;
-		}
+		} break;
 
-		case COMMAND_UNIT_D_GUN:
-		{
+		case COMMAND_UNIT_STOCKPILE: {
+			SStockpileUnitCommand* cmd = static_cast<SStockpileUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_STOCKPILE, cmd->options);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_D_GUN: {
 			// FIXME
-			SDGunUnitCommand* cmd = (SDGunUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_MANUALFIRE, cmd->options, cmd->toAttackUnitId);
+			SDGunUnitCommand* cmd = static_cast<SDGunUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_MANUALFIRE, cmd->options, cmd->toAttackUnitId);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_D_GUN_POS:
-		{
+		case COMMAND_UNIT_D_GUN_POS: {
 			// FIXME
-			SDGunPosUnitCommand* cmd = (SDGunPosUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_MANUALFIRE, cmd->options);
+			SDGunPosUnitCommand* cmd = static_cast<SDGunPosUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_MANUALFIRE, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->pos_posF3);
-			break;
-		}
+		} break;
 
-		case COMMAND_UNIT_RESTORE_AREA:
-		{
-			SRestoreAreaUnitCommand* cmd = (SRestoreAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_RESTORE, cmd->options);
+		case COMMAND_UNIT_RESTORE_AREA: {
+			SRestoreAreaUnitCommand* cmd = static_cast<SRestoreAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_RESTORE, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->pos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_SET_REPEAT:
-		{
-			SSetRepeatUnitCommand* cmd = (SSetRepeatUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_REPEAT, cmd->options, cmd->repeat ? 1 : 0);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_SET_TRAJECTORY:
-		{
-			SSetTrajectoryUnitCommand* cmd = (SSetTrajectoryUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_TRAJECTORY, cmd->options, cmd->trajectory);
+		case COMMAND_UNIT_SET_REPEAT: {
+			SSetRepeatUnitCommand* cmd = static_cast<SSetRepeatUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_REPEAT, cmd->options, cmd->repeat ? 1 : 0);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_RESURRECT:
-		{
-			SResurrectUnitCommand* cmd = (SResurrectUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_RESURRECT, cmd->options, cmd->toResurrectFeatureId);
+		case COMMAND_UNIT_SET_TRAJECTORY: {
+			SSetTrajectoryUnitCommand* cmd = static_cast<SSetTrajectoryUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_TRAJECTORY, cmd->options, cmd->trajectory);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_RESURRECT_AREA:
-		{
-			SResurrectAreaUnitCommand* cmd = (SResurrectAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_RESURRECT, cmd->options);
+		case COMMAND_UNIT_RESURRECT: {
+			SResurrectUnitCommand* cmd = static_cast<SResurrectUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_RESURRECT, cmd->options, cmd->toResurrectFeatureId);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_RESURRECT_AREA: {
+			SResurrectAreaUnitCommand* cmd = static_cast<SResurrectAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_RESURRECT, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->pos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_CAPTURE:
-		{
-			SCaptureUnitCommand* cmd = (SCaptureUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_CAPTURE, cmd->options, cmd->toCaptureUnitId);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_CAPTURE_AREA:
-		{
-			SCaptureAreaUnitCommand* cmd = (SCaptureAreaUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_CAPTURE, cmd->options);
+		case COMMAND_UNIT_CAPTURE: {
+			SCaptureUnitCommand* cmd = static_cast<SCaptureUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_CAPTURE, cmd->options, cmd->toCaptureUnitId);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_CAPTURE_AREA: {
+			SCaptureAreaUnitCommand* cmd = static_cast<SCaptureAreaUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_CAPTURE, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			c->PushPos(cmd->pos_posF3);
 			c->PushParam(cmd->radius);
-			break;
-		}
-		case COMMAND_UNIT_SET_AUTO_REPAIR_LEVEL:
-		{
-			SSetAutoRepairLevelUnitCommand* cmd = (SSetAutoRepairLevelUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_AUTOREPAIRLEVEL, cmd->options, cmd->autoRepairLevel);
-			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_SET_IDLE_MODE:
-		{
-			SSetIdleModeUnitCommand* cmd = (SSetIdleModeUnitCommand*) sUnitCommandData;
-			c = new Command(CMD_IDLEMODE, cmd->options, cmd->idleMode);
+		case COMMAND_UNIT_SET_AUTO_REPAIR_LEVEL: {
+			SSetAutoRepairLevelUnitCommand* cmd = static_cast<SSetAutoRepairLevelUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_AUTOREPAIRLEVEL, cmd->options, cmd->autoRepairLevel);
 			c->timeOut = cmd->timeOut;
+		} break;
 
-			break;
-		}
-		case COMMAND_UNIT_CUSTOM:
-		{
-			SCustomUnitCommand* cmd = (SCustomUnitCommand*) sUnitCommandData;
-			c = new Command(cmd->cmdId, cmd->options);
+		case COMMAND_UNIT_SET_IDLE_MODE: {
+			SSetIdleModeUnitCommand* cmd = static_cast<SSetIdleModeUnitCommand*>(sUnitCommandData);
+			*c = Command(CMD_IDLEMODE, cmd->options, cmd->idleMode);
+			c->timeOut = cmd->timeOut;
+		} break;
+
+		case COMMAND_UNIT_CUSTOM: {
+			SCustomUnitCommand* cmd = static_cast<SCustomUnitCommand*>(sUnitCommandData);
+			*c = Command(cmd->cmdId, cmd->options);
 			c->timeOut = cmd->timeOut;
 
 			for (int i = 0; i < cmd->params_size; ++i) {
 				c->PushParam(cmd->params[i]);
 			}
-			break;
-		}
-		default:
-		{
-			delete c;
-			c = NULL;
-		}
+		} break;
+
+		default: {
+			return false;
+		} break;
 	}
 
-	return c;
+	return true;
 }
 
-#endif // __cplusplus

@@ -24,8 +24,6 @@
 
 // TODO: add event driven system (like alttab, resolution changed, dualscreen, ...)
 
-#include <stddef.h>
-
 namespace GLContext
 {
 	typedef void (*Func)(void* data);
@@ -34,6 +32,6 @@ namespace GLContext
 	void Free();
 	void InsertHookSet(Func init, Func free, void* data);
 	void RemoveHookSet(Func init, Func free, void* data);
-};
+}
 
 #endif /* GL_CONTEXT_H */

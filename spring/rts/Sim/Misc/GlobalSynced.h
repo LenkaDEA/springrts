@@ -3,6 +3,7 @@
 #ifndef _GLOBAL_SYNCED_H
 #define _GLOBAL_SYNCED_H
 
+#include <algorithm>
 #include <string>
 
 #include "System/float3.h"
@@ -23,10 +24,12 @@ class CPlayer;
 class CGlobalSynced
 {
 public:
-	CR_DECLARE(CGlobalSynced);
+	CR_DECLARE_STRUCT(CGlobalSynced)
 
 	CGlobalSynced();  //!< Constructor
 	~CGlobalSynced(); //!< Destructor
+
+	void ResetState();
 	void LoadFromSetup(const CGameSetup*);
 
 	int    randInt();    //!< synced random int
@@ -37,8 +40,16 @@ public:
 		randSeed = seed;
 		if (init) { initRandSeed = randSeed; }
 	}
+
 	unsigned int GetRandSeed()     const { return randSeed; }
 	unsigned int GetInitRandSeed() const { return initRandSeed; }
+
+	// Lua should never see the pre-simframe value
+	int GetLuaSimFrame() { return std::max(frameNum, 0); }
+	int GetTempNum() { return tempNum++; }
+
+	// remains true until first SimFrame call
+	bool PreSimFrame() const { return (frameNum == -1); }
 
 public:
 	/**
@@ -48,24 +59,27 @@ public:
 	*/
 	int frameNum;
 
+
 	/**
 	* @brief speed factor
 	*
 	* Contains the actual gamespeed factor
-	* used by the game. The total simframes
-	* per second calculate as follow:
-	* simFPS = speedFactor * GAME_SPEED;
+	* used by the game. The real gamespeed
+	* can be up to this but is lowered if
+	* clients can't keep up (lag protection)
 	*/
 	float speedFactor;
 
 	/**
-	* @brief user speed factor
+	* @brief wanted speed factor
 	*
-	* Contains the user's speed factor.
-	* The real gamespeed can be up to this
-	* but is lowered if a computer can't keep up
+	* Contains the aimed speed factor.
+	* The total simframes
+	* per second calculate as follow:
+	* wantedSimFPS = speedFactor * GAME_SPEED;
 	*/
-	float userSpeedFactor;
+	float wantedSpeedFactor;
+
 
 	/**
 	* @brief paused
@@ -75,84 +89,12 @@ public:
 	bool paused;
 
 	/**
-	* @brief map x
-	*
-	* The map's number of squares in the x direction
-	* (note that the number of vertices is one more)
-	*/
-	int mapx;
-	int mapxm1; // mapx minus one
-	int mapxp1; // mapx plus one
-
-	/**
-	* @brief map y
-	*
-	* The map's number of squares in the y direction
-	*/
-	int mapy;
-	int mapym1; // mapy minus one
-	int mapyp1; // mapy plus one
-
-	/**
-	* @brief map squares
-	*
-	* Total number of squares on the map
-	*/
-	int mapSquares;
-
-	/**
-	* @brief half map x
-	*
-	* Contains half of the number of squares in the x direction
-	*/
-	int hmapx;
-
-	/**
-	* @brief half map y
-	*
-	* Contains half of the number of squares in the y direction
-	*/
-	int hmapy;
-
-	/**
-	* @brief map x power of 2
-	*
-	* Map's size in the x direction rounded
-	* up to the next power of 2
-	*/
-	int pwr2mapx;
-
-	/**
-	* @brief map y power of 2
-	*
-	* Map's size in the y direction rounded
-	* up to the next power of 2
-	*/
-	int pwr2mapy;
-
-	/**
-	* @brief temp num
-	*
-	* Used for getting temporary but unique numbers
-	* (increase after each use)
-	*/
-	int tempNum;
-
-	/**
 	* @brief god mode
 	*
 	* Whether god-mode is enabled, which allows all players (even spectators)
 	* to control all units.
 	*/
 	bool godMode;
-
-	/**
-	* @brief global line-of-sight
-	*
-	* Whether everything on the map is visible at all times to a given ALLYteam
-	* There can never be more allyteams than teams, hence the size is MAX_TEAMS
-	*/
-	bool globalLOS[MAX_TEAMS];
 
 	/**
 	* @brief cheat enabled
@@ -183,6 +125,20 @@ public:
 	bool useLuaGaia;
 
 private:
+	class SyncedRNG
+	{
+	public:
+		int operator()(unsigned N)
+		{
+			extern CGlobalSynced* gs;
+			return gs->randInt()%N;
+		};
+	};
+
+public:
+	static SyncedRNG rng;
+
+private:
 	/**
 	* @brief random seed
 	*
@@ -196,18 +152,16 @@ private:
 	* Holds the synced initial random seed
 	*/
 	int initRandSeed;
+
+	/**
+	* @brief temp num
+	*
+	* Used for getting temporary but unique numbers
+	* (increase after each use)
+	*/
+	int tempNum;
 };
 
 extern CGlobalSynced* gs;
-
-
-class SyncedRNG
-{
-public:
-	int operator()(unsigned N)
-	{
-		return gs->randInt()%N;
-	};
-};
 
 #endif // _GLOBAL_SYNCED_H

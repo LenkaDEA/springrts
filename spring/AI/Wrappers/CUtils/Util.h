@@ -22,9 +22,7 @@
 extern "C" {
 #endif
 
-#ifndef _MSC_VER
-	#include <stdbool.h>
-#endif
+#include <stdbool.h>
 
 // BEGINN: String realated functions
 
@@ -116,8 +114,11 @@ bool util_isPathAbsolute(const char* path);
  *    ".../AI/Interface/Java/0.1/jlib/jna/jna.jar"
  *    ".../AI/Interface/Java/0.1/jlib/jna/linux-i386.jar"
  *
- * @param  suffix  files to list have to end with this suffix, eg. ".jar"
- * @param  recursive  list files recursively
+ * @param dir          root directory to search for files
+ * @param suffix       files to list have to end with this suffix, eg. ".jar"
+ * @param fileNames    resulting array with filenames
+ * @param recursive    list files recursively
+ * @param maxFileNames max files to return
  */
 unsigned int util_listFiles(const char* dir, const char* suffix,
 		char** fileNames, bool recursive, const unsigned int maxFileNames);
@@ -129,6 +130,7 @@ void util_removeTrailingSlash(char* fsPath);
 
 /**
  * Returns true if the file specified in filePath exists.
+ * @param filePath path to the file
  */
 bool util_fileExists(const char* filePath);
 
@@ -201,21 +203,6 @@ const char* util_map_getValueByKey(
 		unsigned int mapSize,
 		const char** mapKeys, const char** mapValues,
 		const char* key);
-
-/**
- * Reestablishes the environment that is needed by the engine.
- * Whenever an AI Iterface, or a VM running in it,
- * changes the programm environment, this function should be called
- * before CPU controll goes back to the engine.
- * Currently handled changes:
- * - changing the state of the FPU
- *
- * For an exampe of when to call this function,
- * look for it in the Java AI Interface native code.
- * If you use this function, you will need to link against
- * the streflop static library.
- */
-void util_resetEngineEnv();
 
 /**
  * Free memory.

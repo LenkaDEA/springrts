@@ -40,7 +40,7 @@ void CE323AI::InitAI(IGlobalAICallback* callback, int team) {
 		optionDifficulty[] = "difficulty",
 		optionLoggingLevel[] = "logging";
 
-	CLogger::logLevel loggingLevel = CLogger::LL_VERBOSE;
+	CLogger::logLevel loggingLevel = CLogger::VERBOSE;
 
 	ai = new AIClasses(callback);
 
@@ -79,7 +79,8 @@ void CE323AI::InitAI(IGlobalAICallback* callback, int team) {
 		delete ai->logger;
 		delete ai->unittable;
 		delete ai;
-		return;
+		// this will kill this AI instance gracefully
+		throw 33;
 	}
 
 	ai->gamemap       = new GameMap(ai);

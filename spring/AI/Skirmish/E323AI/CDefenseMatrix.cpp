@@ -8,6 +8,7 @@
 #include "CUnitTable.h"
 #include "CThreatMap.h"
 #include "CIntel.h"
+#include "MathUtil.h"
 
 
 CDefenseMatrix::CDefenseMatrix(AIClasses *ai) {

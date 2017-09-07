@@ -12,11 +12,13 @@
 #include "Game/Camera.h"
 #include "Sim/Units/CommandAI/Command.h"
 
+#define DEFAULT_GUI_CONFIG "ctrlpanel.txt"
+
 class CUnit;
 struct UnitDef;
 struct BuildInfo;
 class Action;
-struct CommandDescription;
+struct SCommandDescription;
 
 /**
  * The C and part of the V in MVC (Model-View-Controller).
@@ -33,15 +35,15 @@ public:
 	void DrawCentroidCursor();
 
 	bool AboveGui(int x, int y);
-	bool KeyPressed(unsigned short key, bool isRepeat);
-	bool KeyReleased(unsigned short key);
+	bool KeyPressed(int key, bool isRepeat);
+	bool KeyReleased(int key);
 	bool MousePress(int x, int y, int button);
 	void MouseRelease(int x, int y, int button)
 	{
 		// We can not use default params for this,
 		// because they get initialized at compile-time,
 		// where camera and mouse are still undefined.
-		MouseRelease(x, y, button, ::camera->pos, ::mouse->dir);
+		MouseRelease(x, y, button, camera->GetPos(), ::mouse->dir);
 	}
 	void MouseRelease(int x, int y, int button, const float3& cameraPos, const float3& mouseDir);
 	bool IsAbove(int x, int y);
@@ -54,12 +56,17 @@ public:
 		// We can not use default params for this,
 		// because they get initialized at compile-time,
 		// where camera and mouse are still undefined.
-		return GetCommand(mouseX, mouseY, buttonHint, preview, ::camera->pos, ::mouse->dir);
+		return GetCommand(mouseX, mouseY, buttonHint, preview, camera->GetPos(), ::mouse->dir);
 	}
 	Command GetCommand(int mouseX, int mouseY, int buttonHint, bool preview, const float3& cameraPos, const float3& mouseDir);
 	/// startInfo.def has to be endInfo.def
 	std::vector<BuildInfo> GetBuildPos(const BuildInfo& startInfo, const BuildInfo& endInfo, const float3& cameraPos, const float3& mouseDir);
 
+	bool EnableLuaUI(bool);
+	bool DisableLuaUI();
+
+	bool LoadConfig(const std::string& cfg);
+	bool LoadDefaultConfig() { return (LoadConfig(DEFAULT_GUI_CONFIG)); }
 	bool ReloadConfigFromFile(const std::string& fileName);
 	bool ReloadConfigFromString(const std::string& cfg);
 
@@ -85,7 +92,7 @@ public:
 		// We can not use default params for this,
 		// because they get initialized at compile-time,
 		// where camera and mouse are still undefined.
-		return GetDefaultCommand(x, y, ::camera->pos, ::mouse->dir);
+		return GetDefaultCommand(x, y, camera->GetPos(), ::mouse->dir);
 	}
 	int  GetDefaultCommand(int x, int y, const float3& cameraPos, const float3& mouseDir) const;
 
@@ -99,11 +106,10 @@ public:
 	void SetBuildFacing(unsigned int facing);
 	void SetBuildSpacing(int spacing);
 
-	void PushLayoutCommand(const std::string& cmd, bool luaCmd = true);
-	void RunLayoutCommands();
+	void LayoutIcons(bool useSelectionPage);
 
 public:
-	std::vector<CommandDescription> commands;
+	std::vector<SCommandDescription> commands;
 	int inCommand;
 	int buildFacing;
 	int buildSpacing;
@@ -111,20 +117,19 @@ public:
 private:
 	void GiveCommand(Command& cmd, bool fromUser = true);
 	void GiveCommandsNow();
-	void LayoutIcons(bool useSelectionPage);
 	bool LayoutCustomIcons(bool useSelectionPage);
 	void ResizeIconArray(unsigned int size);
-	void AppendPrevAndNext(std::vector<CommandDescription>& cmds);
-	void ConvertCommands(std::vector<CommandDescription>& cmds);
+	void AppendPrevAndNext(std::vector<SCommandDescription>& cmds);
+	void ConvertCommands(std::vector<SCommandDescription>& cmds);
 
 	int  FindInCommandPage();
-	void RevertToCmdDesc(const CommandDescription& cmdDesc, bool defaultCommand, bool samePage);
+	void RevertToCmdDesc(const SCommandDescription& cmdDesc, bool defaultCommand, bool samePage);
 
 	unsigned char CreateOptions(bool rightMouseButton);
 	unsigned char CreateOptions(int button);
 	void FinishCommand(int button);
 	void SetShowingMetal(bool show);
-	float GetNumberInput(const CommandDescription& cmdDesc) const;
+	float GetNumberInput(const SCommandDescription& cmdDesc) const;
 
 	void ProcessFrontPositions(float3& pos0, const float3& pos1);
 
@@ -159,10 +164,10 @@ private:
 
 	int  IconAtPos(int x, int y);
 	void SetCursorIcon() const;
+	bool TryTarget(const SCommandDescription& cmdDesc) const;
 
 	void LoadDefaults();
 	void SanitizeConfig();
-	bool LoadConfig(const std::string& cfg);
 	void ParseFillOrder(const std::string& text);
 
 	bool ProcessLocalActions(const Action& action);
@@ -234,7 +239,7 @@ private:
 		Box visual;
 		Box selection;
 	};
-	IconInfo* icons;
+	std::vector<IconInfo> icons;
 	unsigned int iconsSize;
 	int iconsCount;
 
@@ -243,7 +248,6 @@ private:
 	int failedSound;
 
 	std::vector<std::string> layoutCommands;
-	bool hasLuaUILayoutCommands;
 	std::vector< std::pair<Command, bool> > commandsToGive;
 };
 

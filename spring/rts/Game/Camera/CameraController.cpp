@@ -1,10 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "CameraController.h"
+#include "Map/ReadMap.h"
 #include "Sim/Misc/GlobalConstants.h"
-#include "Sim/Misc/GlobalSynced.h"
 #include "System/Config/ConfigHandler.h"
 
 
@@ -21,8 +20,8 @@ CCameraController::CCameraController()
 	fov = 45.0f;
 	pixelSize = 1.0f;
 	enabled = true;
-	pos = float3(gs->mapx * 0.5f * SQUARE_SIZE, 1000.f, gs->mapy * 0.5f * SQUARE_SIZE); // center map
-	dir = float3(0.0f,0.0f,1.0f);
+	pos = float3(mapDims.mapx * 0.5f * SQUARE_SIZE, 1000.f, mapDims.mapy * 0.5f * SQUARE_SIZE); // center map
+	dir = FwdVector;
 }
 
 
@@ -57,15 +56,42 @@ bool CCameraController::SetStateFloat(const StateMap& sm,
 // when comparing the camera direction to the map surface,
 // assuming the map is flat.
 bool CCameraController::GetUseDistToGroundForIcons() {
+	// dir should already be normalized
+	const float rawDot = UpVector.dot(GetDir());
+	const float absDot = Clamp(math::fabs(rawDot), 0.0f, 1.0f);
 
-	const float3& dir     = GetDir().UnsafeNormalize();
-	const float dot       = std::min(1.0f, std::max(0.0f, math::fabs(dir.dot(UpVector))));
-
-	if (dot < switchVal) {
-		// flat angle (typical for first person camera)
-		return false;
-	} else {
-		// steep angle (typical for overhead camera)
-		return true;
-	}
+	// dot< switch: flat angle (typical for first person camera)
+	// dot>=switch: steep angle (typical for overhead camera)
+	return (absDot >= switchVal);
 }
+
+
+
+bool CCameraController::SetState(const StateMap& sm)
+{
+	SetStateFloat(sm, "fov", fov);
+
+	SetStateFloat(sm, "px", pos.x);
+	SetStateFloat(sm, "py", pos.y);
+	SetStateFloat(sm, "pz", pos.z);
+
+	SetStateFloat(sm, "dx", dir.x);
+	SetStateFloat(sm, "dy", dir.y);
+	SetStateFloat(sm, "dz", dir.z);
+
+	return true;
+}
+
+void CCameraController::GetState(StateMap& sm) const
+{
+	sm["fov"] = fov;
+
+	sm["px"] = pos.x;
+	sm["py"] = pos.y;
+	sm["pz"] = pos.z;
+
+	sm["dx"] = dir.x;
+	sm["dy"] = dir.y;
+	sm["dz"] = dir.z;
+}
+

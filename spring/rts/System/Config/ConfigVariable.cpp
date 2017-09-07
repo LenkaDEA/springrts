@@ -2,6 +2,7 @@
 
 #include "ConfigVariable.h"
 #include "System/Log/ILog.h"
+#include "System/Util.h"
 #include <iostream>
 
 using std::cout;
@@ -59,32 +60,11 @@ CONFIG(std::string, test)
 	.description("\"quoted\", escaped: \\, \b, \f, \n, \r, \t");
 #endif
 
-/**
- * @brief Escape special characters and wrap in double quotes.
- */
-static string Quote(const string& value)
-{
-	string esc(value);
-	string::size_type pos = 0;
-	while ((pos = esc.find_first_of("\"\\\b\f\n\r\t", pos)) != string::npos) {
-		switch (esc[pos]) {
-			case '\"':
-			case '\\': esc.insert(pos, "\\"); break;
-			case '\b': esc.replace(pos, 1, "\\b"); break;
-			case '\f': esc.replace(pos, 1, "\\f"); break;
-			case '\n': esc.replace(pos, 1, "\\n"); break;
-			case '\r': esc.replace(pos, 1, "\\r"); break;
-			case '\t': esc.replace(pos, 1, "\\t"); break;
-		}
-		pos += 2;
-	}
-	return "\"" + esc + "\"";
-}
 
 /**
  * @brief Call Quote if type is not bool, float or int.
  */
-static string Quote(const string& type, const string& value)
+static inline string Quote(const string& type, const string& value)
 {
 	if (type == "bool" || type == "float" || type == "int") {
 		return value;
@@ -129,6 +109,12 @@ static std::ostream& operator<< (std::ostream& out, const ConfigVariableMetaData
 	}
 	if (d->GetSafemodeValue().IsSet()) {
 		KV(safemodeValue, Quote(d->GetType(), d->GetSafemodeValue().ToString()));
+	}
+	if (d->GetHeadlessValue().IsSet()) {
+		KV(headlessValue, Quote(d->GetType(), d->GetHeadlessValue().ToString()));
+	}
+	if (d->GetDedicatedValue().IsSet()) {
+		KV(dedicatedValue, Quote(d->GetType(), d->GetDedicatedValue().ToString()));
 	}
 	// Type is required.
 	// Easiest to do this last because of the trailing comma that isn't there.

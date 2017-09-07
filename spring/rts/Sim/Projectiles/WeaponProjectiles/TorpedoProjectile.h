@@ -7,25 +7,21 @@
 
 class CTorpedoProjectile : public CWeaponProjectile
 {
-	CR_DECLARE(CTorpedoProjectile);
+	CR_DECLARE_DERIVED(CTorpedoProjectile)
 public:
-	CTorpedoProjectile(const float3& pos, const float3& speed, CUnit* owner,
-			float areaOfEffect, float maxSpeed, float tracking, int ttl,
-			CUnit* target, const WeaponDef* weaponDef);
-	~CTorpedoProjectile();
-	void DependentDied(CObject* o);
-	void Collision(CUnit* unit);
-	void Collision();
+	CTorpedoProjectile() { }
+	CTorpedoProjectile(const ProjectileParams& params);
 
-	void Update();
-	void Draw();
+	void Update() override;
+	void Draw() override;
 
+	virtual int GetProjectilesCount() const override;
+
+	void SetIgnoreError(bool b) { ignoreError = b; }
 private:
 	float tracking;
+	bool ignoreError;
 	float maxSpeed;
-	float curSpeed;
-	float areaOfEffect;
-	CUnit* target;
 	int nextBubble;
 	float texx;
 	float texy;

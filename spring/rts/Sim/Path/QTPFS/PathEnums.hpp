@@ -35,7 +35,6 @@ namespace QTPFS {
 		NODE_PATH_COST_F = 0,
 		NODE_PATH_COST_G = 1,
 		NODE_PATH_COST_H = 2,
-		NODE_PATH_COST_M = 3,
 	};
 	enum {
 		PATH_SEARCH_ASTAR    = 0,
@@ -46,7 +45,7 @@ namespace QTPFS {
 		PATH_TYPE_LIVE = 1,
 		PATH_TYPE_DEAD = 2,
 	};
-};
+}
 
 #endif
 

@@ -1,12 +1,12 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "FPSController.h"
 
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
 #include "Map/Ground.h"
+#include "Map/ReadMap.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
 #include "System/myMath.h"
@@ -27,24 +27,25 @@ CFPSController::CFPSController()
 	mouseScale = configHandler->GetFloat("FPSMouseScale");
 	enabled = configHandler->GetBool("FPSEnabled");
 	fov = configHandler->GetFloat("FPSFOV");
-	UpdateVectors();
+	dir = camera->GetDir();
+	Update();
 }
 
 
 void CFPSController::KeyMove(float3 move)
 {
 	move *= move.z * 400;
-	pos  += (camera->forward * move.y + camera->right * move.x) * scrollSpeed;
-	UpdateVectors();
+	pos  += (camera->GetDir() * move.y + camera->GetRight() * move.x) * scrollSpeed;
+	Update();
 }
 
 
 void CFPSController::MouseMove(float3 move)
 {
-	camera->rot.y -= mouseScale * move.x;
-	camera->rot.x -= mouseScale * move.y * move.z;
-	camera->rot.x = Clamp(camera->rot.x, -PI*0.4999f, PI*0.4999f);
-	UpdateVectors();
+	camera->SetRotY(camera->GetRot().y + mouseScale * move.x);
+	camera->SetRotX(Clamp(camera->GetRot().x + mouseScale * move.y * move.z, 0.01f, PI * 0.99f));
+	dir = camera->GetDir();
+	Update();
 }
 
 
@@ -56,34 +57,29 @@ void CFPSController::ScreenEdgeMove(float3 move)
 
 void CFPSController::MouseWheelMove(float move)
 {
-	pos += camera->up * move;
-	UpdateVectors();
+	pos += (camera->GetUp() * move);
+	Update();
 }
 
 
-void CFPSController::UpdateVectors()
+void CFPSController::Update()
 {
 	if (!gu->fpsMode) {
 		const float margin = 0.01f;
 		const float xMin = margin;
 		const float zMin = margin;
-		const float xMax = (float)(gs->mapx * SQUARE_SIZE) - margin;
-		const float zMax = (float)(gs->mapy * SQUARE_SIZE) - margin;
+		const float xMax = (float)(mapDims.mapx * SQUARE_SIZE) - margin;
+		const float zMax = (float)(mapDims.mapy * SQUARE_SIZE) - margin;
 
 		pos.x = Clamp(pos.x, xMin, xMax);
 		pos.z = Clamp(pos.z, zMin, zMax);
 
-		const float gndHeight = ground->GetHeightAboveWater(pos.x, pos.z, false);
+		const float gndHeight = CGround::GetHeightAboveWater(pos.x, pos.z, false);
 		const float yMin = gndHeight + 5.0f;
 		const float yMax = 9000.0f;
 		pos.y = Clamp(pos.y, yMin, yMax);
 		oldHeight = pos.y - gndHeight;
 	}
-
-	dir.x = (float)(math::cos(camera->rot.x) * math::sin(camera->rot.y));
-	dir.z = (float)(math::cos(camera->rot.x) * math::cos(camera->rot.y));
-	dir.y = (float)(math::sin(camera->rot.x));
-	dir.ANormalize();
 }
 
 
@@ -92,16 +88,16 @@ void CFPSController::SetPos(const float3& newPos)
 	CCameraController::SetPos(newPos);
 
 	if (!gu->fpsMode) {
-		pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + oldHeight;
+		pos.y = CGround::GetHeightAboveWater(pos.x, pos.z, false) + oldHeight;
 	}
-	UpdateVectors();
+	Update();
 }
 
 
 void CFPSController::SetDir(const float3& newDir)
 {
 	dir = newDir;
-	UpdateVectors();
+	Update();
 }
 
 
@@ -111,7 +107,7 @@ float3 CFPSController::SwitchFrom() const
 }
 
 
-void CFPSController::SwitchTo(bool showText)
+void CFPSController::SwitchTo(const int oldCam, const bool showText)
 {
 	if (showText) {
 		LOG("Switching to FPS style camera");
@@ -121,36 +117,14 @@ void CFPSController::SwitchTo(bool showText)
 
 void CFPSController::GetState(StateMap& sm) const
 {
-	sm["px"] = pos.x;
-	sm["py"] = pos.y;
-	sm["pz"] = pos.z;
-
-	sm["dx"] = dir.x;
-	sm["dy"] = dir.y;
-	sm["dz"] = dir.z;
-
-	sm["rx"] = camera->rot.x;
-	sm["ry"] = camera->rot.y;
-	sm["rz"] = camera->rot.z;
-
+	CCameraController::GetState(sm);
 	sm["oldHeight"] = oldHeight;
 }
 
 
 bool CFPSController::SetState(const StateMap& sm)
 {
-	SetStateFloat(sm, "px", pos.x);
-	SetStateFloat(sm, "py", pos.y);
-	SetStateFloat(sm, "pz", pos.z);
-
-	SetStateFloat(sm, "dx", dir.x);
-	SetStateFloat(sm, "dy", dir.y);
-	SetStateFloat(sm, "dz", dir.z);
-
-	SetStateFloat(sm, "rx", camera->rot.x);
-	SetStateFloat(sm, "ry", camera->rot.y);
-	SetStateFloat(sm, "rz", camera->rot.z);
-
+	CCameraController::SetState(sm);
 	SetStateFloat(sm, "oldHeight", oldHeight);
 
 	return true;

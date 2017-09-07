@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cassert>
+#include <boost/foreach.hpp>
 
 #ifdef LUA_LIB_EXT
 #include <lua5.1/lua.hpp>
@@ -159,15 +160,15 @@ void LuaTable::Parse(lua_State* ls, int depth) {
 	assert(lua_istable(ls, -1));
 }
 
-void LuaTable::GetTblTblKeys(std::list<LuaTable*>*   keys) const { for(const TblTblPair& p: TblTblPairs) { keys->push_back(p.first); } }
-void LuaTable::GetTblStrKeys(std::list<LuaTable*>*   keys) const { for(const TblStrPair& p: TblStrPairs) { keys->push_back(p.first); } }
-void LuaTable::GetTblIntKeys(std::list<LuaTable*>*   keys) const { for(const TblIntPair& p: TblIntPairs) { keys->push_back(p.first); } }
-void LuaTable::GetStrTblKeys(std::list<std::string>* keys) const { for(const StrTblPair& p: StrTblPairs) { keys->push_back(p.first); } }
-void LuaTable::GetStrStrKeys(std::list<std::string>* keys) const { for(const StrStrPair& p: StrStrPairs) { keys->push_back(p.first); } }
-void LuaTable::GetStrIntKeys(std::list<std::string>* keys) const { for(const StrIntPair& p: StrIntPairs) { keys->push_back(p.first); } }
-void LuaTable::GetIntTblKeys(std::list<int>*         keys) const { for(const IntTblPair& p: IntTblPairs) { keys->push_back(p.first); } }
-void LuaTable::GetIntStrKeys(std::list<int>*         keys) const { for(const IntStrPair& p: IntStrPairs) { keys->push_back(p.first); } }
-void LuaTable::GetIntIntKeys(std::list<int>*         keys) const { for(const IntIntPair& p: IntIntPairs) { keys->push_back(p.first); } }
+void LuaTable::GetTblTblKeys(std::list<LuaTable*>*   keys) const { BOOST_FOREACH(TblTblPair p, TblTblPairs) { keys->push_back(p.first); } }
+void LuaTable::GetTblStrKeys(std::list<LuaTable*>*   keys) const { BOOST_FOREACH(TblStrPair p, TblStrPairs) { keys->push_back(p.first); } }
+void LuaTable::GetTblIntKeys(std::list<LuaTable*>*   keys) const { BOOST_FOREACH(TblIntPair p, TblIntPairs) { keys->push_back(p.first); } }
+void LuaTable::GetStrTblKeys(std::list<std::string>* keys) const { BOOST_FOREACH(StrTblPair p, StrTblPairs) { keys->push_back(p.first); } }
+void LuaTable::GetStrStrKeys(std::list<std::string>* keys) const { BOOST_FOREACH(StrStrPair p, StrStrPairs) { keys->push_back(p.first); } }
+void LuaTable::GetStrIntKeys(std::list<std::string>* keys) const { BOOST_FOREACH(StrIntPair p, StrIntPairs) { keys->push_back(p.first); } }
+void LuaTable::GetIntTblKeys(std::list<int>*         keys) const { BOOST_FOREACH(IntTblPair p, IntTblPairs) { keys->push_back(p.first); } }
+void LuaTable::GetIntStrKeys(std::list<int>*         keys) const { BOOST_FOREACH(IntStrPair p, IntStrPairs) { keys->push_back(p.first); } }
+void LuaTable::GetIntIntKeys(std::list<int>*         keys) const { BOOST_FOREACH(IntIntPair p, IntIntPairs) { keys->push_back(p.first); } }
 
 const LuaTable* LuaTable::GetTblVal(LuaTable* key, LuaTable* defVal) const {
 	const std::map<LuaTable*, LuaTable*>::const_iterator it = TblTblPairs.find(key);

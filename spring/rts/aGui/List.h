@@ -5,9 +5,11 @@
 
 #include <string>
 #include <vector>
-#include <boost/signal.hpp>
+#include <boost/signals2/signal.hpp>
 
 #include "GuiElement.h"
+#include "System/Misc/SpringTime.h"
+
 
 namespace agui
 {
@@ -19,7 +21,7 @@ public:
 	virtual ~List();
 
 	// CInputReceiver implementation
-	bool KeyPressed(unsigned short k, bool isRepeat);
+	bool KeyPressed(int k, bool isRepeat);
 	bool MousePress(int x, int y, int button);
 	void MouseMove(int x, int y, int dx,int dy, int button);
 	void MouseRelease(int x, int y, int button);
@@ -41,7 +43,7 @@ public:
 	int cancelPlace;
 	std::string tooltip;
 
-	boost::signal<void (void)> FinishSelection; // Return or Double-Click
+	boost::signals2::signal<void (void)> FinishSelection; // Return or Double-Click
 	void SetFocus(bool focus);
 	void RefreshQuery();
 
@@ -58,7 +60,7 @@ private:
 	int NumDisplay();
 	float ScaleFactor();
 
-	unsigned clickedTime;
+	spring_time clickedTime;
 	int place;
 
 	bool activeMousePress;

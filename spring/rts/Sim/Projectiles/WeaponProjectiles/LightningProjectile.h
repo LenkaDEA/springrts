@@ -9,22 +9,19 @@ class CWeapon;
 
 class CLightningProjectile : public CWeaponProjectile
 {
-	CR_DECLARE(CLightningProjectile);
+	CR_DECLARE_DERIVED(CLightningProjectile)
 public:
-	CLightningProjectile(const float3& pos, const float3& end, CUnit* owner,
-			const float3& color, const WeaponDef* weaponDef, int ttl = 10,
-			CWeapon* weap = NULL);
-	~CLightningProjectile();
+	CLightningProjectile() { }
+	CLightningProjectile(const ProjectileParams& params);
 
-	void Update();
-	void Draw();
-	virtual void DrawOnMinimap(CVertexArray& lines, CVertexArray& points);
-	void DependentDied(CObject* o);
+	void Update() override;
+	void Draw() override;
+	void DrawOnMinimap(CVertexArray& lines, CVertexArray& points) override;
+
+	virtual int GetProjectilesCount() const override;
 
 private:
 	float3 color;
-	float3 endPos;
-	CWeapon* weapon;
 
 	#define displacements_size 10
 	float displacements[displacements_size];

@@ -5,45 +5,96 @@
 
 #include "Sim/MoveTypes/MoveMath/MoveMath.h"
 #include "System/float3.h"
-#include "System/Vec2.h"
+#include "System/type2.h"
+#include "System/Rectangle.h"
+
 
 struct MoveDef;
+
+
 class CPathFinderDef {
 public:
 	CPathFinderDef(const float3& goalCenter, float goalRadius, float sqGoalDistance);
 	virtual ~CPathFinderDef() {}
 
-	virtual bool WithinConstraints(int xSquare, int Square) const { return true; }
-	virtual void DisableConstraint(bool) {}
+	virtual bool WithinConstraints(unsigned int xSquare, unsigned int zSquare) const = 0;
+	void DisableConstraint(bool b) { constraintDisabled = b; }
 
-	bool IsGoal(int xSquare, int zSquare) const;
-	float Heuristic(int xSquare, int zSquare) const;
-	bool GoalIsBlocked(const MoveDef& moveDef, const CMoveMath::BlockType& moveMathOptions) const;
-	int2 GoalSquareOffset(int blockSize) const;
+	bool IsGoal(unsigned int xSquare, unsigned int zSquare) const;
+	float Heuristic(unsigned int xSquare, unsigned int zSquare) const;
+	bool IsGoalBlocked(const MoveDef& moveDef, const CMoveMath::BlockType& blockMask, const CSolidObject* owner) const;
+	int2 GoalSquareOffset(unsigned int blockSize) const;
 
+public:
+	// world-space goal position
 	float3 goal;
+
 	float sqGoalRadius;
+
+	// if true, do not need to generate any waypoints
 	bool startInGoalRadius;
-	int goalSquareX;
-	int goalSquareZ;
+	bool constraintDisabled;
+
+	bool testMobile;
+	bool needPath;
+	bool exactPath;
+	bool dirIndependent;
+	bool synced;
+
+	unsigned int goalSquareX;
+	unsigned int goalSquareZ;
 };
 
 
 
-class CRangedGoalWithCircularConstraint : public CPathFinderDef {
+class CCircularSearchConstraint: public CPathFinderDef {
 public:
-	CRangedGoalWithCircularConstraint(const float3& start, const float3& goal, float goalRadius, float searchSize, int extraSize);
-	~CRangedGoalWithCircularConstraint() {}
+	CCircularSearchConstraint(
+		const float3& start,
+		const float3& goal,
+		float goalRadius,
+		float searchSize,
+		unsigned int extraSize
+	);
 
-	bool WithinConstraints(int xSquare, int zSquare) const;
-	void DisableConstraint(bool b) { disabled = b; }
+	// tests if a square is inside is the circular constrained area
+	// defined by the start and goal positions (note that this only
+	// saves CPU under certain conditions and destroys admissibility)
+	bool WithinConstraints(unsigned int xSquare, unsigned int zSquare) const {
+		const int dx = halfWayX - xSquare;
+		const int dz = halfWayZ - zSquare;
+
+		return (constraintDisabled || ((dx * dx + dz * dz) <= searchRadiusSq));
+	}
 
 private:
-	bool disabled;
+	unsigned int halfWayX;
+	unsigned int halfWayZ;
+	unsigned int searchRadiusSq;
+};
 
-	int halfWayX;
-	int halfWayZ;
-	int searchRadiusSq;
+
+
+class CRectangularSearchConstraint: public CPathFinderDef {
+public:
+	// note: startPos and goalPos are in world-space
+	CRectangularSearchConstraint(
+		const float3 startPos,
+		const float3 goalPos,
+		float sqRadius,
+		unsigned int blockSize
+	);
+
+	bool WithinConstraints(unsigned int xSquare, unsigned int zSquare) const {
+		if (startBlockRect.Inside(int2(xSquare, zSquare))) return true;
+		if ( goalBlockRect.Inside(int2(xSquare, zSquare))) return true;
+		return (constraintDisabled);
+	}
+
+private:
+	SRectangle startBlockRect;
+	SRectangle  goalBlockRect;
 };
 
 #endif
+

@@ -7,19 +7,18 @@
 
 #include "GlobalUnsynced.h"
 
-#include "Player.h"
-#include "PlayerHandler.h"
+#include "Game/Players/Player.h"
+#include "Game/Players/PlayerHandler.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Misc/GlobalConstants.h" // for RANDINT_MAX
 #include "Sim/Units/Unit.h" // required by CREG
-#include "System/mmgr.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
 #include "System/Util.h"
 #include "System/creg/creg_cond.h"
+#include "System/Misc/SpringTime.h"
 #include "System/Sync/SyncTracer.h"
 
-#include <SDL_timer.h>
 #include <time.h>
 
 
@@ -31,32 +30,53 @@
 CGlobalUnsynced* gu;
 
 const float CGlobalUnsynced::reconnectSimDrawBalance = 0.15f;
+UnsyncedRNG CGlobalUnsynced::rng;
 
-CR_BIND(CGlobalUnsynced, );
+CR_BIND(CGlobalUnsynced, )
 
 CR_REG_METADATA(CGlobalUnsynced, (
+	CR_IGNORED(simFPS),
+	CR_IGNORED(avgSimFrameTime),
+	CR_IGNORED(avgDrawFrameTime),
+	CR_IGNORED(avgFrameTime),
 	CR_MEMBER(modGameTime),
 	CR_MEMBER(gameTime),
 	CR_MEMBER(startTime),
 	CR_MEMBER(myPlayerNum),
 	CR_MEMBER(myTeam),
 	CR_MEMBER(myAllyTeam),
+	CR_MEMBER(myPlayingTeam),
+	CR_MEMBER(myPlayingAllyTeam),
 	CR_MEMBER(spectating),
 	CR_MEMBER(spectatingFullView),
 	CR_MEMBER(spectatingFullSelect),
-	CR_MEMBER(fpsMode),
-	CR_MEMBER(usRandSeed),
-	CR_RESERVED(64)
-));
+	CR_IGNORED(fpsMode),
+	CR_IGNORED(globalQuit),
+	CR_IGNORED(globalReload)
+))
 
 CGlobalUnsynced::CGlobalUnsynced()
 {
-	usRandSeed = time(NULL) % ((SDL_GetTicks() + 1) * 9007);
+	rng.Seed(time(NULL) % ((spring_gettime().toNanoSecsi() + 1) * 9007));
 
+	assert(playerHandler == NULL);
+	ResetState();
+}
+
+CGlobalUnsynced::~CGlobalUnsynced()
+{
+	SafeDelete(playerHandler);
+	assert(playerHandler == NULL);
+}
+
+
+void CGlobalUnsynced::ResetState()
+{
 	simFPS = 0.0f;
 
-	avgSimFrameTime = 0.0f;
-	avgDrawFrameTime = 0.0f;
+	avgSimFrameTime = 0.001f;
+	avgDrawFrameTime = 0.001f;
+	avgFrameTime = 0.001f;
 
 	modGameTime = 0;
 	gameTime = 0;
@@ -71,66 +91,22 @@ CGlobalUnsynced::CGlobalUnsynced()
 	spectating           = false;
 	spectatingFullView   = false;
 	spectatingFullSelect = false;
+
 	fpsMode = false;
-
-	playerHandler = new CPlayerHandler();
-
 	globalQuit = false;
+	globalReload = false;
+
+	if (playerHandler == NULL) {
+		playerHandler = new CPlayerHandler();
+	} else {
+		playerHandler->ResetState();
+	}
 }
-
-CGlobalUnsynced::~CGlobalUnsynced()
-{
-	SafeDelete(playerHandler);
-}
-
-
 
 void CGlobalUnsynced::LoadFromSetup(const CGameSetup* setup)
 {
 	playerHandler->LoadFromSetup(setup);
 }
-
-
-
-/**
- * @return unsynced random integer
- *
- * Returns an unsynced random integer
- */
-int CGlobalUnsynced::usRandInt()
-{
-	usRandSeed = (usRandSeed * 214013L + 2531011L);
-	return (usRandSeed >> 16) & RANDINT_MAX;
-}
-
-/**
- * @return unsynced random float
- *
- * returns an unsynced random float
- */
-float CGlobalUnsynced::usRandFloat()
-{
-	usRandSeed = (usRandSeed * 214013L + 2531011L);
-	return float((usRandSeed >> 16) & RANDINT_MAX) / RANDINT_MAX;
-}
-
-/**
- * @return unsynced random vector
- *
- * returns an unsynced random vector
- */
-float3 CGlobalUnsynced::usRandVector()
-{
-	float3 ret;
-	do {
-		ret.x = usRandFloat() * 2 - 1;
-		ret.y = usRandFloat() * 2 - 1;
-		ret.z = usRandFloat() * 2 - 1;
-	} while (ret.SqLength() > 1);
-
-	return ret;
-}
-
 
 
 void CGlobalUnsynced::SetMyPlayer(const int myNumber)
@@ -166,3 +142,4 @@ void CGlobalUnsynced::SetMyPlayer(const int myNumber)
 CPlayer* CGlobalUnsynced::GetMyPlayer() {
 	return (playerHandler->Player(myPlayerNum));
 }
+

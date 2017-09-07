@@ -52,7 +52,7 @@ public:
 	std::string LocateFile(std::string file, int flags = 0) const;
 
 	std::string LocateDir(std::string dir, int flags = 0) const;
-	std::vector<std::string> LocateDirs(const std::string& dir) const;
+	std::vector<std::string> LocateDirs(std::string dir) const;
 
 	std::vector<std::string> FindDirsInDirectSubDirs(const std::string& relPath) const;
 	/**
@@ -80,10 +80,8 @@ public:
 	/**
 	 * Returns true if path is a relative path that exists in the writable
 	 * data-dir.
-	 * As it is not known what the person initially creating
-	 * this function, intended to do with prefix, it is ignored.
 	 */
-	bool InWriteDir(const std::string& path, const std::string& prefix = "");
+	bool InWriteDir(const std::string& path);
 	///@}
 
 private:

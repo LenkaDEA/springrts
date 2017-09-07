@@ -41,23 +41,24 @@ void CKAIK::PostLoad(void) {
 }
 
 void CKAIK::Serialize(creg::ISerializer* s) {
-	if (!ai->Initialized()) return;
-	for (int i = 0; i < MAX_UNITS; i++) {
-		CUNIT* u = ai->GetUnit(i);
+	if (ai->Initialized()) {
+		for (int i = 0; i < MAX_UNITS; i++) {
+			CUNIT* u = ai->GetUnit(i);
 
-		if (ai->ccb->GetUnitDef(i) != NULL) {
-			// do not save non-existing units
-			s->SerializeObjectInstance(u, u->GetClass());
+			if (ai->ccb->GetUnitDef(i) != NULL) {
+				// do not save non-existing units
+				s->SerializeObjectInstance(u, u->GetClass());
 
-			if (!s->IsWriting()) {
+				if (!s->IsWriting()) {
+					u->uid = i;
+				}
+			} else if (!s->IsWriting()) {
 				u->uid = i;
 			}
-		} else if (!s->IsWriting()) {
-			u->uid = i;
 		}
-	}
 
-	s->SerializeObjectInstance(ai, ai->GetClass());
+		s->SerializeObjectInstance(ai, ai->GetClass());
+	}
 }
 #endif
 
@@ -81,131 +82,146 @@ void CKAIK::ReleaseAI() {
 
 
 void CKAIK::UnitCreated(int unitID, int builderID) {
-	if (!ai->Initialized()) return;
-	ai->uh->UnitCreated(unitID);
-	ai->econTracker->UnitCreated(unitID);
+	if (ai->Initialized()) {
+		ai->uh->UnitCreated(unitID);
+		ai->econTracker->UnitCreated(unitID);
+	}
 }
 
 void CKAIK::UnitFinished(int unitID) {
-	if (!ai->Initialized()) return;
-	ai->econTracker->UnitFinished(unitID);
+	if (ai->Initialized()) {
+		ai->econTracker->UnitFinished(unitID);
 
-	if (ai->cb->GetUnitDef(unitID) != NULL) {
-		// let attackhandler handle cat_g_attack units
-		if (GCAT(unitID) == CAT_G_ATTACK) {
-			ai->ah->AddUnit(unitID);
-		} else {
-			ai->uh->IdleUnitAdd(unitID, ai->cb->GetCurrentFrame());
+		if (ai->cb->GetUnitDef(unitID) != NULL) {
+			// let attackhandler handle cat_g_attack units
+			if (GCAT(unitID) == CAT_G_ATTACK) {
+				ai->ah->AddUnit(unitID);
+			} else {
+				ai->uh->IdleUnitAdd(unitID, ai->cb->GetCurrentFrame());
+			}
+
+			ai->uh->BuildTaskRemove(unitID);
 		}
-
-		ai->uh->BuildTaskRemove(unitID);
 	}
 }
 
 void CKAIK::UnitDestroyed(int unitID, int attackerUnitID) {
-	if (!ai->Initialized()) return;
-	ai->econTracker->UnitDestroyed(unitID);
+	if (ai->Initialized()) {
+		ai->econTracker->UnitDestroyed(unitID);
 
-	if (ai->GetUnit(unitID)->groupID != -1) {
-		ai->ah->UnitDestroyed(unitID);
+		if (ai->GetUnit(unitID)->groupID != -1) {
+			ai->ah->UnitDestroyed(unitID);
+		}
+
+		ai->uh->UnitDestroyed(unitID);
 	}
-
-	ai->uh->UnitDestroyed(unitID);
 }
 
 void CKAIK::UnitIdle(int unitID) {
-	if (!ai->Initialized()) return;
-	if (ai->GetUnit(unitID)->isDead) {
-		return;
-	}
-
-	if (ai->uh->lastCapturedUnitFrame == ai->cb->GetCurrentFrame()) {
-		if (unitID == ai->uh->lastCapturedUnitID) {
-			// KLOOTNOTE: for some reason this also gets called when one
-			// of our units is captured (in the same frame as, but after
-			// HandleEvent(AI_EVENT_UNITCAPTURED)), *before* the unit has
-			// actually changed teams (ie. for any unit that is no longer
-			// on our team but still registers as such)
-			ai->uh->lastCapturedUnitFrame = -1;
-			ai->uh->lastCapturedUnitID = -1;
+	if (ai->Initialized()) {
+		if (ai->GetUnit(unitID)->isDead) {
 			return;
 		}
-	}
 
-	// AttackHandler handles cat_g_attack units
-	if (GCAT(unitID) == CAT_G_ATTACK && ai->GetUnit(unitID)->groupID != -1) {
-		// attackHandler->UnitIdle(unit);
-	} else {
-		ai->uh->IdleUnitAdd(unitID, ai->cb->GetCurrentFrame());
+		if (ai->uh->lastCapturedUnitFrame == ai->cb->GetCurrentFrame()) {
+			if (unitID == ai->uh->lastCapturedUnitID) {
+				// KLOOTNOTE: for some reason this also gets called when one
+				// of our units is captured (in the same frame as, but after
+				// HandleEvent(AI_EVENT_UNITCAPTURED)), *before* the unit has
+				// actually changed teams (ie. for any unit that is no longer
+				// on our team but still registers as such)
+				ai->uh->lastCapturedUnitFrame = -1;
+				ai->uh->lastCapturedUnitID = -1;
+				return;
+			}
+		}
+
+		// AttackHandler handles cat_g_attack units
+		if (GCAT(unitID) == CAT_G_ATTACK && ai->GetUnit(unitID)->groupID != -1) {
+			// attackHandler->UnitIdle(unit);
+		} else {
+			ai->uh->IdleUnitAdd(unitID, ai->cb->GetCurrentFrame());
+		}
 	}
 }
 
 void CKAIK::UnitDamaged(int unitID, int attackerID, float damage, float3 dir) {
-	if (!ai->Initialized()) return;
-	if (ai->GetUnit(unitID)->isDead) {
-		return;
+	if (ai->Initialized()) {
+		if (ai->GetUnit(unitID)->isDead) {
+			return;
+		}
+		ai->econTracker->UnitDamaged(unitID, damage);
 	}
-	ai->econTracker->UnitDamaged(unitID, damage);
 }
 
 void CKAIK::UnitMoveFailed(int unitID) {
-	if (!ai->Initialized()) return;
-	ai->uh->UnitMoveFailed(unitID);
+	if (ai->Initialized()) {
+		ai->uh->UnitMoveFailed(unitID);
+	}
 }
 
 
 
 void CKAIK::EnemyEnterLOS(int enemyUnitID) {
-	if (!ai->Initialized()) return;
-	//TODO
+	if (ai->Initialized()) {
+		//TODO
+	}
 }
 
 void CKAIK::EnemyLeaveLOS(int enemyUnitID) {
-	if (!ai->Initialized()) return;
-	//TODO
+	if (ai->Initialized()) {
+		//TODO
+	}
 }
 
 void CKAIK::EnemyEnterRadar(int enemyUnitID) {
-	if (!ai->Initialized()) return;
-	//TODO
+	if (ai->Initialized()) {
+		//TODO
+	}
 }
 
 void CKAIK::EnemyLeaveRadar(int enemyUnitID) {
-	if (!ai->Initialized()) return;
-	//TODO
+	if (ai->Initialized()) {
+		//TODO
+	}
 }
 
 void CKAIK::EnemyDestroyed(int enemyUnitID, int attackerUnitID) {
-	if (!ai->Initialized()) return;
-	ai->dgunConHandler->NotifyEnemyDestroyed(enemyUnitID, attackerUnitID);
-	ai->thm->EnemyDestroyed(enemyUnitID, attackerUnitID);
+	if (ai->Initialized()) {
+		ai->dgunConHandler->NotifyEnemyDestroyed(enemyUnitID, attackerUnitID);
+		ai->thm->EnemyDestroyed(enemyUnitID, attackerUnitID);
+	}
 }
 
 void CKAIK::EnemyDamaged(int enemyUnitID, int attackerUnitID, float damage, float3 dir) {
-	if (!ai->Initialized()) return;
-	ai->thm->EnemyDamaged(enemyUnitID, attackerUnitID);
+	if (ai->Initialized()) {
+		ai->thm->EnemyDamaged(enemyUnitID, attackerUnitID);
+	}
 }
 
 void CKAIK::EnemyCreated(int enemyUnitID) {
-	if (!ai->Initialized()) return;
-	ai->thm->EnemyCreated(enemyUnitID);
+	if (ai->Initialized()) {
+		ai->thm->EnemyCreated(enemyUnitID);
+	}
 }
 void CKAIK::EnemyFinished(int enemyUnitID) {
-	if (!ai->Initialized()) return;
-	ai->thm->EnemyFinished(enemyUnitID);
+	if (ai->Initialized()) {
+		ai->thm->EnemyFinished(enemyUnitID);
+	}
 }
 
 
 
 void CKAIK::RecvChatMessage(const char* msg, int player) {
-	if (!ai->Initialized()) return;
+	if (ai->Initialized()) {
 
-	if ((msg = strstr(msg, "KAIK::")) == NULL) {
-		return;
-	}
+		if ((msg = strstr(msg, "KAIK::")) == NULL) {
+			return;
+		}
 
-	if ((msg = strstr(msg, "ThreatMap::DBG")) != NULL) {
-		ai->thm->ToggleVisOverlay();
+		if ((msg = strstr(msg, "ThreatMap::DBG")) != NULL) {
+			ai->thm->ToggleVisOverlay();
+		}
 	}
 }
 
@@ -215,49 +231,50 @@ void CKAIK::RecvLuaMessage(const char* inData, const char** outData) {
 
 
 int CKAIK::HandleEvent(int msg, const void* data) {
-	if (!ai->Initialized()) return 0;
+	if (ai->Initialized()) {
+		switch (msg) {
+			case AI_EVENT_UNITGIVEN:
+			case AI_EVENT_UNITCAPTURED: {
+				const ChangeTeamEvent* cte = (const ChangeTeamEvent*) data;
 
-	switch (msg) {
-		case AI_EVENT_UNITGIVEN:
-		case AI_EVENT_UNITCAPTURED: {
-			const ChangeTeamEvent* cte = (const ChangeTeamEvent*) data;
+				const int myAllyTeamId = ai->cb->GetMyAllyTeam();
+				const bool oldEnemy = !ai->cb->IsAllied(myAllyTeamId, ai->cb->GetTeamAllyTeam(cte->oldteam));
+				const bool newEnemy = !ai->cb->IsAllied(myAllyTeamId, ai->cb->GetTeamAllyTeam(cte->newteam));
 
-			const int myAllyTeamId = ai->cb->GetMyAllyTeam();
-			const bool oldEnemy = !ai->cb->IsAllied(myAllyTeamId, ai->cb->GetTeamAllyTeam(cte->oldteam));
-			const bool newEnemy = !ai->cb->IsAllied(myAllyTeamId, ai->cb->GetTeamAllyTeam(cte->newteam));
+				if (oldEnemy && !newEnemy) {
+					// unit changed from an enemy to an allied team
+					// we got a new friend! :)
+					EnemyDestroyed(cte->unit, -1);
+				} else if (!oldEnemy && newEnemy) {
+					// unit changed from an ally to an enemy team
+					// we lost a friend! :(
+					EnemyCreated(cte->unit);
 
-			if (oldEnemy && !newEnemy) {
-				// unit changed from an enemy to an allied team
-				// we got a new friend! :)
-				EnemyDestroyed(cte->unit, -1);
-			} else if (!oldEnemy && newEnemy) {
-				// unit changed from an ally to an enemy team
-				// we lost a friend! :(
-				EnemyCreated(cte->unit);
-
-				if (!ai->cb->UnitBeingBuilt(cte->unit)) {
-					EnemyFinished(cte->unit);
+					if (!ai->cb->UnitBeingBuilt(cte->unit)) {
+						EnemyFinished(cte->unit);
+					}
 				}
-			}
 
-			if (cte->oldteam == ai->cb->GetMyTeam()) {
-				// we lost a unit
-				UnitDestroyed(cte->unit, -1);
+				if (cte->oldteam == ai->cb->GetMyTeam()) {
+					// we lost a unit
+					UnitDestroyed(cte->unit, -1);
 
-				// FIXME: multiple units given during same frame?
-				ai->uh->lastCapturedUnitFrame = ai->cb->GetCurrentFrame();
-				ai->uh->lastCapturedUnitID = cte->unit;
-			} else if (cte->newteam == ai->cb->GetMyTeam()) {
-				// we have a new unit
-				UnitCreated(cte->unit, -1);
+					// FIXME: multiple units given during same frame?
+					ai->uh->lastCapturedUnitFrame = ai->cb->GetCurrentFrame();
+					ai->uh->lastCapturedUnitID = cte->unit;
+				} else if (cte->newteam == ai->cb->GetMyTeam()) {
+					// we have a new unit
+					UnitCreated(cte->unit, -1);
 
-				if (!ai->cb->UnitBeingBuilt(cte->unit)) {
-					UnitFinished(cte->unit);
-					ai->uh->IdleUnitAdd(cte->unit, ai->cb->GetCurrentFrame());
+					if (!ai->cb->UnitBeingBuilt(cte->unit)) {
+						UnitFinished(cte->unit);
+						ai->uh->IdleUnitAdd(cte->unit, ai->cb->GetCurrentFrame());
+					}
 				}
-			}
-		} break;
+			} break;
+		}
 	}
+
 	return 0;
 }
 
@@ -265,21 +282,22 @@ int CKAIK::HandleEvent(int msg, const void* data) {
 
 
 void CKAIK::Update() {
-	if (!ai->Initialized()) return;
-	const int frame = ai->cb->GetCurrentFrame();
+	if (ai->Initialized()) {
+		const int frame = ai->cb->GetCurrentFrame();
 
-	ai->econTracker->frameUpdate(frame);
-	ai->dgunConHandler->Update(frame);
+		ai->econTracker->frameUpdate(frame);
+		ai->dgunConHandler->Update(frame);
 
-	if ((frame - ai->InitFrame()) == 1) {
-		// ai->thm->Init();
-		ai->dm->Init();
+		if ((frame - ai->InitFrame()) == 1) {
+			// ai->thm->Init();
+			ai->dm->Init();
+		}
+
+		ai->bu->Update(frame);
+		ai->uh->IdleUnitUpdate(frame);
+
+		ai->ah->Update(frame);
+		ai->uh->MMakerUpdate(frame);
+		ai->ct->Update(frame);
 	}
-
-	ai->bu->Update(frame);
-	ai->uh->IdleUnitUpdate(frame);
-
-	ai->ah->Update(frame);
-	ai->uh->MMakerUpdate(frame);
-	ai->ct->Update(frame);
 }

@@ -8,11 +8,9 @@
 
 #include <boost/scoped_array.hpp>
 
-#include "System/mmgr.h"
-#include "System/Util.h"
-
-#include "System/TdfParser.h"
 #include "tdf_grammar.h"
+#include "System/TdfParser.h"
+#include "System/Util.h"
 #include "System/FileSystem/FileHandler.h"
 #include "System/Log/ILog.h"
 
@@ -68,15 +66,29 @@ TdfParser::TdfSection* TdfParser::TdfSection::construct_subsection(const std::st
 	}
 }
 
-bool TdfParser::TdfSection::remove(const std::string& key)
+bool TdfParser::TdfSection::remove(const std::string& key, bool caseSensitive)
 {
-	valueMap_t::iterator it = values.find(key);
-	if (it != values.end()) {
-		values.erase(it);
-		return true;
+	bool ret = false;
+
+	if (caseSensitive) {
+		valueMap_t::iterator it = values.find(key);
+		if ((ret = (it != values.end()))) {
+			values.erase(it);
+		}
 	} else {
-		return false;
+		// don't assume <key> is already in lowercase
+		const std::string lowerKey = StringToLower(key);
+		for (valueMap_t::iterator it = values.begin(); it != values.end(); ) {
+			if (StringToLower(it->first) == lowerKey) {
+				it = values.erase(it);
+				ret = true;
+			} else {
+				++it;
+			}
+		}
 	}
+
+	return ret;
 }
 
 void TdfParser::TdfSection::add_name_value(const std::string& name, const std::string& value)
@@ -189,7 +201,7 @@ void TdfParser::LoadFile(std::string const& filename)
 	this->filename = filename;
 	CFileHandler file(filename);
 	if (!file.FileExists()) {
-		throw content_error(("file " + filename + " not found").c_str());
+		throw content_error("file " + filename + " not found");
 	}
 
 	const size_t fileBuf_size = file.FileSize();

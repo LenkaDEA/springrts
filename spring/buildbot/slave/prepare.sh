@@ -2,7 +2,7 @@
 # Each of the scripts (including this) gets 2 arguments: <config> <branch>
 
 # It sets the following variables:
-# - CONFIG   : configuration (default, debug2, syncdebug, etc.)
+# - CONFIG   : configuration (default, debug, syncdebug, etc.)
 # - BRANCH   : branch (master, etc.)
 # - CONFIG_  : $CONFIG wrapped in [] or empty if CONFIG=default
 # - BRANCH_  : $BRANCH wrapped in {} or empty if BRANCH=master
@@ -31,7 +31,7 @@ REV=$(git describe --tags)
 SOURCEDIR=${PWD}
 BUILDDIR=${PWD}/build/${CONFIG}
 TMP_BASE=/tmp/spring
-TMP_PATH=${TMP_BASE}/${CONFIG}/${BRANCH}/${REV}
+TMP_PATH=${TMP_BASE}/${CONFIG}/${BRANCH}/${REV}/$OUTPUTDIR
 
 if [ x${CONFIG} = xdefault ]; then
    CONFIG_=''
@@ -47,3 +47,9 @@ fi
 
 VERSION_="${CONFIG_}${BRANCH_}${REV}"
 VERSION=`echo "${VERSION_}" | tr '<>:\"/\\|?*' -`
+
+if [ -z "${MAKE}" ]; then
+	echo "MAKE isn't set, using 'make' as default"
+	MAKE=make
+fi
+

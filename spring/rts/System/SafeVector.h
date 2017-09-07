@@ -13,8 +13,6 @@
 template<class T>
 class safe_vector : public std::vector<T>
 {
-	CR_DECLARE_STRUCT(safe_vector);
-
 public:
 	typedef typename std::vector<T>::size_type size_type;
 
@@ -22,23 +20,23 @@ public:
 	safe_vector(size_type size, T value): std::vector<T>(size, value), showError(true) {}
 	safe_vector(const safe_vector<T>& vec): std::vector<T>(vec), showError(true) {}
 
-	const T& operator[] (const size_type& i) const {
+	const T& operator[] (const size_type i) const {
 		if (i >= std::vector<T>::size())
 			return safe_element(i);
 		return std::vector<T>::operator[](i);
 	}
-	T& operator[] (const size_type& i) {
+	T& operator[] (const size_type i) {
 		if (i >= std::vector<T>::size())
 			return safe_element(i);
 		return std::vector<T>::operator[](i);
 	}
 
-	const T& at (const size_type& i) const {
+	const T& at (const size_type i) const {
 		if (i >= std::vector<T>::size())
 			return safe_element(i);
 		return std::vector<T>::at(i);
 	}
-	T& at (const size_type& i) {
+	T& at (const size_type i) {
 		if (i >= std::vector<T>::size())
 			return safe_element(i);
 		return std::vector<T>::at(i);
@@ -50,6 +48,22 @@ private:
 
 	mutable bool showError;
 };
+
+
+#ifdef USING_CREG
+
+namespace creg
+{
+	// Vector type (vector<T>)
+	template<typename T>
+	struct DeduceType<safe_vector<T>> {
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new DynamicArrayType<safe_vector<T> >(DeduceType<T>::Get()));
+		}
+	};
+}
+
+#endif // USING_CREG
 
 #else
 #define safe_vector std::vector

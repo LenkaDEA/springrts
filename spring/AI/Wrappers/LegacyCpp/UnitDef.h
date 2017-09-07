@@ -239,7 +239,7 @@ public:
 	float crashDrag;
 
 	MoveData* movedata;
-	unsigned char* yardmaps[4];						// Iterations of the Ymap for building rotation
+	std::vector<unsigned char> yardmaps[4];         // Iterations of the Ymap for building rotation
 
 	int xsize;										// each size is 8 units
 	int zsize;										// each size is 8 units
@@ -324,7 +324,6 @@ public:
 
 	float maxFuel;									// max flight time in seconds before the aircraft needs to return to a air repair bay to refuel
 	float refuelTime;								// time to fully refuel unit
-	float minAirBasePower;							// min build power for airbases that this aircraft can land on
 
 	std::vector<std::string> sfxExplGenNames;
 
@@ -336,11 +335,11 @@ public:
 	std::map<std::string, std::string> customParams;
 
 private:
-	float realMetalCost;
-	float realEnergyCost;
-	float realMetalUpkeep;
-	float realEnergyUpkeep;
-	float realBuildTime;
+//	float realMetalCost;
+//	float realEnergyCost;
+//	float realMetalUpkeep;
+//	float realEnergyUpkeep;
+//	float realBuildTime;
 };
 
 } // namespace springLegacyAI

@@ -11,7 +11,8 @@
  * Aims:
  * - Support a fixed set of severities levels:
  *   * L_DEBUG   : fine-grained information that is most useful to debug
- *   * L_INFO    : informational messages that highlight runtime progress of
+ *   * L_INFO    : same as L_NOTICE just that it is surpressed on RELEASE builds when a non-default logSection is set
+ *   * L_NOTICE  : default log level (always outputed)
  *   * L_WARNING : potentially harmful situations
  *   * L_ERROR   : errors that might still allow the application to keep running
  *   * L_FATAL   : very severe errors that will lead the application to abort
@@ -36,8 +37,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-#else
-	#include "System/booldefines.h"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,7 +56,8 @@ extern bool log_frontend_isEnabled(const char* section, int level);
  * Allows the global filter to maintain a set of all setions used in the binary.
  * This will be called once per each LOG*() line in the source.
  */
-extern void log_frontend_registerSection(const char* section);
+extern void log_frontend_register_section(const char* section);
+extern void log_frontend_register_runtime_section(const char* section, int level);
 
 
 // format string error checking
@@ -85,17 +85,18 @@ extern void log_frontend_record(const char* section, int level, const char* fmt,
 extern void log_frontend_cleanup();
 
 
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 // Level & Section
 
 #include "Level.h"
+#include "Section.h"
 
 #define _LOG_IS_ENABLED_LEVEL_STATIC(level) \
 	(LOG_LEVE##level >= _LOG_LEVEL_MIN)
 
 
-#include "Section.h"
 
 // enable all log sections at compile-time
 #define _LOG_IS_ENABLED_SECTION_STATIC(section) \
@@ -108,18 +109,15 @@ extern void log_frontend_cleanup();
 	log_frontend_isEnabled(section, LOG_LEVE##level)
 
 #define _LOG_REGISTER_SECTION_RAW(section) \
-	log_frontend_registerSection(section);
+	log_frontend_register_section(section);
 
 /*
  * Pre-processor trickery, useful to create unique identifiers.
  * see http://stackoverflow.com/questions/461062/c-anonymous-variables
  */
-#define _CONCAT_SUB(start, end) \
-	start##end
-#define _CONCAT(start, end) \
-	_CONCAT_SUB(start, end)
-#define _UNIQUE_IDENT(prefix) \
-	_CONCAT(prefix##__, _CONCAT(_CONCAT(__COUNTER__, __), __LINE__))
+#define _STR_CONCAT_SUB(start, end)   start##end
+#define _STR_CONCAT(start, end)   _STR_CONCAT_SUB(start, end)
+#define _UNIQUE_IDENT(prefix)   _STR_CONCAT(prefix##__, _STR_CONCAT(_STR_CONCAT(__COUNTER__, __), __LINE__))
 
 // Register a section (only the first time the code is run)
 #if       defined(__cplusplus)
@@ -140,7 +138,7 @@ extern void log_frontend_cleanup();
 		_LOG_REGISTER_SECTION_SUB(section, _UNIQUE_IDENT(SectionRegistrator))
 	#define _LOG_REGISTER_SECTION_GLOBAL(section) \
 		namespace { \
-			_LOG_REGISTER_SECTION(section); \
+			_LOG_REGISTER_SECTION(section) \
 		} // namespace
 #else  // defined(__cplusplus)
 	/*
@@ -162,6 +160,7 @@ extern void log_frontend_cleanup();
 #endif // defined(__cplusplus)
 
 
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 // Log pre-processing
@@ -175,79 +174,43 @@ extern void log_frontend_cleanup();
 /*
  * This is where we might add all sorts of additional info,
  * like the LOG_SECTION, __FILE__, __LINE__ or a stack-trace.
- * In theory, we could also use this to compleetly disable logging at
+ * In theory, we could also use this to completely disable logging at
  * compile-time already.
  */
 
 /// Redirect to runtime processing
-#define _LOG_RECORD(section, level, fmt, ...) \
-	log_frontend_record(section, LOG_LEVE##level, fmt, ##__VA_ARGS__)
+#define _LOG_RECORD(section, level, fmt, ...)   log_frontend_record(section, LOG_LEVE##level, fmt, ##__VA_ARGS__)
 
-// per level compile-time filters
-#if _LOG_IS_ENABLED_LEVEL_STATIC(L_DEBUG)
-	#define _LOG_FILTER_L_DEBUG(section, fmt, ...) \
-		_LOG_RECORD(section, L_DEBUG, fmt, ##__VA_ARGS__)
-#else
-	#define _LOG_FILTER_L_DEBUG(section, fmt, ...)
-#endif
-#if _LOG_IS_ENABLED_LEVEL_STATIC(L_INFO)
-	#define _LOG_FILTER_L_INFO(section, fmt, ...) \
-		_LOG_RECORD(section, L_INFO, fmt, ##__VA_ARGS__)
-#else
-	#define _LOG_FILTER_L_INFO(section, fmt,...)
-	#warning log messages of level INFO are not compiled into the binary
-#endif
-#if _LOG_IS_ENABLED_LEVEL_STATIC(L_WARNING)
-	#define _LOG_FILTER_L_WARNING(section, fmt, ...) \
-		_LOG_RECORD(section, L_WARNING, fmt, ##__VA_ARGS__)
-#else
-	#define _LOG_FILTER_L_WARNING(section, fmt, ...)
-	#warning log messages of level WARNING are not compiled into the binary
-#endif
-#if _LOG_IS_ENABLED_LEVEL_STATIC(L_ERROR)
-	#define _LOG_FILTER_L_ERROR(section, fmt, ...) \
-		_LOG_RECORD(section, L_ERROR, fmt, ##__VA_ARGS__)
-#else
-	#define _LOG_FILTER_L_ERROR(section, fmt, ##__VA_ARGS__)
-	#warning log messages of level ERROR are not compiled into the binary
-#endif
-#if _LOG_IS_ENABLED_LEVEL_STATIC(L_FATAL)
-	#define _LOG_FILTER_L_FATAL(section, fmt, ...) \
-		_LOG_RECORD(section, L_FATAL, fmt, ##__VA_ARGS__)
-#else
-	#define _LOG_FILTER_L_FATAL(section, fmt, ...)
-	#warning log messages of level FATAL are not compiled into the binary
-#endif
+/// per level compile-time filter
+#define _LOG_FILTER(section, level, fmt, ...) if (_LOG_IS_ENABLED_LEVEL_STATIC(level)) _LOG_RECORD(section, level, fmt, ##__VA_ARGS__)
 
 /// Registers the section and connects to the filter macro
-#define _LOG_SECTION(section, level, fmt, ...) \
-	_LOG_FILTER_##level(section, fmt, ##__VA_ARGS__)
+#define _LOG_SECTION(section, level, fmt, ...)   _LOG_FILTER(section, level, fmt, ##__VA_ARGS__)
 
 /// Uses the section defined in LOG_SECTION
-#define _LOG_SECTION_DEFINED(level, fmt, ...) \
-	_LOG_SECTION(LOG_SECTION_CURRENT, level, fmt, ##__VA_ARGS__)
+#define _LOG_SECTION_DEFINED(level, fmt, ...)   _LOG_SECTION(LOG_SECTION_CURRENT, level, fmt, ##__VA_ARGS__)
 
 /// Entry point for frontend-internal processing
-#define _LOG(level, fmt, ...) \
-	_LOG_SECTION_DEFINED(level, fmt, ##__VA_ARGS__)
+#define _LOG(level, fmt, ...)   _LOG_SECTION_DEFINED(level, fmt, ##__VA_ARGS__)
 
 
 #define _LOG_IS_ENABLED_STATIC_S(section, level) \
 	(  _LOG_IS_ENABLED_LEVEL_STATIC(level) \
 	&& _LOG_IS_ENABLED_SECTION_STATIC(section))
-#define _LOG_IS_ENABLED_STATIC(level) \
-	_LOG_IS_ENABLED_STATIC_S(LOG_SECTION_CURRENT, level)
 
 #define _LOG_IS_ENABLED_S(section, level) \
 	(  _LOG_IS_ENABLED_STATIC_S(section, level) \
 	&& _LOG_IS_ENABLED_RUNTIME(section, level))
-#define _LOG_IS_ENABLED(level) \
-	_LOG_IS_ENABLED_S(LOG_SECTION_CURRENT, level)
+
+#define _LOG_IS_ENABLED_STATIC(level)   _LOG_IS_ENABLED_STATIC_S(LOG_SECTION_CURRENT, level)
+#define _LOG_IS_ENABLED(level)   _LOG_IS_ENABLED_S(LOG_SECTION_CURRENT, level)
 
 
 /// Redirect to runtime processing
 #define _LOG_CLEANUP() \
 	log_frontend_cleanup()
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -275,7 +238,7 @@ extern void log_frontend_cleanup();
  * NOTE: This is supported in C++ only, not in C.
  */
 #define LOG_REGISTER_SECTION_GLOBAL(section) \
-	_LOG_REGISTER_SECTION_GLOBAL(section);
+	_LOG_REGISTER_SECTION_GLOBAL(section)
 
 /**
  * Returns whether logging for the current section and the supplied level is
@@ -344,7 +307,7 @@ extern void log_frontend_cleanup();
  * @see LOG_IS_ENABLED()
  */
 #define LOG(fmt, ...) \
-	_LOG(L_INFO, fmt, ##__VA_ARGS__)
+	_LOG(DEFAULT_LOG_LEVEL_SHORT, fmt, ##__VA_ARGS__)
 
 /**
  * Registers a log message with a specifiable level.

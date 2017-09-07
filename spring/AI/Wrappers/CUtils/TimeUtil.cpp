@@ -20,6 +20,7 @@ using namespace std;
  
 #if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
 	#define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
+	#include <winsock2.h>
 #else
 	#define DELTA_EPOCH_IN_MICROSECS  11644473600000000ULL
 #endif
@@ -28,9 +29,6 @@ using namespace std;
 int gettimeofday(struct timeval* tv, struct timezone* tz) {
 	// Define a structure to receive the current Windows filetime
 	FILETIME ft;
-
-	// Initialize the timezone to UTC
-	static int tzflag = 0;
 
 	if (NULL != tv) {
 		// Initialize the present time to 0
@@ -59,6 +57,9 @@ int gettimeofday(struct timeval* tv, struct timezone* tz) {
 	}
 
 	if (tz != NULL) {
+		// Initialize the timezone to UTC
+		static int tzflag = 0;
+
 		if (!tzflag) {
 			_tzset();
 			tzflag++;

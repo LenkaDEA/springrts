@@ -12,7 +12,7 @@
 #include "Lua/LuaZip.h"
 #include "Map/MapDamage.h"
 #include "Map/ReadMap.h"
-#include "System/FileSystem/IArchive.h"
+#include "System/FileSystem/Archives/IArchive.h"
 #include "System/FileSystem/ArchiveLoader.h"
 #include "System/FileSystem/DataDirsAccess.h"
 #include "System/FileSystem/FileSystem.h"
@@ -22,7 +22,6 @@
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
 
-#include "System/mmgr.h"
 
 
 // Prefix for all files in the save file.
@@ -75,7 +74,7 @@ void CLuaLoadSaveHandler::SaveGame(const std::string& file)
 		SaveHeightmap();
 
 		// Close zip file.
-		if (Z_OK != zipClose(savefile, "Spring save file, visit http://springrts.com/ for details.")) {
+		if (Z_OK != zipClose(savefile, "Spring save file, visit https://springrts.com/ for details.")) {
 			LOG_L(L_ERROR, "Unable to close save file \"%s\"", filename.c_str());
 		}
 		return; // Success
@@ -112,7 +111,7 @@ void CLuaLoadSaveHandler::SaveEventClients()
 
 void CLuaLoadSaveHandler::SaveGameStartInfo()
 {
-	const std::string scriptText = gameSetup->gameSetupText;
+	const std::string scriptText = gameSetup->setupText;
 	SaveEntireFile(FILE_STARTSCRIPT, "game setup", scriptText.data(), scriptText.size());
 }
 
@@ -134,9 +133,9 @@ void CLuaLoadSaveHandler::SaveHeightmap()
 	// For every heightmap pixel the bits are XOR'ed with the orig bits,
 	// so that unmodified terrain comes out as 0.
 	// Big chunks of 0s are then very well compressed by zip.
-	const int* currHeightmap = (const int*) (const char*) readmap->GetCornerHeightMapSynced();
-	const int* origHeightmap = (const int*) (const char*) readmap->GetOriginalHeightMapSynced();
-	const int size = gs->mapxp1 * gs->mapyp1;
+	const int* currHeightmap = (const int*) (const char*) readMap->GetCornerHeightMapSynced();
+	const int* origHeightmap = (const int*) (const char*) readMap->GetOriginalHeightMapSynced();
+	const int size = mapDims.mapxp1 * mapDims.mapyp1;
 	int* temp = new int[size];
 	for (int i = 0; i < size; ++i) {
 		temp[i] = swabDWord(currHeightmap[i] ^ origHeightmap[i]);
@@ -174,14 +173,12 @@ void CLuaLoadSaveHandler::SaveEntireFile(const char* file, const char* what, con
 
 void CLuaLoadSaveHandler::LoadGameStartInfo(const std::string& file)
 {
-	const std::string realfile = dataDirsAccess.LocateFile(FindSaveFile(file)).c_str();
-
 	filename = file;
-	loadfile = archiveLoader.OpenArchive(realfile, "sdz");
+	const std::string realfile = dataDirsAccess.LocateFile(FindSaveFile(file));
 
-	if (!loadfile->IsOpen()) {
-		LOG_L(L_ERROR, "Unable to open save file \"%s\"", filename.c_str());
-		return;
+	loadfile = archiveLoader.OpenArchive(realfile, "sdz");
+	if (!loadfile || !loadfile->IsOpen()) {
+		throw content_error("Unable to open savegame \"" + filename + "\"");
 	}
 
 	scriptText = LoadEntireFile(FILE_STARTSCRIPT);
@@ -190,9 +187,13 @@ void CLuaLoadSaveHandler::LoadGameStartInfo(const std::string& file)
 
 void CLuaLoadSaveHandler::LoadGame()
 {
+	ENTER_SYNCED_CODE();
+
 	LoadEventClients();
 	LoadAIData();
 	LoadHeightmap();
+
+	LEAVE_SYNCED_CODE();
 }
 
 
@@ -215,16 +216,16 @@ void CLuaLoadSaveHandler::LoadHeightmap()
 	std::vector<boost::uint8_t> buf;
 
 	if (loadfile->GetFile(FILE_HEIGHTMAP, buf)) {
-		const int size = gs->mapxp1 * gs->mapyp1;
+		const int size = mapDims.mapxp1 * mapDims.mapyp1;
 		const int* temp = (const int*) (const char*) &*buf.begin();
-		const int* origHeightmap = (const int*) (const char*) readmap->GetOriginalHeightMapSynced();
+		const int* origHeightmap = (const int*) (const char*) readMap->GetOriginalHeightMapSynced();
 
 		for (int i = 0; i < size; ++i) {
 			const int newHeightBits = swabDWord(temp[i]) ^ origHeightmap[i];
 			const float newHeight = *(const float*) (const char*) &newHeightBits;
-			readmap->SetHeight(i, newHeight);
+			readMap->SetHeight(i, newHeight);
 		}
-		mapDamage->RecalcArea(0, gs->mapx, 0, gs->mapy);
+		mapDamage->RecalcArea(0, mapDims.mapx, 0, mapDims.mapy);
 	} else {
 		LOG_L(L_ERROR, "Unable to load heightmap from save file \"%s\"", filename.c_str());
 	}

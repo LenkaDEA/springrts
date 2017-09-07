@@ -1,87 +1,38 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "FlameThrower.h"
-#include "Game/TraceRay.h"
+#include "WeaponDef.h"
 #include "Map/Ground.h"
-#include "Sim/Projectiles/WeaponProjectiles/FlameProjectile.h"
+#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectileFactory.h"
 #include "Sim/Units/Unit.h"
-#include "WeaponDefHandler.h"
-#include "System/mmgr.h"
 
-CR_BIND_DERIVED(CFlameThrower, CWeapon, (NULL));
+CR_BIND_DERIVED(CFlameThrower, CWeapon, (NULL, NULL))
 
 CR_REG_METADATA(CFlameThrower,(
 	CR_MEMBER(color),
-	CR_MEMBER(color2),
-	CR_RESERVED(8)
-	));
+	CR_MEMBER(color2)
+))
 
-CFlameThrower::CFlameThrower(CUnit* owner)
-: CWeapon(owner)
+CFlameThrower::CFlameThrower(CUnit* owner, const WeaponDef* def): CWeapon(owner, def)
 {
 }
 
-CFlameThrower::~CFlameThrower(void)
-{
-}
 
-void CFlameThrower::FireImpl(void)
+void CFlameThrower::FireImpl(const bool scriptCall)
 {
-	const float3 dir = (targetPos - weaponMuzzlePos).Normalize();
+	float3 dir = currentTargetPos - weaponMuzzlePos;
+
+	const float dist = dir.LengthNormalize();
 	const float3 spread =
-		((gs->randVector() * sprayAngle + salvoError) *
-		weaponDef->ownerExpAccWeight) -
+		(gs->randVector() * SprayAngleExperience() + SalvoErrorExperience()) -
 		(dir * 0.001f);
 
-	new CFlameProjectile(weaponMuzzlePos, dir * projectileSpeed,
-		spread, owner, weaponDef, (int) (range / projectileSpeed * weaponDef->duration));
+	ProjectileParams params = GetProjectileParams();
+	params.pos = weaponMuzzlePos;
+	params.speed = dir * projectileSpeed;
+	params.spread = spread;
+	params.ttl = std::ceil(std::max(dist, range) / projectileSpeed * weaponDef->duration);
+
+	WeaponProjectileFactory::LoadProjectile(params);
 }
 
-bool CFlameThrower::TryTarget(const float3 &pos, bool userTarget, CUnit* unit)
-{
-	if (!CWeapon::TryTarget(pos, userTarget, unit))
-		return false;
-
-	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
-		return false;
-
-	float3 dir(pos - weaponMuzzlePos);
-	float length = dir.Length();
-	if (length == 0)
-		return true;
-
-	dir /= length;
-
-	if (!HaveFreeLineOfFire(weaponMuzzlePos, dir, length, unit)) {
-		return false;
-	}
-
-	if (avoidFeature && TraceRay::LineFeatureCol(weaponMuzzlePos, dir, length)) {
-		return false;
-	}
-	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, dir, length, (accuracy + sprayAngle), owner->allyteam, true, false, false, owner)) {
-		return false;
-	}
-	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, dir, length, (accuracy + sprayAngle), owner->allyteam, false, true, false, owner)) {
-		return false;
-	}
-
-	return true;
-}
-
-void CFlameThrower::Update(void)
-{
-	if(targetType != Target_None){
-		weaponPos = owner->pos +
-			owner->frontdir * relWeaponPos.z +
-			owner->updir    * relWeaponPos.y +
-			owner->rightdir * relWeaponPos.x;
-		weaponMuzzlePos = owner->pos +
-			owner->frontdir * relWeaponMuzzlePos.z +
-			owner->updir    * relWeaponMuzzlePos.y +
-			owner->rightdir * relWeaponMuzzlePos.x;
-		wantedDir = targetPos - weaponPos;
-		wantedDir.Normalize();
-	}
-	CWeapon::Update();
-}

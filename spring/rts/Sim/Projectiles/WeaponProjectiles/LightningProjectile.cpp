@@ -1,13 +1,12 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "Game/Camera.h"
 #include "LightningProjectile.h"
 #include "Rendering/GL/VertexArray.h"
 #include "Rendering/Textures/TextureAtlas.h"
 #include "Sim/Misc/GlobalSynced.h"
-#include "Sim/Weapons/Weapon.h"
+#include "Sim/Projectiles/ExplosionGenerator.h"
 #include "Sim/Projectiles/ProjectileHandler.h"
 #include "Sim/Weapons/WeaponDef.h"
 
@@ -15,57 +14,39 @@
 	#include "System/Sync/SyncTracer.h"
 #endif
 
-CR_BIND_DERIVED(CLightningProjectile, CWeaponProjectile, (ZeroVector, ZeroVector, NULL, ZeroVector, NULL, 0, NULL));
+CR_BIND_DERIVED(CLightningProjectile, CWeaponProjectile, )
 
 CR_REG_METADATA(CLightningProjectile,(
 	CR_SETFLAG(CF_Synced),
 	CR_MEMBER(color),
-	CR_MEMBER(endPos),
-	CR_MEMBER(weapon),
 	CR_MEMBER(displacements),
-	CR_MEMBER(displacements2),
-	CR_RESERVED(16)
-	));
+	CR_MEMBER(displacements2)
+))
 
-CLightningProjectile::CLightningProjectile(
-		const float3& pos, const float3& end,
-		CUnit* owner,
-		const float3& color,
-		const WeaponDef* weaponDef,
-		int ttl, CWeapon* weap)
-	: CWeaponProjectile(pos, ZeroVector, owner, NULL, ZeroVector, weaponDef, NULL, ttl)
-	, color(color)
-	, endPos(end)
-	, weapon(weap)
+
+CLightningProjectile::CLightningProjectile(const ProjectileParams& params): CWeaponProjectile(params)
 {
 	projectileType = WEAPON_LIGHTNING_PROJECTILE;
-	checkCol = false;
-	drawRadius = pos.distance(endPos);
+	useAirLos = false;
 
-	displacements[0] = 0.0f;
-	for (size_t d = 1; d < displacements_size; ++d) {
-		displacements[d]  = (gs->randFloat() - 0.5f) * drawRadius * 0.05f;
+	if (weaponDef != NULL) {
+		assert(weaponDef->IsHitScanWeapon());
+		color = weaponDef->visuals.color;
 	}
 
+	displacements[0] = 0.0f;
 	displacements2[0] = 0.0f;
+
 	for (size_t d = 1; d < displacements_size; ++d) {
+		displacements[d]  = (gs->randFloat() - 0.5f) * drawRadius * 0.05f;
 		displacements2[d] = (gs->randFloat() - 0.5f) * drawRadius * 0.05f;
 	}
 
-	if (weapon) {
-		AddDeathDependence(weapon, DEPENDENCE_WEAPON);
-	}
-
 #ifdef TRACE_SYNC
-	tracefile << "New lightning: ";
-	tracefile << pos.x << " " << pos.y << " " << pos.z << " " << end.x << " " << end.y << " " << end.z << "\n";
+	tracefile << "[" << __FUNCTION__ << "] ";
+	tracefile << params.pos.x << " " << params.pos.y << " " << params.pos.z << " ";
+	tracefile << params.end.x << " " << params.end.y << " " << params.end.z << "\n";
 #endif
-
-	cegID = gCEG->Load(explGenHandler, (weaponDef != NULL)? weaponDef->cegTag: "");
-}
-
-CLightningProjectile::~CLightningProjectile()
-{
 }
 
 void CLightningProjectile::Update()
@@ -73,17 +54,15 @@ void CLightningProjectile::Update()
 	if (--ttl <= 0) {
 		deleteMe = true;
 	} else {
-		gCEG->Explosion(cegID, pos + ((endPos - pos) / ttl), 0.0f, displacements[0], NULL, 0.0f, NULL, endPos - pos);
-	}
-
-	if (weapon && !luaMoveCtrl) {
-		pos = weapon->weaponMuzzlePos;
+		explGenHandler->GenExplosion(cegID, startPos + ((targetPos - startPos) / ttl), (targetPos - startPos), 0.0f, displacements[0], 0.0f, NULL, NULL);
 	}
 
 	for (size_t d = 1; d < displacements_size; ++d) {
 		displacements[d]  += (gs->randFloat() - 0.5f) * 0.3f;
 		displacements2[d] += (gs->randFloat() - 0.5f) * 0.3f;
 	}
+
+	UpdateInterception();
 }
 
 void CLightningProjectile::Draw()
@@ -95,12 +74,10 @@ void CLightningProjectile::Draw()
 	col[2] = (unsigned char) (color.z * 255);
 	col[3] = 1; //intensity*255;
 
-	const float3 ddir = (endPos - pos).Normalize();
-	float3 dif(pos - camera->pos);
-	float camDist = dif.Length();
-	dif /= camDist;
+	const float3 ddir = (targetPos - startPos).Normalize();
+	const float3 dif  = (startPos - camera->GetPos()).Normalize();
 	const float3 dir1 = (dif.cross(ddir)).Normalize();
-	float3 tempPos = pos;
+	float3 tempPos = startPos;
 
 	va->EnlargeArrays(18 * 4, 0, VA_SIZE_TC);
 	for (size_t d = 1; d < displacements_size-1; ++d) {
@@ -109,20 +86,20 @@ void CLightningProjectile::Draw()
 		#define WDV (&weaponDef->visuals)
 		va->AddVertexQTC(tempPos + (dir1 * (displacements[d    ] + WDV->thickness)), WDV->texture1->xstart, WDV->texture1->ystart, col);
 		va->AddVertexQTC(tempPos + (dir1 * (displacements[d    ] - WDV->thickness)), WDV->texture1->xstart, WDV->texture1->yend,   col);
-		tempPos = (pos * (1.0f - f)) + (endPos * f);
+		tempPos = (startPos * (1.0f - f)) + (targetPos * f);
 		va->AddVertexQTC(tempPos + (dir1 * (displacements[d + 1] - WDV->thickness)), WDV->texture1->xend,   WDV->texture1->yend,   col);
 		va->AddVertexQTC(tempPos + (dir1 * (displacements[d + 1] + WDV->thickness)), WDV->texture1->xend,   WDV->texture1->ystart, col);
 		#undef WDV
 	}
 
-	tempPos = pos;
+	tempPos = startPos;
 	for (size_t d = 1; d < displacements_size-1; ++d) {
 		float f = (d + 1) * 0.111f;
 
 		#define WDV (&weaponDef->visuals)
 		va->AddVertexQTC(tempPos + dir1 * (displacements2[d    ] + WDV->thickness), WDV->texture1->xstart, WDV->texture1->ystart, col);
 		va->AddVertexQTC(tempPos + dir1 * (displacements2[d    ] - WDV->thickness), WDV->texture1->xstart, WDV->texture1->yend,   col);
-		tempPos = pos * (1.0f - f) + endPos * f;
+		tempPos = startPos * (1.0f - f) + targetPos * f;
 		va->AddVertexQTC(tempPos + dir1 * (displacements2[d + 1] - WDV->thickness), WDV->texture1->xend,   WDV->texture1->yend,   col);
 		va->AddVertexQTC(tempPos + dir1 * (displacements2[d + 1] + WDV->thickness), WDV->texture1->xend,   WDV->texture1->ystart, col);
 		#undef WDV
@@ -137,13 +114,12 @@ void CLightningProjectile::DrawOnMinimap(CVertexArray& lines, CVertexArray& poin
 		(unsigned char)(color[2] * 255),
 		                           255
 	};
-	lines.AddVertexQC(pos,    lcolor);
-	lines.AddVertexQC(endPos, lcolor);
+	lines.AddVertexQC(startPos,  lcolor);
+	lines.AddVertexQC(targetPos, lcolor);
 }
 
-void CLightningProjectile::DependentDied(CObject* o)
+int CLightningProjectile::GetProjectilesCount() const
 {
-	if (o == weapon) {
-		weapon = NULL;
-	}
+	return displacements_size * 2;
 }
+

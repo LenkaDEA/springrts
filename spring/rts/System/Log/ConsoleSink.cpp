@@ -17,18 +17,8 @@
 extern "C" {
 #endif
 
-/// Choose the out-stream for logging
-static inline FILE* log_chooseStream(int level) {
+static bool colorizedOutput = false;
 
-	// - stdout: levels less severe then WARNING
-	// - stderr: WARNING and more severe
-	FILE* outStream = stdout;
-	if (level >= LOG_LEVEL_WARNING) {
-		outStream = stderr;
-	}
-
-	return outStream;
-}
 
 
 /**
@@ -37,6 +27,12 @@ static inline FILE* log_chooseStream(int level) {
  */
 ///@{
 
+
+void log_console_colorizedOutput(bool enable) {
+	colorizedOutput = enable;
+}
+
+
 /// Records a log entry
 static void log_sink_record_console(const char* section, int level,
 		const char* record)
@@ -44,8 +40,21 @@ static void log_sink_record_console(const char* section, int level,
 	char framePrefix[128] = {'\0'};
 	log_framePrefixer_createPrefix(framePrefix, sizeof(framePrefix));
 
-	FILE* outStream = log_chooseStream(level);
-	FPRINTF(outStream, "%s%s\n", framePrefix, record);
+	FILE* outStream = (level >= LOG_LEVEL_WARNING)? stderr: stdout;
+
+	const char* fstr = "%s%s\n";
+	if (colorizedOutput) {
+		if (level >= LOG_LEVEL_ERROR) {
+			fstr = "\033[90m%s\033[31m%s\033[39m\n";
+		} else if (level >= LOG_LEVEL_WARNING) {
+			fstr = "\033[90m%s\033[33m%s\033[39m\n";
+		} else {
+			fstr = "\033[90m%s\033[39m%s\n";
+		}
+	}
+
+	FPRINTF(outStream, fstr, framePrefix, record);
+
 	// *printf does not always flush after a newline
 	// (eg. if stdout is being redirected to a file)
 	fflush(outStream);
@@ -59,6 +68,9 @@ namespace {
 	struct ConsoleSinkRegistrator {
 		ConsoleSinkRegistrator() {
 			log_backend_registerSink(&log_sink_record_console);
+		}
+		~ConsoleSinkRegistrator() {
+			log_backend_unregisterSink(&log_sink_record_console);
 		}
 	} consoleSinkRegistrator;
 }

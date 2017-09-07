@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "VerticalSync.h"
 #include "GL/myGL.h"
@@ -10,7 +9,7 @@
 #if defined HEADLESS
 #elif defined WIN32
 	#include <GL/wglew.h>
-#else
+#elif !defined(__APPLE__)
 	#include <GL/glxew.h>
 #endif
 

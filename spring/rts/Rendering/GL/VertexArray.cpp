@@ -1,7 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include <cstring>
-#include "System/mmgr.h"
 
 #include "VertexArray.h"
 
@@ -22,6 +21,14 @@ CVertexArray::~CVertexArray()
 {
 	delete[] drawArray;
 	delete[] stripArray;
+	drawArray = nullptr;
+	stripArray = nullptr;
+
+	drawArrayPos = nullptr;
+	drawArraySize = nullptr;
+
+	stripArrayPos = nullptr;
+	stripArraySize = nullptr;
 }
 
 
@@ -279,6 +286,25 @@ void CVertexArray::DrawArray2dT(const int drawType, unsigned int stride)
 }
 
 
+void CVertexArray::DrawArray2dTC(const int drawType, unsigned int stride)
+{
+	if (drawIndex() == 0)
+		return;
+
+	CheckEndStrip();
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_COLOR_ARRAY);
+	glVertexPointer(2, GL_FLOAT, stride, drawArray);
+	glTexCoordPointer(2, GL_FLOAT, stride, drawArray + 2);
+	glColorPointer(4, GL_UNSIGNED_BYTE, stride, drawArray + 4);
+	DrawArrays(drawType, stride);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_COLOR_ARRAY);
+}
+
+
 void CVertexArray::DrawArray2dT(const int drawType, StripCallback callback, void* data, unsigned int stride)
 {
 	if (drawIndex() == 0)
@@ -290,31 +316,6 @@ void CVertexArray::DrawArray2dT(const int drawType, StripCallback callback, void
 	glVertexPointer(2, GL_FLOAT, stride, drawArray);
 	glTexCoordPointer(2, GL_FLOAT, stride, drawArray + 2);
 	DrawArraysCallback(drawType, stride, callback, data);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	glDisableClientState(GL_VERTEX_ARRAY);
-}
-
-
-void CVertexArray::DrawArrayT2(const int drawType, unsigned int stride)
-{
-	if (drawIndex() == 0)
-		return;
-
-	CheckEndStrip();
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, stride, drawArray);
-	glTexCoordPointer(2, GL_FLOAT, stride, drawArray + 3);
-
-	glClientActiveTextureARB(GL_TEXTURE1_ARB);
-	glTexCoordPointer(2, GL_FLOAT, stride, drawArray + 5);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glClientActiveTextureARB(GL_TEXTURE0_ARB);
-	DrawArrays(drawType, stride);
-	glClientActiveTextureARB(GL_TEXTURE1_ARB);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	glClientActiveTextureARB(GL_TEXTURE0_ARB);
-
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 	glDisableClientState(GL_VERTEX_ARRAY);
 }
@@ -428,7 +429,7 @@ void CVertexArray::EnlargeStripArray()
 	const unsigned int newsize = oldsize * 2;
 
 	unsigned int* tempArray = new unsigned int[newsize];
-	memcpy(tempArray,stripArray, oldsize * sizeof(unsigned int));
+	memcpy(tempArray, stripArray, oldsize * sizeof(unsigned int));
 
 	delete[] stripArray;
 

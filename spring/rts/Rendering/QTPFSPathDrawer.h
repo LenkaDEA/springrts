@@ -7,7 +7,6 @@
 #include "IPathDrawer.h"
 
 struct MoveDef;
-class CMoveMath;
 class CVertexArray;
 
 namespace QTPFS {
@@ -19,8 +18,8 @@ namespace QTPFS {
 
 	namespace PathSearchTrace {
 		struct Execution;
-	};
-};
+	}
+}
 
 struct QTPFSPathDrawer: public IPathDrawer {
 public:
@@ -40,7 +39,6 @@ private:
 	void DrawNodeTreeRec(
 		const QTPFS::QTNode* nt,
 		const MoveDef* md,
-		const CMoveMath* mm,
 		CVertexArray* va
 	) const;
 
@@ -53,7 +51,6 @@ private:
 	void DrawNode(
 		const QTPFS::QTNode* node,
 		const MoveDef* md,
-		const CMoveMath* mm,
 		CVertexArray* va,
 		bool fillQuad,
 		bool showCost,

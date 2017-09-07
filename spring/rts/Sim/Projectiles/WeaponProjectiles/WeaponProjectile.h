@@ -4,9 +4,15 @@
 #define WEAPON_PROJECTILE_H
 
 #include "Sim/Projectiles/Projectile.h"
+#include "Sim/Projectiles/ProjectileParams.h" // easier to include this here
+#include "WeaponProjectileTypes.h"
 
 struct WeaponDef;
-class CPlasmaRepulser;
+struct ProjectileParams;
+class CVertexArray;
+class DynDamageArray;
+
+
 
 /**
  * Base class for all projectiles originating from a weapon or having
@@ -14,65 +20,74 @@ class CPlasmaRepulser;
  */
 class CWeaponProjectile : public CProjectile
 {
-	CR_DECLARE(CWeaponProjectile);
+	CR_DECLARE_DERIVED(CWeaponProjectile)
 public:
-	enum {
-		WEAPON_BASE_PROJECTILE           = (1 <<  0),
-		WEAPON_BEAMLASER_PROJECTILE      = (1 <<  1),
-		WEAPON_EMG_PROJECTILE            = (1 <<  2),
-		WEAPON_EXPLOSIVE_PROJECTILE      = (1 <<  3),
-		WEAPON_FIREBALL_PROJECTILE       = (1 <<  4),
-		WEAPON_FLAME_PROJECTILE          = (1 <<  5),
-		WEAPON_LARGEBEAMLASER_PROJECTILE = (1 <<  6),
-		WEAPON_LASER_PROJECTILE          = (1 <<  7),
-		WEAPON_LIGHTNING_PROJECTILE      = (1 <<  8),
-		WEAPON_MISSILE_PROJECTILE        = (1 <<  9),
-		WEAPON_STARBURST_PROJECTILE      = (1 << 10),
-		WEAPON_TORPEDO_PROJECTILE        = (1 << 11),
-	};
+	CWeaponProjectile() { }
+	CWeaponProjectile(const ProjectileParams& params);
+	virtual ~CWeaponProjectile();
 
-	CWeaponProjectile();
-	CWeaponProjectile(const float3& pos, const float3& speed, CUnit* owner,
-			CUnit* target, const float3& targetPos, const WeaponDef* weaponDef,
-			CWeaponProjectile* interceptTarget, int ttl);
-	virtual ~CWeaponProjectile() {}
-
-	virtual void Collision();
-	virtual void Collision(CFeature* feature);
-	virtual void Collision(CUnit* unit);
-	virtual void Update();
+	virtual void Explode(CUnit* hitUnit, CFeature* hitFeature, float3 impactPos, float3 impactDir);
+	virtual void Collision() override;
+	virtual void Collision(CFeature* feature) override;
+	virtual void Collision(CUnit* unit) override;
+	virtual void Update() override;
 	/// @return 0=unaffected, 1=instant repulse, 2=gradual repulse
-	virtual int ShieldRepulse(CPlasmaRepulser* shield, float3 shieldPos, float shieldForce, float shieldMaxSpeed) { return 0; }
+	virtual int ShieldRepulse(const float3& shieldPos, float shieldForce, float shieldMaxSpeed) { return 0; }
 
-	virtual void DrawOnMinimap(CVertexArray& lines, CVertexArray& points);
+	virtual void DrawOnMinimap(CVertexArray& lines, CVertexArray& points) override;
 
-	/// true if we are a nuke and an anti is on the way
-	bool targeted;
-	const WeaponDef* weaponDef;
+	void DependentDied(CObject* o) override;
+	void PostLoad();
 
-	CUnit* target;
-	float3 targetPos;
+	void SetTargetObject(CWorldObject* newTarget) {
+		if (newTarget != NULL) {
+			targetPos = newTarget->pos;
+		}
 
-	unsigned int weaponDefID;
-	unsigned int cegID;
+		target = newTarget;
+	}
 
-	int colorTeam;
+	const CWorldObject* GetTargetObject() const { return target; }
+	      CWorldObject* GetTargetObject()       { return target; }
+
+	const WeaponDef* GetWeaponDef() const { return weaponDef; }
+
+	int GetTimeToLive() const { return ttl; }
+
+	void SetStartPos(const float3& newStartPos) { startPos = newStartPos; }
+	void SetTargetPos(const float3& newTargetPos) { targetPos = newTargetPos; }
+
+	const float3& GetStartPos() const { return startPos; }
+	const float3& GetTargetPos() const { return targetPos; }
+
+	void SetBeingIntercepted(bool b) { targeted = b; }
+	bool IsBeingIntercepted() const { return targeted; }
+	bool CanBeInterceptedBy(const WeaponDef*) const;
+
+	bool TraveledRange() const;
+
+	const DynDamageArray* damages;
 
 protected:
-	float3 startpos;
+	void UpdateInterception();
+	virtual void UpdateGroundBounce();
+
+protected:
+	const WeaponDef* weaponDef;
+
+	CWorldObject* target;
+
+	unsigned int weaponNum;
 
 	int ttl;
 	int bounces;
-	bool keepBouncing;
 
-	virtual void UpdateGroundBounce();
+	/// true if we are an interceptable projectile
+	// and an interceptor projectile is on the way
+	bool targeted;
 
-	bool TraveledRange();
-	CWeaponProjectile* interceptTarget;
-
-public:
-	void DependentDied(CObject* o);
-	void PostLoad();
+	float3 startPos;
+	float3 targetPos;
 };
 
 #endif /* WEAPON_PROJECTILE_H */

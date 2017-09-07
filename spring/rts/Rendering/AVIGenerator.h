@@ -3,10 +3,12 @@
 #ifndef AVI_GENERATOR_H
 #define AVI_GENERATOR_H
 
+#ifdef WIN32
+
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/condition.hpp>
-#include <boost/utility.hpp>
+#include <boost/noncopyable.hpp>
 
 #include <windows.h>
 #include <vfw.h>
@@ -113,4 +115,5 @@ private:
 
 };
 
+#endif /* WIN32 */
 #endif /* AVI_GENERATOR_H */

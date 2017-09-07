@@ -1,59 +1,32 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-
 #include "MeleeWeapon.h"
+#include "WeaponDef.h"
 #include "Sim/Units/Unit.h"
-#include "WeaponDefHandler.h"
-#include "System/mmgr.h"
 
-CR_BIND_DERIVED(CMeleeWeapon, CWeapon, (NULL));
-
-CR_REG_METADATA(CMeleeWeapon,(
-	CR_RESERVED(8)
-	));
+CR_BIND_DERIVED(CMeleeWeapon, CWeapon, (NULL, NULL))
+CR_REG_METADATA(CMeleeWeapon, )
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CMeleeWeapon::CMeleeWeapon(CUnit* owner)
-: CWeapon(owner)
+CMeleeWeapon::CMeleeWeapon(CUnit* owner, const WeaponDef* def): CWeapon(owner, def)
 {
 }
 
-CMeleeWeapon::~CMeleeWeapon()
-{
 
+bool CMeleeWeapon::HaveFreeLineOfFire(const float3 pos, const SWeaponTarget& trg, bool useMuzzle) const
+{
+	return true;
 }
 
-void CMeleeWeapon::Update()
+void CMeleeWeapon::FireImpl(const bool scriptCall)
 {
-	if (targetType != Target_None) {
-		weaponPos = owner->pos +
-			owner->frontdir * relWeaponPos.z +
-			owner->updir    * relWeaponPos.y +
-			owner->rightdir * relWeaponPos.x;
-		weaponMuzzlePos = owner->pos +
-			owner->frontdir * relWeaponMuzzlePos.z +
-			owner->updir    * relWeaponMuzzlePos.y +
-			owner->rightdir * relWeaponMuzzlePos.x;
-
-		if (!onlyForward) {
-			wantedDir = targetPos - weaponPos;
-			wantedDir.Normalize();
-		}
-	}
-
-	CWeapon::Update();
-}
-
-void CMeleeWeapon::FireImpl()
-{
-	if (targetType == Target_Unit) {
-		const float3 impulseDir = (targetUnit->pos - weaponMuzzlePos).Normalize();
-		const float3 impulseVec = impulseDir * owner->mass * weaponDef->damages.impulseFactor;
+	if (currentTarget.type == Target_Unit) {
+		const float3 impulseVec = wantedDir * owner->mass * damages->impulseFactor;
 
 		// the heavier the unit, the more impulse it does
-		targetUnit->DoDamage(weaponDef->damages, impulseVec, owner, weaponDef->id);
+		currentTarget.unit->DoDamage(*damages, impulseVec, owner, weaponDef->id, -1);
 	}
 }

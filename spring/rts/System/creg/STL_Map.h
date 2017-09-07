@@ -5,29 +5,14 @@
 
 #include "creg_cond.h"
 
+#include <unordered_map>
+#define SPRING_HASH_MAP std::unordered_map
+
+#include <map>
+
 #ifdef USING_CREG
 
-#ifdef _MSC_VER
-	#define SPRING_HASH_MAP stdext::hash_map
-	#include <hash_map>
-#elif __GNUG__
-/* Test for GCC >= 4.3.2 */
-	#if __GNUC__ > 4 || \
-		(__GNUC__ == 4 && (__GNUC_MINOR__ > 3 || \
-						(__GNUC_MINOR__ == 3 && \
-							__GNUC_PATCHLEVEL__ >= 2)))
-		#include <tr1/unordered_map>
-		#define SPRING_HASH_MAP std::tr1::unordered_map
-	#else
-		#define SPRING_HASH_MAP __gnu_cxx::hash_map
-		#include <ext/hash_map>
-	#endif
-#else
-	#error Unsupported compiler
-#endif
-
 #include <string>
-#include <map>
 #include <boost/shared_ptr.hpp>
 
 namespace creg
@@ -77,6 +62,7 @@ namespace creg
 					mappedType->Serialize(s, &i->second);
 				}
 			} else {
+				ct.clear();
 				int size;
 				s->SerializeInt(&size, sizeof(int));
 				for (int a = 0; a < size; a++) {
@@ -88,34 +74,29 @@ namespace creg
 				}
 			}
 		}
-		std::string GetName() { return "map<" + keyType->GetName() + ", " + mappedType->GetName(); }
+		std::string GetName() const { return "map<" + keyType->GetName() + ", " + mappedType->GetName() + ">"; }
+		size_t GetSize() const { return sizeof(T); }
 	};
 
 	// Map type
 	template<typename TKey, typename TValue>
 	struct DeduceType<std::map<TKey, TValue> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<TValue> valuetype;
-			DeduceType<TKey> keytype;
-			return boost::shared_ptr<IType>(new MapType<std::map<TKey, TValue> >(keytype.Get(), valuetype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new MapType<std::map<TKey, TValue> >(DeduceType<TKey>::Get(), DeduceType<TValue>::Get()));
 		}
 	};
 	// Multimap
 	template<typename TKey, typename TValue>
 	struct DeduceType<std::multimap<TKey, TValue> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<TValue> valuetype;
-			DeduceType<TKey> keytype;
-			return boost::shared_ptr<IType>(new MapType<std::multimap<TKey, TValue> >(keytype.Get(), valuetype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new MapType<std::multimap<TKey, TValue> >(DeduceType<TKey>::Get(), DeduceType<TValue>::Get()));
 		}
 	};
 	// Hash map
 	template<typename TKey, typename TValue>
 	struct DeduceType<SPRING_HASH_MAP<TKey, TValue> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<TValue> valuetype;
-			DeduceType<TKey> keytype;
-			return boost::shared_ptr<IType>(new MapType<SPRING_HASH_MAP<TKey, TValue> >(keytype.Get(), valuetype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new MapType<SPRING_HASH_MAP<TKey, TValue> >(DeduceType<TKey>::Get(), DeduceType<TValue>::Get()));
 		}
 	};
 
@@ -134,20 +115,19 @@ namespace creg
 			firstType->Serialize(s, &p.first);
 			secondType->Serialize(s, &p.second);
 		}
-		std::string GetName() { return "pair<" + firstType->GetName() + "," + secondType->GetName() + ">"; }
+		std::string GetName() const { return "pair<" + firstType->GetName() + "," + secondType->GetName() + ">"; }
+		size_t GetSize() const { return sizeof(T); }
 	};
 
 	// std::pair
 	template<typename TFirst, typename TSecond>
 	struct DeduceType<std::pair<TFirst, TSecond> >
 	{
-		boost::shared_ptr<IType> Get() {
-			DeduceType<TFirst> first;
-			DeduceType<TSecond> second;
-			return boost::shared_ptr<IType>(new PairType<std::pair<TFirst, TSecond> >(first.Get(), second.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new PairType<std::pair<TFirst, TSecond> >(DeduceType<TFirst>::Get(), DeduceType<TSecond>::Get()));
 		}
 	};
-};
+}
 
 #endif // USING_CREG
 

@@ -3,10 +3,13 @@
 #ifndef RECTANGLE_H
 #define RECTANGLE_H
 
-#include "Vec2.h"
+#include "type2.h"
 #include "myMath.h"
+#include "System/creg/creg_cond.h"
 
 struct SRectangle {
+	CR_DECLARE_STRUCT(SRectangle)
+
 	SRectangle()
 		: x1(0)
 		, z1(0)
@@ -23,6 +26,13 @@ struct SRectangle {
 	int GetWidth() const { return x2 - x1; }
 	int GetHeight() const { return z2 - z1; }
 	int GetArea() const { return (GetWidth() * GetHeight()); }
+
+	bool Inside(const int2 pos) const {
+		// note: *min inclusive, *max exclusive
+		const bool xb = (pos.x >= x1 && pos.x < x2);
+		const bool yb = (pos.y >= y1 && pos.y < y2);
+		return (xb && yb);
+	}
 
 	void ClampPos(int2* pos) const {
 		pos->x = Clamp(pos->x, x1, x2);
@@ -42,7 +52,7 @@ struct SRectangle {
 			y1 < rect.y2 && y2 > rect.y1;
 	}
 
-	bool operator< (const SRectangle& other) {
+	bool operator< (const SRectangle& other) const {
 		if (x1 == other.x1) {
 			return (z1 < other.z1);
 		} else {
@@ -58,15 +68,23 @@ struct SRectangle {
 		);
 	}
 
-	int x1;
+	union {
+		int x1;
+		int left;
+	};
 	union {
 		int z1;
 		int y1;
+		int top;
 	};
-	int x2;
+	union {
+		int x2;
+		int right;
+	};
 	union {
 		int z2;
 		int y2;
+		int bottom;
 	};
 };
 

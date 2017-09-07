@@ -3,10 +3,14 @@
 #ifndef MINIMAP_H
 #define MINIMAP_H
 
-#include <vector>
 #include <string>
-#include <list>
+#include <deque>
 #include "InputReceiver.h"
+#include "Rendering/GL/FBO.h"
+#include "System/Color.h"
+#include "System/float3.h"
+#include "System/type2.h"
+
 
 class CUnit;
 namespace icon {
@@ -26,13 +30,14 @@ class CMiniMap : public CInputReceiver {
 		bool IsAbove(int x, int y);
 		std::string GetTooltip(int x, int y);
 		void Draw();
-		void DrawForReal(bool use_geo = true);
-		
+		void DrawForReal(bool use_geo = true, bool updateTex = false);
+		void Update();
+
 		void ConfigCommand(const std::string& command);
 
 		float3 GetMapPosition(int x, int y) const;
 		CUnit* GetSelectUnit(const float3& pos) const;
-		
+
 		void UpdateGeometry();
 		void SetGeometry(int px, int py, int sx, int sy);
 
@@ -47,36 +52,59 @@ class CMiniMap : public CInputReceiver {
 
 		bool GetMaximized() const { return maximized; }
 
-		inline int GetPosX()  const { return xpos; }
-		inline int GetPosY()  const { return ypos; }
-		inline int GetSizeX() const { return width; }
-		inline int GetSizeY() const { return height; }
+		int GetPosX()  const { return xpos; }
+		int GetPosY()  const { return ypos; }
+		int GetSizeX() const { return width; }
+		int GetSizeY() const { return height; }
+		float GetUnitSizeX() const { return unitSizeX; }
+		float GetUnitSizeY() const { return unitSizeY; }
 
 		void SetSlaveMode(bool value);
 		bool GetSlaveMode() const { return slaveDrawMode; }
-		
+
+		bool UseUnitIcons() const { return useIcons; }
+		bool UseSimpleColors() const { return simpleColors; }
+
+		const unsigned char* GetMyTeamIconColor() const { return &myColor[0]; }
+		const unsigned char* GetAllyTeamIconColor() const { return &allyColor[0]; }
+		const unsigned char* GetEnemyTeamIconColor() const { return &enemyColor[0]; }
+
+		void ApplyConstraintsMatrix() const;
+
 	protected:
 		void ParseGeometry(const std::string& geostr);
 		void ToggleMaximized(bool maxspect);
 		void SetMaximizedGeometry();
-		
-		void SelectUnits(int x, int y) const;
+
+		void SelectUnits(int x, int y);
 		void ProxyMousePress(int x, int y, int button);
 		void ProxyMouseRelease(int x, int y, int button);
+
+		bool RenderCachedTexture(const bool use_geo);
+		void DrawBackground() const;
+		void DrawUnitIcons() const;
+		void DrawUnitRanges() const;
+		void DrawWorldStuff() const;
+		void DrawCameraFrustumAndMouseSelection();
+		void SetClipPlanes(const bool lua) const;
 
 		void DrawFrame();
 		void DrawNotes();
 		void DrawButtons();
 		void DrawMinimizedButton();
-		void DrawUnit(const CUnit* unit);
+
 		void DrawUnitHighlight(const CUnit* unit);
-		void DrawCircle(const float3& pos, float radius);
-		void DrawSquare(const float3& pos, float xsize, float zsize);
+		void DrawCircle(const float3& pos, float radius) const;
+		void DrawSquare(const float3& pos, float xsize, float zsize) const;
 		const icon::CIconData* GetUnitIcon(const CUnit* unit, float& scale) const;
-		
+
+		void UpdateTextureCache();
+		void ResizeTextureCache();
+
 	protected:
 		static void DrawSurfaceCircle(const float3& pos, float radius, unsigned int resolution);
 		static void DrawSurfaceSquare(const float3& pos, float xsize, float zsize);
+
 	protected:
 		int xpos, ypos;
 		int height, width;
@@ -89,7 +117,7 @@ class CMiniMap : public CInputReceiver {
 		float unitSizeX;
 		float unitSizeY;
 		float unitSelectRadius;
-		
+
 		bool fullProxy;
 
 		bool proxyMode;
@@ -123,19 +151,27 @@ class CMiniMap : public CInputReceiver {
 		IntBox maximizeBox;
 		int lastWindowSizeX;
 		int lastWindowSizeY;
-		
+
 		bool drawProjectiles;
 		bool useIcons;
 		int drawCommands;
 		float cursorScale;
-		
-		bool simpleColors;
-		unsigned char myColor[4];
-		unsigned char allyColor[4];
-		unsigned char enemyColor[4];
 
-		unsigned int buttonsTexture;
-		unsigned int circleLists; // 8 - 256 divs
+		bool simpleColors;
+		SColor myColor;
+		SColor allyColor;
+		SColor enemyColor;
+
+		bool renderToTexture;
+		FBO fbo;
+		FBO fboResolve;
+		bool multisampledFBO;
+		GLuint minimapTex;
+		int2 minimapTexSize;
+		float minimapRefreshRate;
+
+		GLuint buttonsTexture;
+		GLuint circleLists; // 8 - 256 divs
 		static const int circleListsCount = 6;
 
 		struct Notification {
@@ -143,7 +179,9 @@ class CMiniMap : public CInputReceiver {
 			float3 pos;
 			float color[4];
 		};
-		std::list<Notification> notes;
+		std::deque<Notification> notes;
+		
+		CUnit* lastClicked;
 };
 
 

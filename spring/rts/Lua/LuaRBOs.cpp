@@ -1,8 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 
-#include "System/mmgr.h"
-
 #include "LuaRBOs.h"
 
 #include "LuaInclude.h"
@@ -82,7 +80,7 @@ void LuaRBOs::RBO::Init()
 }
 
 
-void LuaRBOs::RBO::Free(lua_State *L)
+void LuaRBOs::RBO::Free(lua_State* L)
 {
 	if (id == 0) {
 		return;
@@ -162,7 +160,7 @@ int LuaRBOs::CreateRBO(lua_State* L)
 
 	// allocate the memory
 	glRenderbufferStorageEXT(rbo.target, rbo.format, rbo.xsize, rbo.ysize);
-	
+
 	glBindRenderbufferEXT(rbo.target, 0);
 
 	RBO* rboPtr = static_cast<RBO*>(lua_newuserdata(L, sizeof(RBO)));

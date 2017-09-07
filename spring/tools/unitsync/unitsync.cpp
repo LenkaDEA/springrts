@@ -15,12 +15,11 @@
 #include "Map/MapParser.h"
 #include "Map/ReadMap.h"
 #include "Map/SMF/SMFMapFile.h"
-#include "Rendering/Textures/Bitmap.h"
 #include "Sim/Misc/SideParser.h"
 #include "ExternalAI/Interface/aidefines.h"
 #include "ExternalAI/Interface/SSkirmishAILibrary.h"
 #include "ExternalAI/LuaAIImplHandler.h"
-#include "System/FileSystem/IArchive.h"
+#include "System/FileSystem/Archives/IArchive.h"
 #include "System/FileSystem/ArchiveLoader.h"
 #include "System/FileSystem/ArchiveScanner.h"
 #include "System/FileSystem/DataDirsAccess.h"
@@ -35,18 +34,17 @@
 #include "System/Log/Level.h"
 #include "System/Log/DefaultFilter.h"
 #include "System/LogOutput.h"
+#include "System/Misc/SpringTime.h"
 #include "System/Util.h"
 #include "System/exportdefines.h"
 #include "System/Info.h"
 #include "System/Option.h"
 #include "System/SafeCStrings.h"
+#include "System/ThreadPool.h"
 
 #ifdef WIN32
 #include <windows.h>
 #endif
-
-// unitsync only:
-#include "Syncer.h"
 
 //////////////////////////
 //////////////////////////
@@ -60,11 +58,6 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_UNITSYNC)
 #endif
 #define LOG_SECTION_CURRENT LOG_SECTION_UNITSYNC
 
-// NOTE This means that the DLL can only support one instance.
-//   This is no problem in the current architecture.
-static CSyncer* syncer;
-
-static bool logOutputInitialised = false;
 // for we do not have to include global-stuff (Sim/Misc/GlobalConstants.h)
 #define SQUARE_SIZE 8
 
@@ -76,6 +69,9 @@ BOOL CALLING_CONV DllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
 }
 #endif
 
+
+CONFIG(bool, UnitsyncAutoUnLoadMaps).defaultValue(true).description("Automaticly load and unload the required map for some unitsync functions.");
+CONFIG(bool, UnitsyncAutoUnLoadMapsIsSupported).defaultValue(true).readOnly(true).description("Check for support of UnitsyncAutoUnLoadMaps");
 
 //////////////////////////
 //////////////////////////
@@ -93,7 +89,6 @@ public:
 	}
 
 	void print() {
-
 		if (!alreadyDone) {
 			alreadyDone = true;
 			LOG_L(L_WARNING, "%s", message.c_str());
@@ -105,25 +100,23 @@ private:
 	const std::string message;
 };
 
-#define DEPRECATED \
-	static CMessageOnce msg( \
-			"The deprecated unitsync function " \
-			+ std::string(__FUNCTION__) + " was called." \
-			" Please update your lobby client"); \
-	msg.print(); \
-	SetLastError("deprecated unitsync function called: " \
-			+ std::string(__FUNCTION__))
-
 
 //////////////////////////
 //////////////////////////
 
 // function argument checking
 
-static void CheckInit()
+static bool CheckInit(bool throwException = true)
 {
-	if (!archiveScanner || !vfsHandler)
-		throw std::logic_error("Unitsync not initialized. Call Init first.");
+	if (archiveScanner == NULL || vfsHandler == NULL) {
+		if (throwException) {
+			throw std::logic_error("UnitSync not initialized. Call Init first.");
+		}
+
+		return false;
+	}
+
+	return true;
 }
 
 static void _CheckNull(void* condition, const char* name)
@@ -159,6 +152,43 @@ static void _CheckPositive(int value, const char* name)
 static std::vector<InfoItem> info;
 static std::set<std::string> infoSet;
 
+
+struct GameDataUnitDef {
+	std::string name;
+	std::string fullName;
+};
+
+static std::vector<GameDataUnitDef> unitDefs;
+
+void LoadGameDataUnitDefs() {
+	unitDefs.clear();
+
+	LuaParser luaParser("gamedata/defs.lua", SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
+
+	if (!luaParser.Execute()) {
+		throw content_error("luaParser.Execute() failed: " + luaParser.GetErrorLog());
+	}
+
+	LuaTable rootTable = luaParser.GetRoot().SubTable("UnitDefs");
+
+	if (!rootTable.IsValid()) {
+		throw content_error("root unitdef table invalid");
+	}
+
+	std::vector<std::string> unitDefNames;
+	rootTable.GetKeys(unitDefNames);
+
+	for (unsigned int i = 0; i < unitDefNames.size(); ++i) {
+		const std::string& udName = unitDefNames[i];
+		const LuaTable udTable = rootTable.SubTable(udName);
+		const GameDataUnitDef ud = {udName, udTable.GetString("name", udName)};
+
+		unitDefs.push_back(ud);
+	}
+}
+
+static bool autoUnLoadmap = true;
+
 //////////////////////////
 //////////////////////////
 
@@ -186,73 +216,6 @@ static void _SetLastError(const std::string& err)
 		SetLastError("an unknown exception was thrown"); \
 	}
 
-//////////////////////////
-//////////////////////////
-
-static std::string GetMapFile(const std::string& mapName)
-{
-	std::string mapFile = archiveScanner->MapNameToMapFile(mapName);
-
-	if (mapFile != mapName) {
-		//! translation finished fine
-		return mapFile;
-	}
-
-	/*CFileHandler f(mapFile);
-	if (f.FileExists()) {
-		return mapFile;
-	}
-
-	CFileHandler f = CFileHandler(map);
-	if (f.FileExists()) {
-		return map;
-	}
-
-	f = CFileHandler("maps/" + map);
-	if (f.FileExists()) {
-		return "maps/" + map;
-	}*/
-
-	throw std::invalid_argument("Could not find a map named \"" + mapName + "\"");
-	return "";
-}
-
-
-class ScopedMapLoader {
-	public:
-		/**
-		 * @brief Helper class for loading a map archive temporarily
-		 * @param mapName the name of the to be loaded map
-		 * @param mapFile checks if this file already exists in the current VFS,
-		 *   if so skip reloading
-		 */
-		ScopedMapLoader(const std::string& mapName, const std::string& mapFile)
-			: oldHandler(vfsHandler)
-		{
-			CFileHandler f(mapFile);
-			if (f.FileExists()) {
-				return;
-			}
-
-			vfsHandler = new CVFSHandler();
-			vfsHandler->AddArchiveWithDeps(mapName, false);
-		}
-
-		~ScopedMapLoader()
-		{
-			if (vfsHandler != oldHandler) {
-				delete vfsHandler;
-				vfsHandler = oldHandler;
-			}
-		}
-
-	private:
-		CVFSHandler* oldHandler;
-};
-
-//////////////////////////
-//////////////////////////
-
 EXPORT(const char*) GetNextError()
 {
 	try {
@@ -273,6 +236,63 @@ EXPORT(const char*) GetNextError()
 }
 
 
+
+
+//////////////////////////
+//////////////////////////
+
+static std::string GetMapFile(const std::string& mapName)
+{
+	const std::string mapFile = archiveScanner->MapNameToMapFile(mapName);
+
+	if (mapFile != mapName) {
+		//! translation finished fine
+		return mapFile;
+	}
+
+	throw std::invalid_argument("Could not find a map named \"" + mapName + "\"");
+	return "";
+}
+
+
+class ScopedMapLoader {
+	public:
+		/**
+		 * @brief Helper class for loading a map archive temporarily
+		 * @param mapName the name of the to be loaded map
+		 * @param mapFile checks if this file already exists in the current VFS,
+		 *   if so skip reloading
+		 */
+		ScopedMapLoader(const std::string& mapName, const std::string& mapFile)
+			: oldHandler(vfsHandler)
+		{
+			if (!autoUnLoadmap)
+				return;
+			CFileHandler f(mapFile);
+			if (f.FileExists()) {
+				return;
+			}
+
+			vfsHandler = new CVFSHandler();
+			vfsHandler->AddArchiveWithDeps(mapName, false);
+		}
+
+		~ScopedMapLoader()
+		{
+			if (!autoUnLoadmap)
+				return;
+			if (vfsHandler != oldHandler) {
+				delete vfsHandler;
+				vfsHandler = oldHandler;
+			}
+		}
+
+	private:
+		CVFSHandler* oldHandler;
+};
+
+
+
 EXPORT(const char*) GetSpringVersion()
 {
 	return GetStr(SpringVersion::GetSync());
@@ -290,19 +310,36 @@ EXPORT(bool) IsSpringReleaseVersion()
 	return SpringVersion::IsRelease();
 }
 
+class UnitsyncConfigObserver
+{
+public:
+	UnitsyncConfigObserver() {
+		configHandler->NotifyOnChange(this);
+	}
+
+	~UnitsyncConfigObserver() {
+		configHandler->RemoveObserver(this);
+	}
+
+	void ConfigNotify(const std::string& key, const std::string& value) {
+		if (key == "UnitsyncAutoUnLoadMaps" ) {
+			autoUnLoadmap = configHandler->GetBool("UnitsyncAutoUnLoadMaps");
+		}
+	}
+};
+
+
 
 static void internal_deleteMapInfos();
+static UnitsyncConfigObserver* unitsyncConfigObserver = nullptr;
 
 static void _Cleanup()
 {
+	SafeDelete(unitsyncConfigObserver);
 	internal_deleteMapInfos();
 
 	lpClose();
-
-	if (syncer) {
-		SafeDelete(syncer);
-		LOG("deinitialized");
-	}
+	LOG("deinitialized");
 }
 
 
@@ -322,49 +359,53 @@ static void CheckForImportantFilesInVFS()
 }
 
 
-
 EXPORT(int) Init(bool isServer, int id)
 {
+	static int numCalls = 0;
+	int ret = 0;
+
 	try {
+		if (numCalls == 0) {
+			// only ever do this once
+			spring_clock::PushTickRate(false);
+			spring_time::setstarttime(spring_time::gettime(true));
+		}
+
 		// Cleanup data from previous Init() calls
 		_Cleanup();
+		CLogOutput::LogSystemInfo();
 
-		// LogSystem 1
-		if (!logOutputInitialised) {
-			logOutput.SetFileName("unitsync.log");
-		}
 #ifndef DEBUG
 		log_filter_section_setMinLevel(LOG_SECTION_UNITSYNC, LOG_LEVEL_INFO);
 #endif
 
-		// VFS
-		if (archiveScanner || vfsHandler){
-			FileSystemInitializer::Cleanup(); //reinitialize filesystem to detect new files
+		if (CheckInit(false)) {
+			// reinitialize filesystem to detect new files
+			FileSystemInitializer::Cleanup();
 		}
-		if (!configHandler) {
-			ConfigHandler::Instantiate(); // use the default config file
-		}
+
 		dataDirLocater.UpdateIsolationModeByEnvVar();
+
+		const std::string& configFile = (configHandler != NULL)? configHandler->GetConfigFile(): "";
+		const std::string& springFull = SpringVersion::GetFull();
+
+		ThreadPool::SetThreadCount(ThreadPool::GetMaxThreads());
+		FileSystemInitializer::PreInitializeConfigHandler(configFile);
+		FileSystemInitializer::InitializeLogOutput("unitsync.log");
 		FileSystemInitializer::Initialize();
-
-		// LogSystem 2
-		if (!logOutputInitialised) {
-			logOutput.Initialize();
-			logOutputInitialised = true;
-		}
-		LOG("loaded, %s", SpringVersion::GetFull().c_str());
-
-		// check if VFS is okay
+		// check if VFS is okay (throws if not)
 		CheckForImportantFilesInVFS();
-
-		// Finish
-		syncer = new CSyncer();
-		LOG("initialized, %s", SpringVersion::GetFull().c_str());
-		LOG("%s", (isServer ? "hosting" : "joining"));
-		return 1;
+		ThreadPool::SetThreadCount(0);
+		configHandler->Set("UnitsyncAutoUnLoadMaps", true); //reset on each load (backwards compatibility)
+		unitsyncConfigObserver = new UnitsyncConfigObserver();
+		ret = 1;
+		LOG("[UnitSync::%s] initialized %s (call %d)", __FUNCTION__, springFull.c_str(), numCalls);
 	}
+
 	UNITSYNC_CATCH_BLOCKS;
-	return 0;
+
+	numCalls++;
+	return ret;
 }
 
 EXPORT(void) UnInit()
@@ -373,6 +414,7 @@ EXPORT(void) UnInit()
 		_Cleanup();
 		FileSystemInitializer::Cleanup();
 		ConfigHandler::Deallocate();
+		DataDirLocater::FreeInstance();
 	}
 	UNITSYNC_CATCH_BLOCKS;
 }
@@ -417,32 +459,24 @@ EXPORT(const char*) GetDataDirectory(int index)
 
 EXPORT(int) ProcessUnits()
 {
-	int leftToProcess = 0; // FIXME error return should be -1
-
 	try {
-		LOG_L(L_DEBUG, "syncer: process units");
-		leftToProcess = syncer->ProcessUnits();
+		CheckInit();
+		LOG_L(L_DEBUG, "[%s] loaded=%d", __FUNCTION__, unitDefs.empty());
+		LoadGameDataUnitDefs();
 	}
 	UNITSYNC_CATCH_BLOCKS;
 
-	return leftToProcess;
+	return 0;
 }
-
-
-EXPORT(int) ProcessUnitsNoChecksum()
-{
-	return ProcessUnits();
-}
-
 
 EXPORT(int) GetUnitCount()
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
-		LOG_L(L_DEBUG, "syncer: get unit count");
-		count = syncer->GetUnitCount();
+		LOG_L(L_DEBUG, "[%s]", __FUNCTION__);
+		count = unitDefs.size();
 	}
 	UNITSYNC_CATCH_BLOCKS;
 
@@ -450,26 +484,24 @@ EXPORT(int) GetUnitCount()
 }
 
 
-EXPORT(const char*) GetUnitName(int unit)
+EXPORT(const char*) GetUnitName(int unitDefID)
 {
 	try {
 		CheckInit();
-		LOG_L(L_DEBUG, "syncer: get unit %d name", unit);
-		std::string tmp = syncer->GetUnitName(unit);
-		return GetStr(tmp);
+		LOG_L(L_DEBUG, "[%s(UnitDefID=%d)]", __FUNCTION__, unitDefID);
+		return GetStr(unitDefs[unitDefID].name);
 	}
 	UNITSYNC_CATCH_BLOCKS;
 	return NULL;
 }
 
 
-EXPORT(const char*) GetFullUnitName(int unit)
+EXPORT(const char*) GetFullUnitName(int unitDefID)
 {
 	try {
 		CheckInit();
-		LOG_L(L_DEBUG, "syncer: get full unit %d name", unit);
-		std::string tmp = syncer->GetFullUnitName(unit);
-		return GetStr(tmp);
+		LOG_L(L_DEBUG, "[%s(UnitDefID=%d)]", __FUNCTION__, unitDefID);
+		return GetStr(unitDefs[unitDefID].fullName);
 	}
 	UNITSYNC_CATCH_BLOCKS;
 	return NULL;
@@ -508,9 +540,7 @@ EXPORT(void) RemoveAllArchives()
 
 		LOG_L(L_DEBUG, "removing all archives");
 		SafeDelete(vfsHandler);
-		SafeDelete(syncer);
 		vfsHandler = new CVFSHandler();
-		syncer = new CSyncer();
 	}
 	UNITSYNC_CATCH_BLOCKS;
 }
@@ -651,100 +681,20 @@ static bool internal_GetMapInfo(const char* mapName, InternalMapInfo* outInfo)
 	return true;
 }
 
-/** @deprecated */
-static bool _GetMapInfoEx(const char* mapName, MapInfo* outInfo, int version)
-{
-	CheckInit();
-	CheckNullOrEmpty(mapName);
-	CheckNull(outInfo);
-
-	bool fetchOk;
-
-	InternalMapInfo internalMapInfo;
-	fetchOk = internal_GetMapInfo(mapName, &internalMapInfo);
-
-	if (fetchOk) {
-		safe_strzcpy(outInfo->description, internalMapInfo.description, 255);
-		outInfo->tidalStrength   = internalMapInfo.tidalStrength;
-		outInfo->gravity         = internalMapInfo.gravity;
-		outInfo->maxMetal        = internalMapInfo.maxMetal;
-		outInfo->extractorRadius = internalMapInfo.extractorRadius;
-		outInfo->minWind         = internalMapInfo.minWind;
-		outInfo->maxWind         = internalMapInfo.maxWind;
-
-		outInfo->width           = internalMapInfo.width;
-		outInfo->height          = internalMapInfo.height;
-		outInfo->posCount        = internalMapInfo.xPos.size();
-		if (outInfo->posCount > 16) {
-			// legacy interface does not support more then 16
-			outInfo->posCount = 16;
-		}
-		for (size_t curTeam = 0; curTeam < outInfo->posCount; ++curTeam) {
-			outInfo->positions[curTeam].x = internalMapInfo.xPos[curTeam];
-			outInfo->positions[curTeam].z = internalMapInfo.zPos[curTeam];
-		}
-
-		if (version >= 1) {
-			safe_strzcpy(outInfo->author, internalMapInfo.author, 200);
-		}
-	} else {
-		// contains the error message
-		safe_strzcpy(outInfo->description, internalMapInfo.description, 255);
-
- 		// Fill in stuff so TASClient does not crash
- 		outInfo->posCount = 0;
-		if (version >= 1) {
-			outInfo->author[0] = '\0';
-		}
-		return false;
-	}
-
-	return fetchOk;
-}
-
-EXPORT(int) GetMapInfoEx(const char* mapName, MapInfo* outInfo, int version)
-{
-	DEPRECATED;
-	int ret = 0;
-
-	try {
-		const bool fetchOk = _GetMapInfoEx(mapName, outInfo, version);
-		ret = fetchOk ? 1 : 0;
-	}
-	UNITSYNC_CATCH_BLOCKS;
-
-	return ret;
-}
-
-
-EXPORT(int) GetMapInfo(const char* mapName, MapInfo* outInfo)
-{
-	DEPRECATED;
-	int ret = 0;
-
-	try {
-		const bool fetchOk = _GetMapInfoEx(mapName, outInfo, 0);
-		ret = fetchOk ? 1 : 0;
-	}
-	UNITSYNC_CATCH_BLOCKS;
-
-	return ret;
-}
-
 
 // Updated on every call to GetMapCount
 static std::vector<std::string> mapNames;
 
 EXPORT(int) GetMapCount()
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
 
-		mapNames.clear();
-
 		const std::vector<std::string> scannedNames = archiveScanner->GetMaps();
+
+		mapNames.clear();
 		mapNames.insert(mapNames.begin(), scannedNames.begin(), scannedNames.end());
 
 		sort(mapNames.begin(), mapNames.end());
@@ -814,164 +764,6 @@ static void internal_deleteMapInfos() {
 	}
 }
 
-EXPORT(const char*) GetMapDescription(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->description.c_str();
-	}
-
-	return NULL;
-}
-
-EXPORT(const char*) GetMapAuthor(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->author.c_str();
-	}
-
-	return NULL;
-}
-
-EXPORT(int) GetMapWidth(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->width;
-	}
-
-	return -1;
-}
-
-EXPORT(int) GetMapHeight(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->height;
-	}
-
-	return -1;
-}
-
-EXPORT(int) GetMapTidalStrength(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->tidalStrength;
-	}
-
-	return -1;
-}
-
-EXPORT(int) GetMapWindMin(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->minWind;
-	}
-
-	return -1;
-}
-
-EXPORT(int) GetMapWindMax(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->maxWind;
-	}
-
-	return -1;
-}
-
-EXPORT(int) GetMapGravity(int index) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->gravity;
-	}
-
-	return -1;
-}
-
-EXPORT(int) GetMapResourceCount(int index) {
-	return 1;
-}
-
-EXPORT(const char*) GetMapResourceName(int index, int resourceIndex) {
-
-	if (resourceIndex == 0) {
-		return "Metal";
-	} else {
-		SetLastError("No valid map resource index");
-	}
-
-	return NULL;
-}
-
-EXPORT(float) GetMapResourceMax(int index, int resourceIndex) {
-
-	if (resourceIndex == 0) {
-		const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-		if (mapInfo) {
-			return mapInfo->maxMetal;
-		}
-	} else {
-		SetLastError("No valid map resource index");
-	}
-
-	return 0.0f;
-}
-
-EXPORT(int) GetMapResourceExtractorRadius(int index, int resourceIndex) {
-
-	if (resourceIndex == 0) {
-		const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-		if (mapInfo) {
-			return mapInfo->extractorRadius;
-		}
-	} else {
-		SetLastError("No valid map resource index");
-	}
-
-	return -1;
-}
-
-
-EXPORT(int) GetMapPosCount(int index) {
-
-	int count = -1;
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		count = mapInfo->xPos.size();
-	}
-
-	return count;
-}
-
-//FIXME: rename to GetMapStartPosX ?
-EXPORT(float) GetMapPosX(int index, int posIndex) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->xPos[posIndex];
-	}
-
-	return -1.0f;
-}
-
-//FIXME: rename to GetMapStartPosZ ?
-EXPORT(float) GetMapPosZ(int index, int posIndex) {
-
-	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
-	if (mapInfo) {
-		return mapInfo->zPos[posIndex];
-	}
-
-	return -1.0f;
-}
-
 
 EXPORT(float) GetMapMinHeight(const char* mapName) {
 	try {
@@ -1025,13 +817,13 @@ static std::vector<std::string> mapArchives;
 
 EXPORT(int) GetMapArchiveCount(const char* mapName)
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
 		CheckNullOrEmpty(mapName);
 
-		mapArchives = archiveScanner->GetArchives(mapName);
+		mapArchives = archiveScanner->GetAllArchivesUsedBy(mapName);
 		count = mapArchives.size();
 	}
 	UNITSYNC_CATCH_BLOCKS;
@@ -1091,6 +883,10 @@ static unsigned short imgbuf[1024*1024];
 
 static unsigned short* GetMinimapSM3(std::string mapFileName, int mipLevel)
 {
+	throw content_error("SM3 maps are no longer supported as of Spring 95.0");
+	return NULL;
+
+	/*
 	MapParser mapParser(mapFileName);
 	const std::string minimapFile = mapParser.GetRoot().GetString("minimap", "");
 
@@ -1124,6 +920,7 @@ static unsigned short* GetMinimapSM3(std::string mapFileName, int mipLevel)
 	}
 
 	return imgbuf;
+	*/
 }
 
 static unsigned short* GetMinimapSMF(std::string mapFileName, int mipLevel)
@@ -1245,7 +1042,7 @@ EXPORT(int) GetInfoMapSize(const char* mapName, const char* name, int* width, in
 
 EXPORT(int) GetInfoMap(const char* mapName, const char* name, unsigned char* data, int typeHint)
 {
-	int ret = 0; // FIXME error return should be -1
+	int ret = -1;
 
 	try {
 		CheckInit();
@@ -1298,7 +1095,7 @@ std::vector<CArchiveScanner::ArchiveData> modData;
 
 EXPORT(int) GetPrimaryModCount()
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
@@ -1328,104 +1125,7 @@ EXPORT(int) GetPrimaryModInfoCount(int modIndex) {
 
 	info.clear();
 
-	return 0; // FIXME error return should be -1
-}
-EXPORT(const char*) GetPrimaryModName(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetName();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
-EXPORT(const char*) GetPrimaryModShortName(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetShortName();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
-EXPORT(const char*) GetPrimaryModVersion(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetVersion();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
-EXPORT(const char*) GetPrimaryModMutator(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetMutator();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
-EXPORT(const char*) GetPrimaryModGame(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetGame();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
-EXPORT(const char*) GetPrimaryModShortGame(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetShortGame();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
-EXPORT(const char*) GetPrimaryModDescription(int index)
-{
-	DEPRECATED;
-	try {
-		CheckInit();
-		CheckBounds(index, modData.size());
-
-		const std::string& x = modData[index].GetDescription();
-		return GetStr(x);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
+	return -1;
 }
 
 EXPORT(const char*) GetPrimaryModArchive(int index)
@@ -1446,13 +1146,13 @@ std::vector<std::string> primaryArchives;
 
 EXPORT(int) GetPrimaryModArchiveCount(int index)
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
 		CheckBounds(index, modData.size());
 
-		primaryArchives = archiveScanner->GetArchives(modData[index].GetDependencies()[0]);
+		primaryArchives = archiveScanner->GetAllArchivesUsedBy(modData[index].GetDependencies()[0]);
 		count = primaryArchives.size();
 	}
 	UNITSYNC_CATCH_BLOCKS;
@@ -1481,7 +1181,7 @@ EXPORT(int) GetPrimaryModIndex(const char* name)
 
 		const std::string searchedName(name);
 		for (unsigned i = 0; i < modData.size(); ++i) {
-			if (modData[i].GetName() == searchedName)
+			if (modData[i].GetNameVersioned() == searchedName)
 				return i;
 		}
 	}
@@ -1519,7 +1219,7 @@ EXPORT(unsigned int) GetPrimaryModChecksumFromName(const char* name)
 
 EXPORT(int) GetSideCount()
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
@@ -1618,7 +1318,7 @@ EXPORT(int) GetMapOptionCount(const char* name)
 	options.clear();
 	optionsSet.clear();
 
-	return 0; // FIXME error return should be -1
+	return -1;
 }
 
 
@@ -1652,7 +1352,7 @@ EXPORT(int) GetModOptionCount()
 	options.clear();
 	optionsSet.clear();
 
-	return 0; // FIXME error return should be -1
+	return -1;
 }
 
 EXPORT(int) GetCustomOptionCount(const char* fileName)
@@ -1678,7 +1378,7 @@ EXPORT(int) GetCustomOptionCount(const char* fileName)
 	options.clear();
 	optionsSet.clear();
 
-	return 0; // FIXME error return should be -1
+	return -1;
 }
 
 //////////////////////////
@@ -1722,7 +1422,7 @@ static std::vector<std::string> skirmishAIDataDirs;
 
 EXPORT(int) GetSkirmishAICount() {
 
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
@@ -1802,7 +1502,39 @@ EXPORT(int) GetSkirmishAIInfoCount(int aiIndex) {
 
 	info.clear();
 
-	return 0; // FIXME error return should be -1
+	return -1;
+}
+
+EXPORT(int) GetMapInfoCount(int index) {
+	try{
+		info.clear();
+		CheckBounds(index, mapNames.size());
+		const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+		if (mapInfo == nullptr) {
+			return -1;
+		}
+		info.push_back(InfoItem("description", "", mapInfo->description));
+		info.push_back(InfoItem("author", "", mapInfo->author));
+		info.push_back(InfoItem("tidalStrength", "", mapInfo->tidalStrength));
+		info.push_back(InfoItem("gravity", "", mapInfo->gravity));
+		info.push_back(InfoItem("maxMetal", "", mapInfo->maxMetal));
+		info.push_back(InfoItem("extractorRadius", "", mapInfo->extractorRadius));
+		info.push_back(InfoItem("minWind", "", mapInfo->minWind));
+		info.push_back(InfoItem("maxWind", "", mapInfo->maxWind));
+		info.push_back(InfoItem("width", "", mapInfo->width));
+		info.push_back(InfoItem("height", "", mapInfo->height));
+		info.push_back(InfoItem("resource", "", "Metal"));
+		for(int i = 0; i < mapInfo->xPos.size() && i < mapInfo->zPos.size(); i++) {
+			info.push_back(InfoItem("xPos", "", mapInfo->xPos[i]));
+			info.push_back(InfoItem("zPos", "", mapInfo->zPos[i]));
+		}
+		return (int)info.size();
+	}
+	UNITSYNC_CATCH_BLOCKS;
+
+	info.clear();
+
+	return -1;
 }
 
 static const InfoItem* GetInfoItem(int infoIndex) {
@@ -1844,19 +1576,7 @@ EXPORT(const char*) GetInfoType(int infoIndex) {
 
 	return type;
 }
-EXPORT(const char*) GetInfoValue(int infoIndex) {
-	DEPRECATED;
 
-	const char* value = NULL;
-
-	try {
-		const InfoItem* infoItem = GetInfoItem(infoIndex);
-		value = GetStr(info_getValueAsString(infoItem));
-	}
-	UNITSYNC_CATCH_BLOCKS;
-
-	return value;
-}
 EXPORT(const char*) GetInfoValueString(int infoIndex) {
 
 	const char* value = NULL;
@@ -1872,7 +1592,7 @@ EXPORT(const char*) GetInfoValueString(int infoIndex) {
 }
 EXPORT(int) GetInfoValueInteger(int infoIndex) {
 
-	int value = 0; // FIXME error return should be -1
+	int value = -1;
 
 	try {
 		const InfoItem* infoItem = GetInfoItem(infoIndex);
@@ -1885,7 +1605,7 @@ EXPORT(int) GetInfoValueInteger(int infoIndex) {
 }
 EXPORT(float) GetInfoValueFloat(int infoIndex) {
 
-	float value = 0.0f; // FIXME error return should be -1.0f
+	float value = -1.0f;
 
 	try {
 		const InfoItem* infoItem = GetInfoItem(infoIndex);
@@ -1948,7 +1668,7 @@ EXPORT(int) GetSkirmishAIOptionCount(int aiIndex) {
 	options.clear();
 	optionsSet.clear();
 
-	return 0; // FIXME error return should be -1
+	return -1;
 }
 
 
@@ -1994,16 +1714,6 @@ EXPORT(const char*) GetOptionSection(int optIndex)
 	return NULL;
 }
 
-EXPORT(const char*) GetOptionStyle(int optIndex)
-{
-	try {
-		CheckOptionIndex(optIndex);
-		return GetStr(options[optIndex].style);
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return NULL;
-}
-
 EXPORT(const char*) GetOptionDesc(int optIndex)
 {
 	try {
@@ -2016,7 +1726,7 @@ EXPORT(const char*) GetOptionDesc(int optIndex)
 
 EXPORT(int) GetOptionType(int optIndex)
 {
-	int type = 0; // FIXME error return should be -1
+	int type = -1;
 
 	try {
 		CheckOptionIndex(optIndex);
@@ -2045,7 +1755,7 @@ EXPORT(int) GetOptionBoolDef(int optIndex)
 
 EXPORT(float) GetOptionNumberDef(int optIndex)
 {
-	float numDef = 0.0f; // FIXME error return should be -1.0f
+	float numDef = -1.0f;
 
 	try {
 		CheckOptionType(optIndex, opt_number);
@@ -2084,7 +1794,7 @@ EXPORT(float) GetOptionNumberMax(int optIndex)
 
 EXPORT(float) GetOptionNumberStep(int optIndex)
 {
-	float numStep = 0.0f; // FIXME error return should be -1.0f
+	float numStep = -1.0f;
 
 	try {
 		CheckOptionType(optIndex, opt_number);
@@ -2110,7 +1820,7 @@ EXPORT(const char*) GetOptionStringDef(int optIndex)
 
 EXPORT(int) GetOptionStringMaxLen(int optIndex)
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckOptionType(optIndex, opt_string);
@@ -2126,7 +1836,7 @@ EXPORT(int) GetOptionStringMaxLen(int optIndex)
 
 EXPORT(int) GetOptionListCount(int optIndex)
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckOptionType(optIndex, opt_list);
@@ -2262,7 +1972,7 @@ static int LuaGetMapInfo(lua_State* L)
 
 EXPORT(int) GetModValidMapCount()
 {
-	int count = 0; // FIXME error return should be -1
+	int count = -1;
 
 	try {
 		CheckInit();
@@ -2491,27 +2201,6 @@ EXPORT(int) OpenArchive(const char* name)
 	return 0;
 }
 
-EXPORT(int) OpenArchiveType(const char* name, const char* type)
-{
-	try {
-		CheckInit();
-		CheckNullOrEmpty(name);
-		CheckNullOrEmpty(type);
-
-		IArchive* a = archiveLoader.OpenArchive(name, type);
-
-		if (!a) {
-			throw content_error("Archive '" + std::string(name) + "' could not be opened");
-		}
-
-		nextArchive++;
-		openArchives[nextArchive] = a;
-		return nextArchive;
-	}
-	UNITSYNC_CATCH_BLOCKS;
-	return 0;
-}
-
 EXPORT(void) CloseArchive(int archive)
 {
 	try {
@@ -2627,16 +2316,12 @@ char strBuf[STRBUF_SIZE];
 const char* GetStr(std::string str)
 {
 	if (str.length() + 1 > STRBUF_SIZE) {
-		sprintf(strBuf, "Increase STRBUF_SIZE (needs "_STPF_" bytes)", str.length() + 1);
+		sprintf(strBuf, "Increase STRBUF_SIZE (needs " _STPF_ " bytes)", str.length() + 1);
 	} else {
 		STRCPY(strBuf, str.c_str());
 	}
 
 	return strBuf;
-}
-
-void PrintLoadMsg(const char* text)
-{
 }
 
 
@@ -2645,7 +2330,8 @@ void PrintLoadMsg(const char* text)
 
 EXPORT(void) SetSpringConfigFile(const char* fileNameAsAbsolutePath)
 {
-	ConfigHandler::Instantiate(fileNameAsAbsolutePath);
+	dataDirLocater.UpdateIsolationModeByEnvVar();
+	FileSystemInitializer::PreInitializeConfigHandler(fileNameAsAbsolutePath);
 }
 
 static void CheckConfigHandler()
@@ -2723,4 +2409,422 @@ EXPORT(void) SetSpringConfigFloat(const char* name, const float value)
 	}
 	UNITSYNC_CATCH_BLOCKS;
 }
+
+EXPORT(void) DeleteSpringConfigKey(const char* name)
+{
+	try {
+		CheckConfigHandler();
+		configHandler->Delete(name);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+}
+
+#ifdef ENABLE_DEPRECATED_FUNCTIONS
+/*
+**********************DEPRECATED SECTION
+*/
+
+#define DEPRECATED \
+	static CMessageOnce msg( \
+			"The deprecated unitsync function " \
+			+ std::string(__FUNCTION__) + " was called." \
+			" Please update your lobby client"); \
+	msg.print(); \
+	SetLastError("deprecated unitsync function called: " \
+			+ std::string(__FUNCTION__))
+
+
+
+static bool _GetMapInfoEx(const char* mapName, MapInfo* outInfo, int version)
+{
+	CheckInit();
+	CheckNullOrEmpty(mapName);
+	CheckNull(outInfo);
+
+	bool fetchOk;
+
+	InternalMapInfo internalMapInfo;
+	fetchOk = internal_GetMapInfo(mapName, &internalMapInfo);
+
+	if (fetchOk) {
+		safe_strzcpy(outInfo->description, internalMapInfo.description, 255);
+		outInfo->tidalStrength   = internalMapInfo.tidalStrength;
+		outInfo->gravity         = internalMapInfo.gravity;
+		outInfo->maxMetal        = internalMapInfo.maxMetal;
+		outInfo->extractorRadius = internalMapInfo.extractorRadius;
+		outInfo->minWind         = internalMapInfo.minWind;
+		outInfo->maxWind         = internalMapInfo.maxWind;
+
+		outInfo->width           = internalMapInfo.width;
+		outInfo->height          = internalMapInfo.height;
+		outInfo->posCount        = internalMapInfo.xPos.size();
+		if (outInfo->posCount > 16) {
+			// legacy interface does not support more then 16
+			outInfo->posCount = 16;
+		}
+		for (size_t curTeam = 0; curTeam < outInfo->posCount; ++curTeam) {
+			outInfo->positions[curTeam].x = internalMapInfo.xPos[curTeam];
+			outInfo->positions[curTeam].z = internalMapInfo.zPos[curTeam];
+		}
+
+		if (version >= 1) {
+			safe_strzcpy(outInfo->author, internalMapInfo.author, 200);
+		}
+	} else {
+		// contains the error message
+		safe_strzcpy(outInfo->description, internalMapInfo.description, 255);
+
+		// Fill in stuff so TASClient does not crash
+		outInfo->posCount = 0;
+		if (version >= 1) {
+			outInfo->author[0] = '\0';
+		}
+		return false;
+	}
+
+	return fetchOk;
+}
+
+EXPORT(int) ProcessUnitsNoChecksum()
+{
+	DEPRECATED;
+	return ProcessUnits();
+}
+
+EXPORT(int) GetMapInfoEx(const char* mapName, MapInfo* outInfo, int version)
+{
+	DEPRECATED;
+	int ret = 0;
+
+	try {
+		const bool fetchOk = _GetMapInfoEx(mapName, outInfo, version);
+		ret = fetchOk ? 1 : 0;
+	}
+	UNITSYNC_CATCH_BLOCKS;
+
+	return ret;
+}
+
+EXPORT(int) GetMapInfo(const char* mapName, MapInfo* outInfo)
+{
+	DEPRECATED;
+	int ret = 0;
+
+	try {
+		const bool fetchOk = _GetMapInfoEx(mapName, outInfo, 0);
+		ret = fetchOk ? 1 : 0;
+	}
+	UNITSYNC_CATCH_BLOCKS;
+
+	return ret;
+}
+
+EXPORT(const char*) GetMapDescription(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->description.c_str();
+	}
+
+	return NULL;
+}
+
+EXPORT(const char*) GetMapAuthor(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->author.c_str();
+	}
+
+	return NULL;
+}
+
+EXPORT(int) GetMapWidth(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->width;
+	}
+
+	return -1;
+}
+
+EXPORT(int) GetMapHeight(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->height;
+	}
+
+	return -1;
+}
+
+EXPORT(int) GetMapTidalStrength(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->tidalStrength;
+	}
+
+	return -1;
+}
+
+EXPORT(int) GetMapWindMin(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->minWind;
+	}
+
+	return -1;
+}
+
+EXPORT(int) GetMapWindMax(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->maxWind;
+	}
+
+	return -1;
+}
+
+EXPORT(int) GetMapGravity(int index) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->gravity;
+	}
+
+	return -1;
+}
+
+EXPORT(int) GetMapResourceCount(int index) {
+	DEPRECATED;
+	return 1;
+}
+
+EXPORT(const char*) GetMapResourceName(int index, int resourceIndex) {
+	DEPRECATED;
+	if (resourceIndex == 0) {
+		return "Metal";
+	} else {
+		SetLastError("No valid map resource index");
+	}
+
+	return NULL;
+}
+
+EXPORT(float) GetMapResourceMax(int index, int resourceIndex) {
+	DEPRECATED;
+	if (resourceIndex == 0) {
+		const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+		if (mapInfo) {
+			return mapInfo->maxMetal;
+		}
+	} else {
+		SetLastError("No valid map resource index");
+	}
+
+	return 0.0f;
+}
+
+EXPORT(int) GetMapResourceExtractorRadius(int index, int resourceIndex) {
+	DEPRECATED;
+	if (resourceIndex == 0) {
+		const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+		if (mapInfo) {
+			return mapInfo->extractorRadius;
+		}
+	} else {
+		SetLastError("No valid map resource index");
+	}
+
+	return -1;
+}
+
+
+EXPORT(int) GetMapPosCount(int index) {
+	DEPRECATED;
+	int count = -1;
+
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		count = mapInfo->xPos.size();
+	}
+
+	return count;
+}
+
+EXPORT(float) GetMapPosX(int index, int posIndex) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->xPos[posIndex];
+	}
+
+	return -1.0f;
+}
+
+EXPORT(float) GetMapPosZ(int index, int posIndex) {
+	DEPRECATED;
+	const InternalMapInfo* mapInfo = internal_getMapInfo(index);
+	if (mapInfo) {
+		return mapInfo->zPos[posIndex];
+	}
+
+	return -1.0f;
+}
+
+EXPORT(const char*) GetInfoValue(int infoIndex) {
+	DEPRECATED;
+
+	const char* value = NULL;
+
+	try {
+		const InfoItem* infoItem = GetInfoItem(infoIndex);
+		value = GetStr(infoItem->GetValueAsString());
+	}
+	UNITSYNC_CATCH_BLOCKS;
+
+	return value;
+}
+
+EXPORT(const char*) GetPrimaryModName(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetNameVersioned();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(const char*) GetPrimaryModShortName(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetShortName();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(const char*) GetPrimaryModVersion(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetVersion();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(const char*) GetPrimaryModMutator(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetMutator();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(const char*) GetPrimaryModGame(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetGame();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(const char*) GetPrimaryModShortGame(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetShortGame();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(const char*) GetPrimaryModDescription(int index)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckBounds(index, modData.size());
+
+		const std::string& x = modData[index].GetDescription();
+		return GetStr(x);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+EXPORT(int) OpenArchiveType(const char* name, const char* type)
+{
+	DEPRECATED;
+	try {
+		CheckInit();
+		CheckNullOrEmpty(name);
+		CheckNullOrEmpty(type);
+
+		IArchive* a = archiveLoader.OpenArchive(name, type);
+
+		if (!a) {
+			throw content_error("Archive '" + std::string(name) + "' could not be opened");
+		}
+
+		nextArchive++;
+		openArchives[nextArchive] = a;
+		return nextArchive;
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return 0;
+}
+
+// when removing this function, remove "std::string style" in Option.h, too
+EXPORT(const char*) GetOptionStyle(int optIndex)
+{
+	DEPRECATED;
+	try {
+		CheckOptionIndex(optIndex);
+		return GetStr(options[optIndex].style);
+	}
+	UNITSYNC_CATCH_BLOCKS;
+	return NULL;
+}
+
+
+#endif //
+/*
+**********************DEPRECATED SECTION END
+*/
 

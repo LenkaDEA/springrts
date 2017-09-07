@@ -6,10 +6,9 @@
 #include <string>
 
 class CBitmap;
-struct SDL_Surface;
+struct SDL_Window;
 
-struct WindowManagerHelper {
-public:
+namespace WindowManagerHelper {
 	/**
 	 * Sets the window-manager icon for the running process.
 	 * It will be displayed in the OS task-bar, for example.
@@ -19,19 +18,9 @@ public:
 	 * @see SDL_WM_SetIcon()
 	 * Note: Must be called before the first call to SDL_SetVideoMode.
 	 */
-	static void SetIcon(const CBitmap* icon);
+	void SetIcon(const CBitmap* icon);
+	void FreeIcon();
 
-	/**
-	 * Sets the window-manager captions/titles for the running process.
-	 * @param title will be displayed in the window title (in windowed mode)
-	 *   example: "MyGame 1.0 - Chicken Mode (Spring 0.83.0.1)"
-	 * @param titleShort will be displayed in the OS task-bar
-	 *   example: "MyGame"
-	 *   This may only ever be used under X11, but not QT(KDE) or Windows.
-	 * @see SDL_WM_SetCaption()
-	 */
-	static void SetCaption(const std::string& title,
-			const std::string& titleShort);
 	/**
 	 * Sets the window-manager caption/title for the running process.
 	 * @param title will be displayed in the window title (in windowed mode)
@@ -39,10 +28,18 @@ public:
 	 *   example: "MyGame"
 	 * @see #SetCaption(const std::string&, const std::string&)
 	 */
-	static void SetCaption(const std::string& title);
+	void SetCaption(const std::string& title);
 
-private:
-	static SDL_Surface* currentIcon;
+
+	/**
+	 * @brief disables desktop compositing (kwin, aero, compiz, ...) to fix tearing & vsync problems
+	 */
+	void BlockCompositing(SDL_Window* window);
+
+	/**
+	 * @brief returns the window-state of the given window in SDL_GetWindowFlags() format
+	 */
+	int GetWindowState(SDL_Window* window);
 };
 
 #endif // WINDOW_MANAGER_HELPER_H

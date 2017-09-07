@@ -1,24 +1,22 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "System/creg/STL_Map.h"
 #include "GeometricObjects.h"
 #include "Map/ReadMap.h"
 #include "Sim/Projectiles/ProjectileHandler.h"
-#include "Sim/Projectiles/Unsynced/GeoSquareProjectile.h"
+#include "Rendering/Env/Particles/Classes/GeoSquareProjectile.h"
 
-CR_BIND(CGeometricObjects, );
-CR_BIND(CGeometricObjects::GeoGroup, );
+CR_BIND(CGeometricObjects, )
+CR_BIND(CGeometricObjects::GeoGroup, )
 
 CR_REG_METADATA(CGeometricObjects, (
-		CR_MEMBER(geoGroups),
-		CR_MEMBER(toBeDeleted),
-		CR_MEMBER(firstFreeGroup),
-		CR_RESERVED(16)
-		));
+	CR_MEMBER(geoGroups),
+	CR_MEMBER(toBeDeleted),
+	CR_MEMBER(firstFreeGroup)
+))
 
-CR_REG_METADATA_SUB(CGeometricObjects, GeoGroup, (CR_MEMBER(squares)));
+CR_REG_METADATA_SUB(CGeometricObjects, GeoGroup, (CR_MEMBER(squares)))
 
 
 CGeometricObjects* geometricObjects;
@@ -113,7 +111,7 @@ int CGeometricObjects::AddLine(float3 start, float3 end, float width, int arrow,
 		group = firstFreeGroup++;
 	}
 
-	float3 dir = (end - start).ANormalize();
+	float3 dir = (end - start).SafeANormalize();
 	if (arrow) {
 		CGeoSquareProjectile* gsp = new CGeoSquareProjectile(start, start*0.2f + end*0.8f, dir, dir, width*0.5f, width*0.5f);
 		geoGroups[group].squares.push_back(gsp);
@@ -146,9 +144,9 @@ void CGeometricObjects::Update()
 void CGeometricObjects::MarkSquare(int mapSquare) {
 
 	float3 startPos;
-	startPos.x = (int) (mapSquare * SQUARE_SIZE) % gs->mapx;
-	startPos.z = (int) (mapSquare * SQUARE_SIZE) / gs->mapx;
-	startPos.y = readmap->GetCenterHeightMapSynced()[mapSquare];
+	startPos.x = (int) (mapSquare * SQUARE_SIZE) % mapDims.mapx;
+	startPos.z = (int) (mapSquare * SQUARE_SIZE) / mapDims.mapx;
+	startPos.y = readMap->GetCenterHeightMapSynced()[mapSquare];
 
 	float3 endPos = startPos;
 	endPos.x += SQUARE_SIZE;

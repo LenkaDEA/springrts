@@ -3,17 +3,18 @@
 #ifndef _SMF_GROUND_TEXTURES_H_
 #define _SMF_GROUND_TEXTURES_H_
 
+#include <vector>
+
 #include "Map/BaseGroundTextures.h"
 #include "Rendering/GL/PBO.h"
 
-class CFileHandler;
+class CSMFMapFile;
 class CSMFReadMap;
 
 class CSMFGroundTextures: public CBaseGroundTextures
 {
 public:
 	CSMFGroundTextures(CSMFReadMap* rm);
-	~CSMFGroundTextures();
 
 	void DrawUpdate();
 	bool SetSquareLuaTexture(int texSquareX, int texSquareY, int texID);
@@ -21,16 +22,43 @@ public:
 	void BindSquareTexture(int texSquareX, int texSquareY);
 
 protected:
+	void LoadTiles(CSMFMapFile& file);
+	void LoadSquareTextures(const int mipLevel);
+	void ConvolveHeightMap(const int mapWidth, const int mipLevel);
+	bool RecompressTilesIfNeeded();
 	void ExtractSquareTiles(const int texSquareX, const int texSquareY, const int mipLevel, GLint* tileBuf) const;
 	void LoadSquareTexture(int x, int y, int level);
 
+	inline bool TexSquareInView(int, int) const;
+
 	CSMFReadMap* smfMap;
 
+private:
 	struct GroundSquare {
-		unsigned int texLevel;
-		unsigned int textureID;
-		unsigned int lastBoundFrame;
-		bool luaTexture;
+		enum {
+			RAW_TEX_IDX = 0,
+			LUA_TEX_IDX = 1,
+		};
+
+		GroundSquare(): textureIDs{0, 0}, texMipLevel(0), texDrawFrame(1) {}
+		~GroundSquare();
+
+		bool HasLuaTexture() const { return (textureIDs[LUA_TEX_IDX] != 0); }
+
+		void SetRawTexture(unsigned int id) { textureIDs[RAW_TEX_IDX] = id; }
+		void SetLuaTexture(unsigned int id) { textureIDs[LUA_TEX_IDX] = id; }
+		void SetMipLevel(unsigned int l) { texMipLevel = l; }
+		void SetDrawFrame(unsigned int f) { texDrawFrame = f; }
+
+		unsigned int* GetTextureIDPtr() { return &textureIDs[RAW_TEX_IDX]; }
+		unsigned int GetTextureID() const { return textureIDs[HasLuaTexture()]; }
+		unsigned int GetMipLevel() const { return texMipLevel; }
+		unsigned int GetDrawFrame() const { return texDrawFrame; }
+
+	private:
+		unsigned int textureIDs[2];
+		unsigned int texMipLevel;
+		unsigned int texDrawFrame;
 	};
 
 	std::vector<GroundSquare> squares;
@@ -38,15 +66,15 @@ protected:
 	std::vector<int> tileMap;
 	std::vector<char> tiles;
 
-	//! FIXME? these are not updated at runtime
+	// FIXME? these are not updated at runtime
 	std::vector<float> heightMaxima;
 	std::vector<float> heightMinima;
 	std::vector<float> stretchFactors;
 
-	//! use Pixel Buffer Objects for async. uploading (DMA)
+	// use Pixel Buffer Objects for async. uploading (DMA)
 	PBO pbo;
 
-	inline bool TexSquareInView(int, int) const;
+	int tileTexFormat;
 };
 
 #endif // _BF_GROUND_TEXTURES_H_

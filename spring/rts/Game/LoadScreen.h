@@ -4,15 +4,16 @@
 #define _LOAD_SCREEN_H
 
 #include <string>
-#include <boost/thread/thread.hpp>
 #include <boost/thread/recursive_mutex.hpp>
 
 #include "GameController.h"
-/// \#include "Rendering/GL/myGL.h"
 #include "System/LoadSave/LoadSaveHandler.h"
 #include "System/OffscreenGLContext.h"
 #include "System/Misc/SpringTime.h"
 
+namespace boost {
+	class thread;
+}
 
 class CLoadScreen : public CGameController
 {
@@ -39,15 +40,16 @@ public:
 	void ResizeEvent();
 
 	/// Called when a key is released by the user
-	int KeyReleased(unsigned short k);
+	int KeyReleased(int k);
 	/// Called when the key is pressed by the user (can be called several times due to key repeat)
-	int KeyPressed(unsigned short k,bool isRepeat);
+	int KeyPressed(int k,bool isRepeat);
 
 
 private:
 	void RandomStartPicture(const std::string& sidePref);
 	void LoadStartPicture(const std::string& picture);
 	void UnloadStartPicture();
+	void Stop();
 
 private:
 	static CLoadScreen* singleton;
@@ -62,7 +64,9 @@ private:
 	boost::recursive_mutex mutex;
 	boost::thread* netHeartbeatThread;
 	COffscreenGLThread* gameLoadThread;
-	bool mt_loading;
+
+	bool mtLoading;
+	bool showMessages;
 
 	unsigned int startupTexture;
 	float aspectRatio;

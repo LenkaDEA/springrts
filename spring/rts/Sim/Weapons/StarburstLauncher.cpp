@@ -1,96 +1,58 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+#include "StarburstLauncher.h"
+#include "WeaponDef.h"
 #include "Game/TraceRay.h"
 #include "Map/Ground.h"
-#include "Sim/Misc/InterceptHandler.h"
-#include "Sim/Projectiles/WeaponProjectiles/StarburstProjectile.h"
+#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectileFactory.h"
 #include "Sim/Units/Unit.h"
-#include "StarburstLauncher.h"
-#include "WeaponDefHandler.h"
-#include "System/mmgr.h"
 
-CR_BIND_DERIVED(CStarburstLauncher, CWeapon, (NULL));
+CR_BIND_DERIVED(CStarburstLauncher, CWeapon, (NULL, NULL))
 
-CR_REG_METADATA(CStarburstLauncher,(
+CR_REG_METADATA(CStarburstLauncher, (
 	CR_MEMBER(uptime),
-	CR_MEMBER(tracking),
-	CR_RESERVED(8)
-	));
+	CR_MEMBER(tracking)
+))
 
-CStarburstLauncher::CStarburstLauncher(CUnit* owner)
-: CWeapon(owner),
-	tracking(0),
-	uptime(3)
+CStarburstLauncher::CStarburstLauncher(CUnit* owner, const WeaponDef* def): CWeapon(owner, def)
 {
-}
-
-CStarburstLauncher::~CStarburstLauncher(void)
-{
-}
-
-void CStarburstLauncher::Update(void)
-{
-	if (targetType != Target_None) {
-		weaponPos = owner->pos +
-			owner->frontdir * relWeaponPos.z +
-			owner->updir    * relWeaponPos.y +
-			owner->rightdir * relWeaponPos.x;
-		weaponMuzzlePos = owner->pos +
-			owner->frontdir * relWeaponMuzzlePos.z +
-			owner->updir    * relWeaponMuzzlePos.y +
-			owner->rightdir * relWeaponMuzzlePos.x;
-
-		// the aiming upward is apperently implicid so aim toward target
-		wantedDir = (targetPos - weaponPos).Normalize();
+	//happens when loading
+	if (def != nullptr) {
+		tracking = weaponDef->turnrate * def->tracks;
+		uptime = (def->uptime * GAME_SPEED);
 	}
-
-	CWeapon::Update();
 }
 
-void CStarburstLauncher::FireImpl()
+
+void CStarburstLauncher::FireImpl(const bool scriptCall)
 {
-	float3 speed(0.0f, weaponDef->startvelocity, 0.0f);
+	const float3 speed = ((weaponDef->fixedLauncher)? weaponDir: UpVector) * weaponDef->startvelocity;
+	const float3 aimError = (gs->randVector() * SprayAngleExperience() + SalvoErrorExperience());
 
-	if (weaponDef->fixedLauncher) {
-		speed = weaponDir * weaponDef->startvelocity;
-	}
+	ProjectileParams params = GetProjectileParams();
+	params.pos = weaponMuzzlePos + UpVector * 2.0f;
+	params.end = currentTargetPos;
+	params.speed = speed;
+	params.error = aimError;
+	params.ttl = 200; //???
+	params.tracking = tracking;
+	params.maxRange = (weaponDef->flighttime > 0 || weaponDef->fixedLauncher)? MAX_PROJECTILE_RANGE: range;
 
-	const float maxRange = (weaponDef->flighttime > 0 || weaponDef->fixedLauncher)?
-		MAX_PROJECTILE_RANGE: range;
-	const float3 aimError =
-		(gs->randVector() * sprayAngle + salvoError) *
-		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
-
-	CStarburstProjectile* p =
-		new CStarburstProjectile(weaponMuzzlePos + float3(0, 2, 0), speed, owner,
-		targetPos, damageAreaOfEffect, projectileSpeed, tracking, (int) uptime, targetUnit,
-		weaponDef, interceptTarget, maxRange, aimError);
-
-	if (weaponDef->targetable)
-		interceptHandler.AddInterceptTarget(p, targetPos);
+	WeaponProjectileFactory::LoadProjectile(params);
 }
 
-bool CStarburstLauncher::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
+bool CStarburstLauncher::HaveFreeLineOfFire(const float3 pos, const SWeaponTarget& trg, bool useMuzzle) const
 {
-	if (!CWeapon::TryTarget(pos, userTarget, unit))
-		return false;
-
-	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
-		return false;
-
 	const float3& wdir = weaponDef->fixedLauncher? weaponDir: UpVector;
 
-	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, wdir, 100.0f, 0.0f, owner->allyteam, true, false, false, owner)) {
-		return false;
-	}
-	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, wdir, 100.0f, 0.0f, owner->allyteam, false, true, false, owner)) {
+	if (TraceRay::TestCone(weaponMuzzlePos, wdir, 100.0f, 0.0f, owner->allyteam, avoidFlags, owner)) {
 		return false;
 	}
 
 	return true;
 }
 
-float CStarburstLauncher::GetRange2D(float yDiff) const
+float CStarburstLauncher::GetRange2D(const float yDiff) const
 {
-	return range + (yDiff * heightMod);
+	return range + (yDiff * weaponDef->heightmod);
 }

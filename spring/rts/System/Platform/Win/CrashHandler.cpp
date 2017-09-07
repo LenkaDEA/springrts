@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "lib/gml/gml.h"
 #include <windows.h>
 #include <process.h>
 #include <imagehlp.h>
@@ -11,7 +10,7 @@
 #include "System/Log/ILog.h"
 #include "System/Log/LogSinkHandler.h"
 #include "System/LogOutput.h"
-#include "System/NetProtocol.h"
+#include "Net/Protocol/NetProtocol.h"
 #include "seh.h"
 #include "System/Util.h"
 #include "System/SafeCStrings.h"
@@ -25,6 +24,7 @@
 namespace CrashHandler {
 
 CRITICAL_SECTION stackLock;
+bool imageHelpInitialised = false;
 int stackLockInit() { InitializeCriticalSection(&stackLock); return 0; }
 int dummyStackLock = stackLockInit();
 
@@ -69,16 +69,23 @@ static const char* ExceptionName(DWORD exceptionCode)
 }
 
 
-static bool InitImageHlpDll()
+bool InitImageHlpDll()
 {
+	if (imageHelpInitialised)
+		return true;
+
 	char userSearchPath[8];
 	STRCPY_T(userSearchPath, 8, ".");
 	// Initialize IMAGEHLP.DLL
 	// Note: For some strange reason it doesn't work ~4 times after it was loaded&unloaded the first time.
 	int i = 0;
 	do {
-		if (SymInitialize(GetCurrentProcess(), userSearchPath, TRUE))
+		if (SymInitialize(GetCurrentProcess(), userSearchPath, TRUE)) {
+			SymSetOptions(SYMOPT_LOAD_LINES);
+
+			imageHelpInitialised = true;
 			return true;
+		}
 		SymCleanup(GetCurrentProcess());
 		i++;
 	} while (i<20);
@@ -107,22 +114,23 @@ static DWORD __stdcall AllocTest(void *param) {
 }
 
 /** Print out a stacktrace. */
-static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hThread = INVALID_HANDLE_VALUE)
+inline static void StacktraceInline(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hThread = INVALID_HANDLE_VALUE, const int logLevel = LOG_LEVEL_ERROR)
 {
-	PIMAGEHLP_SYMBOL pSym;
-	STACKFRAME sf;
+	STACKFRAME64 sf;
 	HANDLE process, thread;
-	DWORD dwModBase, Disp, dwModAddrToPrint;
+	DWORD64 dwModBase;
+	DWORD dwModAddrToPrint;
 	BOOL more = FALSE;
 	int count = 0;
 	char modname[MAX_PATH];
 
 	process = GetCurrentProcess();
 
-	if(threadName)
-		LOG_L(L_ERROR, "Stacktrace (%s):", threadName);
-	else
-		LOG_L(L_ERROR, "Stacktrace:");
+	if (threadName != NULL) {
+		LOG_I(logLevel, "Stacktrace (%s) for Spring %s:", threadName, (SpringVersion::GetFull()).c_str());
+	} else {
+		LOG_I(logLevel, "Stacktrace for Spring %s:", (SpringVersion::GetFull()).c_str());
+	}
 
 	bool suspended = false;
 	CONTEXT c;
@@ -144,7 +152,7 @@ static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hT
 			CloseHandle(allocThread);
 			if (allocIter < 10)
 				continue;
-			LOG_L(L_ERROR, "Stacktrace failed, allocator deadlock");
+			LOG_I(logLevel, "Stacktrace failed, allocator deadlock");
 			return;
 		}
 
@@ -154,7 +162,7 @@ static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hT
 
 		if (!GetThreadContext(hThread, &c)) {
 			ResumeThread(hThread);
-			LOG_L(L_ERROR, "Stacktrace failed, failed to get context");
+			LOG_I(logLevel, "Stacktrace failed, failed to get context");
 			return;
 		}
 		thread = hThread;
@@ -207,27 +215,26 @@ static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hT
 	sf.AddrFrame.Mode = AddrModeFlat;
 
 	// use globalalloc to reduce risk for allocator related deadlock
-	pSym = (PIMAGEHLP_SYMBOL)GlobalAlloc(GMEM_FIXED, 16384);
 	char* printstrings = (char*)GlobalAlloc(GMEM_FIXED, 0);
 
 	bool containsOglDll = false;
 	while (true) {
-		more = StackWalk(
+		more = StackWalk64(
 			MachineType,
 			process,
 			thread,
 			&sf,
 			&c,
 			NULL,
-			SymFunctionTableAccess,
-			SymGetModuleBase,
+			SymFunctionTableAccess64,
+			SymGetModuleBase64,
 			NULL
 		);
-		if (!more || sf.AddrFrame.Offset == 0 || count > MAX_STACK_DEPTH) {
+		if (!more || /*sf.AddrFrame.Offset == 0 ||*/ count > MAX_STACK_DEPTH) {
 			break;
 		}
 
-		dwModBase = SymGetModuleBase(process, sf.AddrPC.Offset);
+		dwModBase = SymGetModuleBase64(process, sf.AddrPC.Offset);
 
 		if (dwModBase) {
 			GetModuleFileName((HINSTANCE)dwModBase, modname, MAX_PATH);
@@ -235,18 +242,31 @@ static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hT
 			strcpy(modname, "Unknown");
 		}
 
-		pSym->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL);
-		pSym->MaxNameLength = MAX_PATH;
-
 		char* printstringsnew = (char*) GlobalAlloc(GMEM_FIXED, (count + 1) * BUFFER_SIZE);
 		memcpy(printstringsnew, printstrings, count * BUFFER_SIZE);
 		GlobalFree(printstrings);
 		printstrings = printstringsnew;
 
-		if (SymGetSymFromAddr(process, sf.AddrPC.Offset, &Disp, pSym)) {
-			// This is the code path taken on VC if debugging syms are found.
-			SNPRINTF(printstrings + count * BUFFER_SIZE, BUFFER_SIZE, "(%d) %s(%s+%#0lx) [0x%08lX]", count, modname, pSym->Name, Disp, sf.AddrPC.Offset);
-		} else {
+#ifdef _MSC_VER
+		const int SYMLENGTH = 4096;
+		char symbuf[sizeof(SYMBOL_INFO) + SYMLENGTH];
+		PSYMBOL_INFO pSym = reinterpret_cast<SYMBOL_INFO*>(symbuf);
+
+		pSym->SizeOfStruct = sizeof(SYMBOL_INFO);
+		pSym->MaxNameLen = SYMLENGTH;
+
+		// Check if we have symbols, only works on VC (mingw doesn't have a compatible file format)
+		if (SymFromAddr(process, sf.AddrPC.Offset, nullptr, pSym)) {
+			IMAGEHLP_LINE64 line = { 0 };
+			line.SizeOfStruct = sizeof(line);
+
+			DWORD displacement;
+			SymGetLineFromAddr64(GetCurrentProcess(), sf.AddrPC.Offset, &displacement, &line);
+
+			SNPRINTF(printstrings + count * BUFFER_SIZE, BUFFER_SIZE, "(%d) %s:%u %s [0x%08llX]", count , line.FileName ? line.FileName : "<unknown>", line.LineNumber, pSym->Name, sf.AddrPC.Offset);
+		} else 
+#endif
+		{
 			// This is the code path taken on MinGW, and VC if no debugging syms are found.
 			if (strstr(modname, ".exe")) {
 				// for the .exe, we need the absolute address
@@ -273,49 +293,50 @@ static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hT
 	}
 
 	if (containsOglDll) {
-		LOG_L(L_ERROR, "This stack trace indicates a problem with your graphic card driver. "
+		LOG_I(logLevel, "This stack trace indicates a problem with your graphic card driver. "
 		      "Please try upgrading or downgrading it. "
 		      "Specifically recommended is the latest driver, and one that is as old as your graphic card. "
 		      "Make sure to use a driver removal utility, before installing other drivers.");
 	}
 
 	for (int i = 0; i < count; ++i) {
-		LOG_L(L_ERROR, "%s", printstrings + i * BUFFER_SIZE);
+		LOG_I(logLevel, "%s", printstrings + i * BUFFER_SIZE);
 	}
 
 	GlobalFree(printstrings);
-	GlobalFree(pSym);
+}
+
+static void Stacktrace(const char *threadName, LPEXCEPTION_POINTERS e, HANDLE hThread = INVALID_HANDLE_VALUE, const int logLevel = LOG_LEVEL_ERROR) {
+	StacktraceInline(threadName, e, hThread, logLevel);
 }
 
 
-void Stacktrace(Threading::NativeThreadHandle thread, const std::string& threadName)
+void Stacktrace(Threading::NativeThreadHandle thread, const std::string& threadName, const int logLevel)
 {
-	Stacktrace(threadName.c_str(), NULL, thread);
+	Stacktrace(threadName.c_str(), NULL, thread, logLevel);
 }
 
-void PrepareStacktrace() {
+void PrepareStacktrace(const int logLevel) {
 	EnterCriticalSection( &stackLock );
 
 	InitImageHlpDll();
 
 	// Record list of loaded DLLs.
-	LOG_L(L_ERROR, "DLL information:");
-	SymEnumerateModules(GetCurrentProcess(), EnumModules, NULL);
+	LOG_I(logLevel, "DLL information:");
+	SymEnumerateModules(GetCurrentProcess(), (PSYM_ENUMMODULES_CALLBACK)EnumModules, NULL);
 }
 
-void CleanupStacktrace() {
+void CleanupStacktrace(const int logLevel) {
 	LOG_CLEANUP();
 	// Unintialize IMAGEHLP.DLL
 	SymCleanup(GetCurrentProcess());
+	imageHelpInitialised = false;
 
 	LeaveCriticalSection( &stackLock );
 }
 
 void OutputStacktrace() {
-	LOG_L(L_ERROR, "Error handler invoked for Spring %s.", SpringVersion::GetFull().c_str());
-#ifdef USE_GML
-	LOG_L(L_ERROR, "MT with %d threads.", GML::ThreadCount());
-#endif
+	LOG_L(L_ERROR, "Error handler invoked for Spring %s.", (SpringVersion::GetFull()).c_str());
 
 	PrepareStacktrace();
 
@@ -337,21 +358,17 @@ LONG CALLBACK ExceptionHandler(LPEXCEPTION_POINTERS e)
 {
 	// Prologue.
 	logSinkHandler.SetSinking(false);
-	LOG_L(L_ERROR, "Spring %s has crashed.", SpringVersion::GetFull().c_str());
-#ifdef USE_GML
-	LOG_L(L_ERROR, "MT with %d threads.", GML::ThreadCount());
-#endif
-
+	LOG_L(L_ERROR, "Spring %s has crashed.", (SpringVersion::GetFull()).c_str());
 	PrepareStacktrace();
 
 	const std::string error(ExceptionName(e->ExceptionRecord->ExceptionCode));
 
 	// Print exception info.
 	LOG_L(L_ERROR, "Exception: %s (0x%08lx)", error.c_str(), e->ExceptionRecord->ExceptionCode);
-	LOG_L(L_ERROR, "Exception Address: 0x%08lx", (unsigned long int) (PVOID) e->ExceptionRecord->ExceptionAddress);
+	LOG_L(L_ERROR, "Exception Address: 0x%p", (PVOID) e->ExceptionRecord->ExceptionAddress);
 
 	// Print stacktrace.
-	Stacktrace(NULL, e);
+	StacktraceInline(NULL, e); // inline: avoid modifying the stack, it might confuse StackWalk when using the context record passed to ExceptionHandler
 
 	CleanupStacktrace();
 

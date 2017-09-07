@@ -31,7 +31,7 @@ Set(VERSION_REGEX_PATCH "${D10}+")
 Set(VERSION_REGEX_PATCH_MATCH_EXAMPLES "\"0\", \"5\", \"999\"")
 
 # Matches the engine dev version postfix (".1-<#commits>-g<SHA1> <branch>")
-Set(VERSION_REGEX_DEV_POSTFIX "[.]1-(${D10}+)-g(${D16}${D16}${D16}${D16}${D16}${D16}${D16}) ([^ ]+)")
+Set(VERSION_REGEX_DEV_POSTFIX "[.]1-(${D10}+)-g(${D16}+) ([^ ]+)")
 Set(VERSION_REGEX_DEV_POSTFIX_MATCH_EXAMPLES "\".1-13-g1234aaf develop\", \".1-1354-g1234567 release\"")
 
 
@@ -47,7 +47,7 @@ Set(VERSION_REGEX_RELEASE_MATCH_EXAMPLES "\"83.0\", \"84.1\"")
 Set(VERSION_REGEX_DEV "${VERSION_REGEX_RELEASE}${VERSION_REGEX_DEV_POSTFIX}")
 Set(VERSION_REGEX_DEV_MATCH_EXAMPLES "\"83.0.1-13-g1234aaf develop\", \"84.1.1-1354-g1234567 release\"")
 Set(VERSION_REGEX_ANY "${VERSION_REGEX_RELEASE}(${VERSION_REGEX_DEV_POSTFIX})?")
-Set(VERSION_REGEX_ANY_MATCH_EXAMPLES "\"83.0\", \"84.1\", \"83.0.1-13-g1234aaf develop\", \"84.1.1-1354-g1234567 release\"")
+Set(VERSION_REGEX_ANY_MATCH_EXAMPLES "83.0" "84.1" "83.0.1-13-g1234aaf develop" "84.1.1-1354-g1234567 release" "98.0.1-847-g61dee311 develop")
 
 
 # Parses a Spring version string into one var for each part of the version.
@@ -123,7 +123,6 @@ Macro    (GetVersionFromFile vers_var vers_file)
 			Set(${vers_var}-NOTFOUND "1")
 		EndIf ()
 	Else  (EXISTS "${vers_file}")
-		#Set(${vers_var} "UNKNOWN_VERSION")
 		Set(${vers_var}-NOTFOUND "1")
 	EndIf (EXISTS "${vers_file}")
 EndMacro (GetVersionFromFile)
@@ -150,7 +149,7 @@ Macro    (FetchSpringVersion dir prefix)
 		EndIf  (NOT GIT_FOUND)
 
 		# Fetch git version info
-		Git_Util_Describe(${prefix}_Describe ${dir} "*.*")
+		Git_Util_Describe(${prefix}_Describe ${dir} "*")
 		If     (NOT ${prefix}_Describe)
 			Message(FATAL_ERROR "Failed to fetch git-describe for ${prefix}.")
 		EndIf  (NOT ${prefix}_Describe)
@@ -162,7 +161,7 @@ Macro    (FetchSpringVersion dir prefix)
 		If     (NOT ${prefix}_IsRelease)
 			# We always want the long git-describe output on non-releases
 			# for example: 83.0.1-0-g1234567
-			Git_Util_Describe(${prefix}_Describe ${dir} "*.*" --long)
+			Git_Util_Describe(${prefix}_Describe ${dir} "*" --long)
 		EndIf  (NOT ${prefix}_IsRelease)
 
 		Git_Util_Branch(${prefix}_Branch ${dir})
@@ -183,12 +182,30 @@ Macro    (FetchSpringVersion dir prefix)
 	Else   (EXISTS "${dir}/.git")
 		# Try to fetch version through VERSION file
 		GetVersionFromFile(${prefix}_VERSION "${dir}/VERSION")
-		If    (NOT "${${prefix}_VERSION}" STREQUAL "UNKNOWN_VERSION")
-			Message(STATUS "${prefix} version fetched from VERSION file: ${${prefix}_VERSION}")
-		Else  (NOT "${${prefix}_VERSION}" STREQUAL "UNKNOWN_VERSION")
+		If    (${${prefix}_VERSION-NOTFOUND})
 			Message(FATAL_ERROR "Failed to fetch ${prefix} version.")
-		EndIf (NOT "${${prefix}_VERSION}" STREQUAL "UNKNOWN_VERSION")
+		Else  (${${prefix}_VERSION-NOTFOUND})
+			Message(STATUS "${prefix} version fetched from VERSION file: ${${prefix}_VERSION}")
+		EndIf (${${prefix}_VERSION-NOTFOUND})
 	EndIf  (EXISTS "${dir}/.git")
+
+	if(DEFINED ENV{CI})
+		Message(STATUS "Build on travis-ci detected, not checking version (git clone --depth=...)")
+	else()
+		if(NOT "${${prefix}_VERSION}" MATCHES "^${VERSION_REGEX_ANY}$")
+			Message(FATAL_ERROR "Invalid version format: ${${prefix}_VERSION}")
+		endif()
+	endif()
 EndMacro (FetchSpringVersion)
 
+Macro (TestVersion)
+	foreach(version ${VERSION_REGEX_ANY_MATCH_EXAMPLES})
+		if(NOT "${version}" MATCHES "^${VERSION_REGEX_ANY}$")
+			message(STATUS "^${VERSION_REGEX_ANY}$")
+			Message(FATAL_ERROR "Invalid version format: ${version}")
+		endif()
+	endforeach()
+EndMacro()
+
+#TestVersion()
 

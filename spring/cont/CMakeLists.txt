@@ -1,23 +1,7 @@
-
 # required for man pages (optional) and base files (mandatory)
-FIND_PACKAGE(SevenZip REQUIRED)
 
 ### Make base-files (aka sdz's)
-file (TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/base" BASE_BUILD_DIR)
-if    (CMAKE_HOST_WIN32)
-	# As TO_NATIVE_PATH fails on windows, we need to do it manually
-	string(REPLACE "/" "\\" BASE_BUILD_DIR "${BASE_BUILD_DIR}")
-	set(BASE_BUILD_COMMAND call make_gamedata_arch.bat)
-else  (CMAKE_HOST_WIN32)
-	set(BASE_BUILD_COMMAND sh ./make_gamedata_arch.sh)
-endif (CMAKE_HOST_WIN32)
-add_custom_target(gamedata ALL
-	COMMAND ${BASE_BUILD_COMMAND}
-		${BASE_BUILD_DIR}
-		${SEVENZIP_BIN}
-	WORKING_DIRECTORY
-		"${CMAKE_CURRENT_SOURCE_DIR}/base"
-	)
+add_subdirectory(base)
 
 ### Install base-files
 install (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION ${DATADIR}
@@ -29,11 +13,8 @@ install (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION ${DATADIR}
 		PATTERN "CMakeFiles" EXCLUDE
 		PATTERN "Makefile" EXCLUDE
 		PATTERN "cmake_install.cmake" EXCLUDE
+		PATTERN "springrc-template-insource.txt" EXCLUDE
 	)
-
-### Install content
-install (DIRECTORY ${CMAKE_BINARY_DIR}/base DESTINATION ${DATADIR})
-
 
 ### Install freedesktop-files, mime-types etc.
 if    (UNIX)
@@ -58,9 +39,30 @@ if    (UNIX)
 		)
 endif (UNIX)
 
+if (NOT EXISTS ${Spring_BINARY_DIR}/springsettings.cfg)
+	if(WIN32)
+		set(PLACEHOLDER ";")
+	else()
+		set(PLACEHOLDER ":")
+	endif()
+	set("SpringDataDirInSource" "${Spring_BINARY_DIR}${PLACEHOLDER}${Spring_SOURCE_DIR}/cont")
+	configure_file(springrc-template-insource.txt ${Spring_BINARY_DIR}/springsettings.cfg)
+else()
+	message(STATUS "${Spring_BINARY_DIR}/springsettings.cfg already exists!")
+endif()
 
 ### Install dependencies (windows, mingwlibs DLLs)
 if    (MINGW)
 	install (DIRECTORY ${MINGWLIBS}/dll/ DESTINATION ${BINDIR} PATTERN "*.dll")
+
+	#execute_process(COMMAND ${CMAKE_CXX_COMPILER} "-print-file-name=libstdc++-6.dll" OUTPUT_VARIABLE STDCXX_LIBRARY OUTPUT_STRIP_TRAILING_WHITESPACE)
+	#install(FILES ${STDCXX_LIBRARY} DESTINATION ${BINDIR})
+
+	# pthreadGC2 is a dependency of ThreadPool
+#	find_library(PTHREADGC2_LIBRARY NAMES pthreadGC2)
+#	if(NOT EXISTS ${PTHREADGC2_LIBRARY})
+#		message(SEND_ERROR "pthreadGC2 not found!")
+#	endif()
+#	install(FILES ${PTHREADGC2_LIBRARY} DESTINATION ${BINDIR})
 endif (MINGW)
 

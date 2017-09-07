@@ -5,136 +5,122 @@
  * Classes for serialization of registrated class instances
  */
 
-#include <map>
+#include <unordered_map>
 #include <vector>
 #include <string>
 #include <string.h>
 
-#include "System/mmgr.h"
-
-// creg has to be made aware of mmgr explicitly
-#ifdef USE_MMGR
-# undef new
-# undef delete
-# define	operator_new		(m_setOwner  (__FILE__,__LINE__,__FUNCTION__),false) ? NULL : ::operator new
-# define	operator_delete		(m_setOwner  (__FILE__,__LINE__,__FUNCTION__),false) ? m_setOwner("",0,"") : ::operator delete
-#else
-# define	operator_new		::operator new
-# define	operator_delete		::operator delete
-#endif
-
-#include "System/Util.h"
-
 #include "creg_cond.h"
+#include "System/Util.h"
+#include "System/Sync/HsiehHash.h"
+
 
 using namespace creg;
-using std::map;
-using std::vector;
-using std::string;
 
-static map<string, Class*> mapNameToClass;
-static int currentMemberFlags = 0; // used when registering class members
+// -------------------------------------------------------------------
+// some local statics, needed cause we work with global static vars
+// -------------------------------------------------------------------
+
+static std::unordered_map<const Class*, std::vector<Class*>>& derivedClasses()
+{
+	// note: we cannot save this in `class Class`, cause those are created with
+	//   global statics, and those have an arbitrary init order. And when a Class
+	//   gets created, it doesn't mean its parent class already has. (Still its
+	//   pointer is already valid!)
+	//   So we cannot access other's Class' members that early in the loading
+	//   stage, that's solved with these local static vars, which get created
+	//   on access.
+	static std::unordered_map<const Class*, std::vector<Class*>> m;
+	return m;
+}
+
+static std::unordered_map<std::string, Class*>& mapNameToClass()
+{
+	static std::unordered_map<std::string, Class*> m;
+	return m;
+}
+
+static std::vector<Class*>& classes()
+{
+	static std::vector<Class*> v;
+	return v;
+}
 
 // -------------------------------------------------------------------
 // Class Binder
 // -------------------------------------------------------------------
 
-ClassBinder* System::binderList = 0;
-vector<Class*> System::classes;
-
-ClassBinder::ClassBinder(const char* className, unsigned int cf,
-		ClassBinder* baseClsBinder, IMemberRegistrator** mreg, int instanceSize,
+ClassBinder::ClassBinder(const char* className, ClassFlags cf,
+		ClassBinder* baseClsBinder, void (*memberRegistrator)(creg::Class*), int instanceSize, int instanceAlignment, bool hasVTable, bool isCregStruct,
 		void (*constructorProc)(void* inst), void (*destructorProc)(void* inst))
-	: class_(NULL)
+	: class_(className)
 	, base(baseClsBinder)
-	, flags((ClassFlags)cf)
-	, memberRegistrator(mreg)
+	, flags(cf)
 	, name(className)
 	, size(instanceSize)
+	, alignment(instanceAlignment)
+	, hasVTable(hasVTable)
+	, isCregStruct(isCregStruct)
 	, constructor(constructorProc)
 	, destructor(destructorProc)
-	, nextBinder(NULL)
 {
+	class_.binder = this;
+	class_.size = instanceSize;
+	class_.alignment = instanceAlignment;
+	System::AddClass(&class_);
 
-	// link to the list of class binders
-	System::AddClassBinder(this);
-}
-
-void System::InitializeClasses()
-{
-	// Create Class instances
-	for (ClassBinder* c = binderList; c; c = c->nextBinder) {
-		c->class_ = new Class;
+	if (base) {
+		derivedClasses()[&base->class_].push_back(&class_);
 	}
 
-	// Initialize class instances
-	for (ClassBinder* c = binderList; c; c = c->nextBinder) {
-		Class* cls = c->class_;
-
-		cls->binder = c;
-		cls->name = c->name;
-		cls->base = c->base ? c->base->class_ : 0;
-		mapNameToClass [cls->name] = cls;
-
-		if (cls->base) {
-			cls->base->derivedClasses.push_back(cls);
-		}
-
-		currentMemberFlags = 0;
-		// Register members
-		if (*c->memberRegistrator) {
-			(*c->memberRegistrator)->RegisterMembers(cls);
-		}
-
-		classes.push_back(cls);
-	}
+	// Register members
+	assert(memberRegistrator);
+	memberRegistrator(&class_);
 }
 
-void System::FreeClasses()
+
+// -------------------------------------------------------------------
+// System
+// -------------------------------------------------------------------
+
+const std::vector<Class*>& System::GetClasses()
 {
-	for (uint a = 0; a < classes.size(); a++) {
-		delete classes[a];
-	}
-	classes.clear();
+	return classes();
 }
 
-Class* System::GetClass(const string& name)
+Class* System::GetClass(const std::string& name)
 {
-	map<string, Class*>::iterator c = mapNameToClass.find(name);
-	if (c == mapNameToClass.end()) {
+	const auto it = mapNameToClass().find(name);
+	if (it == mapNameToClass().end()) {
 		return NULL;
 	}
-	return c->second;
+	return it->second;
 }
 
-void System::AddClassBinder(ClassBinder* cb)
+void System::AddClass(Class* c)
 {
-	cb->nextBinder = binderList;
-	binderList = cb;
+	classes().push_back(c);
+	mapNameToClass()[c->name] = c;
 }
+
 
 // ------------------------------------------------------------------
 // creg::Class: Class description
 // ------------------------------------------------------------------
 
-Class::Class() :
-	binder(0),
-	base(0),
-	serializeProc(0),
-	postLoadProc(0)
-{}
-
-Class::~Class()
+Class::Class(const char* _name)
+: binder(nullptr)
+, size(0)
+, alignment(0)
+, currentMemberFlags(0)
 {
-	for (unsigned int a = 0; a < members.size(); a++) {
-		delete members[a];
-	}
-	members.clear();
+	name = _name;
 }
 
-bool Class::IsSubclassOf(Class* other)
+
+bool Class::IsSubclassOf(Class* other) const
 {
-	for (Class* c = this; c; c = c->base) {
+	for (const Class* c = this; c; c = c->base()) {
 		if (c == other) {
 			return true;
 		}
@@ -147,8 +133,7 @@ std::vector<Class*> Class::GetImplementations()
 {
 	std::vector<Class*> classes;
 
-	for (unsigned int a = 0; a < derivedClasses.size(); a++) {
-		Class* dc = derivedClasses[a];
+	for (Class* dc: derivedClasses()[this]) {
 		if (!dc->IsAbstract()) {
 			classes.push_back(dc);
 		}
@@ -159,6 +144,13 @@ std::vector<Class*> Class::GetImplementations()
 
 	return classes;
 }
+
+
+const std::vector<Class*>& Class::GetDerivedClasses() const
+{
+	return derivedClasses()[this];
+}
+
 
 void Class::BeginFlag(ClassMemberFlag flag)
 {
@@ -175,47 +167,38 @@ void Class::SetFlag(ClassFlags flag)
 	binder->flags = (ClassFlags) (binder->flags | flag);
 }
 
-void Class::AddMember(const char* name, IType* type, unsigned int offset)
+void Class::AddMember(const char* name, boost::shared_ptr<IType> type, unsigned int offset, int alignment)
 {
-	Member* member = new Member;
+	assert(!FindMember(name, false));
 
-	member->name = name;
-	member->offset = offset;
-	member->type = boost::shared_ptr<IType>(type);
-	member->flags = currentMemberFlags;
+	members.emplace_back();
+	Member& m = members.back();
 
-	members.push_back(member);
+	m.name = name;
+	m.offset = offset;
+	m.type = type;
+	m.alignment = alignment;
+	m.flags = currentMemberFlags;
 }
 
-void Class::AddMember(const char* name, boost::shared_ptr<IType> type, unsigned int offset)
+Class::Member* Class::FindMember(const char* name, const bool inherited)
 {
-	Member* member = new Member;
-
-	member->name = name;
-	member->offset = offset;
-	member->type = type;
-	member->flags = currentMemberFlags;
-
-	members.push_back(member);
-}
-
-Class::Member* Class::FindMember(const char* name)
-{
-	for (Class* c = this; c; c = c->base) {
-		for (uint a = 0; a < c->members.size(); a++) {
-			Member* member = c->members[a];
-			if (!STRCASECMP(member->name, name))
-				return member;
+	for (Class* c = this; c; c = c->base()) {
+		for (Member& m: members) {
+			if (!STRCASECMP(m.name, name))
+				return &m;
 		}
+		if (!inherited)
+			return nullptr;
 	}
-	return NULL;
+	return nullptr;
 }
 
 void Class::SetMemberFlag(const char* name, ClassMemberFlag f)
 {
-	for (uint a = 0; a < members.size(); a++) {
-		if (!strcmp(members[a]->name, name)) {
-			members[a]->flags |= (int)f;
+	for (Member& m: members) {
+		if (!strcmp(m.name, name)) {
+			m.flags |= (int)f;
 			break;
 		}
 	}
@@ -223,7 +206,7 @@ void Class::SetMemberFlag(const char* name, ClassMemberFlag f)
 
 void* Class::CreateInstance()
 {
-	void* inst = operator_new(binder->size);
+	void* inst = ::operator new(binder->size);
 
 	if (binder->constructor) {
 		binder->constructor(inst);
@@ -237,35 +220,19 @@ void Class::DeleteInstance(void* inst)
 		binder->destructor(inst);
 	}
 
-	operator_delete(inst);
-}
-
-static void StringHash(const std::string& str, unsigned int hash)
-{
-	unsigned int a = 63689;
-	for (std::string::const_iterator si = str.begin(); si != str.end(); ++si) {
-		hash = hash * a + (*si);
-		a *= 378551;
-	}
+	::operator delete(inst);
 }
 
 void Class::CalculateChecksum(unsigned int& checksum)
 {
-	for (size_t a = 0; a < members.size(); a++) {
-		Member* m = members[a];
-		checksum += m->flags;
-		StringHash(m->name, checksum);
+	for (Member& m: members) {
+		checksum += m.flags;
+		checksum = HsiehHash(m.name, strlen(m.name), checksum);
+		checksum = HsiehHash(m.type->GetName().data(), m.type->GetName().size(), checksum);
+		checksum += m.type->GetSize();
 	}
-	if (base) {
-		base->CalculateChecksum(checksum);
+	if (base()) {
+		base()->CalculateChecksum(checksum);
 	}
 }
-
-
-IType::~IType() {
-}
-
-IMemberRegistrator::~IMemberRegistrator() {
-}
-
 

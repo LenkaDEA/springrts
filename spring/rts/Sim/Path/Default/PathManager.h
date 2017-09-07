@@ -13,41 +13,43 @@
 class CSolidObject;
 class CPathFinder;
 class CPathEstimator;
+class PathFlowMap;
+class PathHeatMap;
 class CPathFinderDef;
 struct MoveDef;
-class CMoveMath;
 
 class CPathManager: public IPathManager {
 public:
 	CPathManager();
 	~CPathManager();
 
-	unsigned int GetPathFinderType() const { return PFS_TYPE_DEFAULT; }
-	boost::uint32_t GetPathCheckSum() const;
+	unsigned int GetPathFinderType() const override { return PFS_TYPE_DEFAULT; }
+	boost::uint32_t GetPathCheckSum() const override;
 
-	void Update();
-	void UpdatePath(const CSolidObject*, unsigned int);
+	boost::int64_t Finalize() override;
 
-	void DeletePath(unsigned int pathID);
+	void Update() override;
+	void UpdatePath(const CSolidObject*, unsigned int) override;
+	void DeletePath(unsigned int pathID) override;
 
 
 	float3 NextWayPoint(
+		const CSolidObject* owner,
 		unsigned int pathID,
+		unsigned int numRetries,
 		float3 callerPos,
-		float minDistance = 0.0f,
-		int numRetries = 0,
-		int ownerId = 0,
-		bool synced = true
-	);
+		float radius,
+		bool synced
+	) override;
 
 	unsigned int RequestPath(
+		CSolidObject* caller,
 		const MoveDef* moveDef,
-		const float3& startPos,
-		const float3& goalPos,
-		float goalRadius = 8.0f,
-		CSolidObject* caller = 0,
-		bool synced = true
-	);
+		float3 startPos,
+		float3 goalPos,
+		float goalRadius,
+		bool synced
+	) override;
 
 	/**
 	 * Returns waypoints of the max-resolution path segments.
@@ -68,33 +70,18 @@ public:
 	 */
 	void GetDetailedPathSquares(unsigned pathID, std::vector<int2>& points) const;
 
-	void GetPathWayPoints(unsigned int pathID, std::vector<float3>& points, std::vector<int>& starts) const;
+	void GetPathWayPoints(unsigned int pathID, std::vector<float3>& points, std::vector<int>& starts) const override;
 
-	void TerrainChange(unsigned int x1, unsigned int z1, unsigned int x2, unsigned int z2);
+	void TerrainChange(unsigned int x1, unsigned int z1, unsigned int x2, unsigned int z2, unsigned int type) override;
 
-	bool SetNodeExtraCost(unsigned int, unsigned int, float, bool);
-	bool SetNodeExtraCosts(const float*, unsigned int, unsigned int, bool);
-	float GetNodeExtraCost(unsigned int, unsigned int, bool) const;
-	const float* GetNodeExtraCosts(bool) const;
+	bool SetNodeExtraCost(unsigned int, unsigned int, float, bool) override;
+	bool SetNodeExtraCosts(const float*, unsigned int, unsigned int, bool) override;
+	float GetNodeExtraCost(unsigned int, unsigned int, bool) const override;
+	const float* GetNodeExtraCosts(bool) const override;
 
-
-	/** Enable/disable heat mapping */
-	void SetHeatMappingEnabled(bool enabled);
-	bool GetHeatMappingEnabled();
-
-	void SetHeatOnSquare(int x, int y, int value, int ownerId);
-	const int GetHeatOnSquare(int x, int y);
+	int2 GetNumQueuedUpdates() const override;
 
 private:
-	unsigned int RequestPath(
-		const MoveDef* moveDef,
-		const float3& startPos,
-		const float3& goalPos,
-		CPathFinderDef* peDef,
-		CSolidObject* caller,
-		bool synced = true
-	);
-
 	struct MultiPath {
 		MultiPath(const float3& pos, const CPathFinderDef* def, const MoveDef* moveDef)
 			: searchResult(IPath::Error)
@@ -123,16 +110,41 @@ private:
 		CSolidObject* caller;
 	};
 
-	unsigned int Store(MultiPath* path);
-	void LowRes2MedRes(MultiPath& path, const float3& startPos, int ownerId, bool synced) const;
-	void MedRes2MaxRes(MultiPath& path, const float3& startPos, int ownerId, bool synced) const;
+private:
+	IPath::SearchResult ArrangePath(
+		MultiPath* newPath,
+		const MoveDef* moveDef,
+		const float3& startPos,
+		const float3& goalPos,
+		CPathFinderDef* peDef,
+		CSolidObject* caller
+	) const;
 
+	inline MultiPath* GetMultiPath(int pathID) const;
+	unsigned int Store(MultiPath* path);
+	static void FinalizePath(MultiPath* path, const float3 startPos, const float3 goalPos, const bool cantGetCloser);
+	void LowRes2MedRes(MultiPath& path, const float3& startPos, const CSolidObject* owner, bool synced) const;
+	void MedRes2MaxRes(MultiPath& path, const float3& startPos, const CSolidObject* owner, bool synced) const;
+
+	bool IsFinalized() const { return (maxResPF != NULL); }
+
+private:
 	CPathFinder* maxResPF;
 	CPathEstimator* medResPE;
 	CPathEstimator* lowResPE;
 
+	PathFlowMap* pathFlowMap;
+	PathHeatMap* pathHeatMap;
+
 	std::map<unsigned int, MultiPath*> pathMap;
 	unsigned int nextPathID;
 };
+
+inline CPathManager::MultiPath* CPathManager::GetMultiPath(int pathID) const {
+	const std::map<unsigned int, MultiPath*>::const_iterator pi = pathMap.find(pathID);
+	if (pi == pathMap.end())
+		return NULL;
+	return pi->second;
+}
 
 #endif

@@ -1,26 +1,23 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "LobbyConnection.h"
 #include "SelectMenu.h"
 
-#include <SDL_keysym.h>
-#include <SDL_timer.h>
+#include <SDL_keycode.h>
 #include <boost/bind.hpp>
 #include <sstream>
 #include <stack>
 #include <boost/cstdint.hpp>
 
 #include "SelectionWidget.h"
-#include "ScriptHandler.h"
+#include "System/AIScriptHandler.h"
 #include "Game/ClientSetup.h"
 #include "Game/GlobalUnsynced.h"
 #include "Game/PreGame.h"
-#include "Rendering/glFont.h"
+#include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
-#include "System/TdfParser.h"
 #include "System/Util.h"
 #include "System/Input/InputHandler.h"
 #include "System/FileSystem/ArchiveScanner.h"
@@ -28,6 +25,7 @@
 #include "System/FileSystem/VFSHandler.h"
 #include "System/FileSystem/FileSystem.h"
 #include "System/MsgStrings.h"
+#include "System/StartScriptGen.h"
 #include "aGui/Gui.h"
 #include "aGui/VerticalLayout.h"
 #include "aGui/HorizontalLayout.h"
@@ -37,14 +35,15 @@
 #include "aGui/Window.h"
 #include "aGui/Picture.h"
 #include "aGui/List.h"
+#include "alphanum.hpp"
 
 using std::string;
 using agui::Button;
 using agui::HorizontalLayout;
 
-CONFIG(std::string, address).defaultValue("");
-CONFIG(bool, NoHelperAIs).defaultValue(false);
-CONFIG(std::string, LastSelectedSetting).defaultValue("");
+CONFIG(std::string, address).defaultValue("").description("Last Ip/hostname used as direct connect in the menu.");
+CONFIG(std::string, LastSelectedSetting).defaultValue("").description("Stores the previously selected setting, when editing settings within the Spring main menu.");
+CONFIG(std::string, MenuArchive).defaultValue("Spring Bitmaps").description("Archive name for the default Menu.");
 
 class ConnectWindow : public agui::Window
 {
@@ -70,7 +69,7 @@ public:
 		GeometryChange();
 	}
 
-	boost::signal<void (std::string)> Connect;
+	boost::signals2::signal<void (std::string)> Connect;
 	agui::LineEdit* address;
 
 private:
@@ -108,7 +107,7 @@ public:
 		GeometryChange();
 	}
 
-	boost::signal<void (std::string)> OK;
+	boost::signals2::signal<void (std::string)> OK;
 	agui::LineEdit* value;
 
 private:
@@ -121,88 +120,28 @@ private:
 	};
 };
 
-std::string CreateDefaultSetup(const std::string& map, const std::string& mod, const std::string& script,
-			const std::string& playername)
-{
-	TdfParser::TdfSection setup;
-	TdfParser::TdfSection* game = setup.construct_subsection("GAME");
-	game->add_name_value("Mapname", map);
-	game->add_name_value("Gametype", mod);
-
-	TdfParser::TdfSection* modopts = game->construct_subsection("MODOPTIONS");
-	modopts->AddPair("MaxSpeed", 20);
-
-	game->AddPair("IsHost", 1);
-	game->AddPair("OnlyLocal", 1);
-	game->add_name_value("MyPlayerName", playername);
-
-	game->AddPair("NoHelperAIs", configHandler->GetBool("NoHelperAIs"));
-
-	TdfParser::TdfSection* player0 = game->construct_subsection("PLAYER0");
-	player0->add_name_value("Name", playername);
-	player0->AddPair("Team", 0);
-
-	const bool isSkirmishAITestScript = CScriptHandler::Instance().IsSkirmishAITestScript(script);
-	if (isSkirmishAITestScript) {
-		SkirmishAIData aiData = CScriptHandler::Instance().GetSkirmishAIData(script);
-		TdfParser::TdfSection* ai = game->construct_subsection("AI0");
-		ai->add_name_value("Name", "Enemy");
-		ai->add_name_value("ShortName", aiData.shortName);
-		ai->add_name_value("Version", aiData.version);
-		ai->AddPair("Host", 0);
-		ai->AddPair("Team", 1);
-	} else {
-		TdfParser::TdfSection* player1 = game->construct_subsection("PLAYER1");
-		player1->add_name_value("Name", "Enemy");
-		player1->AddPair("Team", 1);
-	}
-
-	TdfParser::TdfSection* team0 = game->construct_subsection("TEAM0");
-	team0->AddPair("TeamLeader", 0);
-	team0->AddPair("AllyTeam", 0);
-
-	TdfParser::TdfSection* team1 = game->construct_subsection("TEAM1");
-	if (isSkirmishAITestScript) {
-		team1->AddPair("TeamLeader", 0);
-	} else {
-		team1->AddPair("TeamLeader", 1);
-	}
-	team1->AddPair("AllyTeam", 1);
-
-	TdfParser::TdfSection* ally0 = game->construct_subsection("ALLYTEAM0");
-	ally0->AddPair("NumAllies", 0);
-
-	TdfParser::TdfSection* ally1 = game->construct_subsection("ALLYTEAM1");
-	ally1->AddPair("NumAllies", 0);
-
-	std::ostringstream str;
-	setup.print(str);
-
-	return str.str();
-}
-
-SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWindow(NULL), settingsWindow(NULL), curSelect(NULL)
+SelectMenu::SelectMenu(boost::shared_ptr<ClientSetup> setup)
+: GuiElement(NULL)
+, clientSetup(setup)
+, conWindow(NULL)
+, settingsWindow(NULL)
+, curSelect(NULL)
 {
 	SetPos(0,0);
 	SetSize(1,1);
 	agui::gui->AddElement(this, true);
-	mySettings = new ClientSetup();
-
-	mySettings->isHost = server;
-	mySettings->myPlayerName = configHandler->GetString("name");
-	if (mySettings->myPlayerName.empty()) {
-		mySettings->myPlayerName = UnnamedPlayerName;
-	} else {
-		mySettings->myPlayerName = StringReplaceInPlace(mySettings->myPlayerName, ' ', '_');
-	}
 
 	{ // GUI stuff
 		agui::Picture* background = new agui::Picture(this);;
 		{
-			std::string archive = archiveScanner->ArchiveFromName("Spring Bitmaps");
-			std::string archivePath = archiveScanner->GetArchivePath(archive)+archive;
+			const std::string archive = archiveScanner->ArchiveFromName(configHandler->GetString("MenuArchive"));
+			const std::string archivePath = archiveScanner->GetArchivePath(archive)+archive;
 			vfsHandler->AddArchive(archivePath, false);
-			background->Load("bitmaps/ui/background.jpg");
+			const std::vector<std::string> files = CFileHandler::FindFiles("bitmaps/ui/background/", "*");
+			if (!files.empty()) {
+				//TODO: select by resolution / aspect ratio with fallback image
+				background->Load(files[gu->RandInt() % files.size()]);
+			}
 			vfsHandler->RemoveArchive(archivePath);
 		}
 		selw = new SelectionWidget(this);
@@ -213,8 +152,6 @@ SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWind
 		/*agui::TextElement* title = */new agui::TextElement("Spring", menu); // will be deleted in menu
 		Button* single = new Button("Test the Game", menu);
 		single->Clicked.connect(boost::bind(&SelectMenu::Single, this));
-		Button* update = new Button("Lobby connect (WIP)", menu);
-		update->Clicked.connect(boost::bind(&SelectMenu::ShowUpdateWindow, this, true));
 
 		userSetting = configHandler->GetString("LastSelectedSetting");
 		Button* editsettings = new Button("Edit settings", menu);
@@ -228,7 +165,7 @@ SelectMenu::SelectMenu(bool server) : GuiElement(NULL), conWindow(NULL), updWind
 		background->GeometryChange();
 	}
 
-	if (!mySettings->isHost) {
+	if (!clientSetup->isHost) {
 		ShowConnectWindow(true);
 	}
 }
@@ -237,66 +174,43 @@ SelectMenu::~SelectMenu()
 {
 	ShowConnectWindow(false);
 	ShowSettingsWindow(false, "");
-	ShowUpdateWindow(false);
 	CleanWindow();
-
-	delete mySettings;
 }
 
 bool SelectMenu::Draw()
 {
-	SDL_Delay(10); // milliseconds
+	spring_msecs(10).sleep();
 	ClearScreen();
 	agui::gui->Draw();
 
 	return true;
 }
 
-bool SelectMenu::Update()
-{
-	if (updWindow)
-	{
-		updWindow->Poll();
-		if (updWindow->WantClose())
-		{
-			delete updWindow;
-			updWindow = NULL;
-		}
-	}
-
-	return true;
-}
-
 void SelectMenu::Single()
 {
-	static bool once = false;
-	if (selw->userMod == SelectionWidget::NoModSelect)
-	{
+	if (selw->userMod == SelectionWidget::NoModSelect) {
 		selw->ShowModList();
-	}
-	else if (selw->userMap == SelectionWidget::NoMapSelect)
-	{
+	} else if (selw->userMap == SelectionWidget::NoMapSelect) {
 		selw->ShowMapList();
-	}
-	else if (selw->userScript == SelectionWidget::NoScriptSelect)
-	{
+	} else if (selw->userScript == SelectionWidget::NoScriptSelect) {
 		selw->ShowScriptList();
 	}
-	else if (!once) // in case of double-click
-	{
-		once = true;
-		mySettings->isHost = true;
-		pregame = new CPreGame(mySettings);
-		pregame->LoadSetupscript(CreateDefaultSetup(selw->userMap, selw->userMod, selw->userScript, mySettings->myPlayerName));
-		agui::gui->RmElement(this);
-		//delete this;
+	else if (pregame == NULL) {
+		// in case of double-click
+		if (selw->userScript == SelectionWidget::SandboxAI) {
+			selw->userScript.clear();
+		}
+
+		pregame = new CPreGame(clientSetup);
+		pregame->LoadSetupscript(StartScriptGen::CreateDefaultSetup(selw->userMap, selw->userMod, selw->userScript, clientSetup->myPlayerName));
+		return (agui::gui->RmElement(this));
 	}
 }
 
 void SelectMenu::Quit()
 {
 	gu->globalQuit = true;
-	//delete this;
+	return (agui::gui->RmElement(this));
 }
 
 void SelectMenu::ShowConnectWindow(bool show)
@@ -330,28 +244,13 @@ void SelectMenu::ShowSettingsWindow(bool show, std::string name)
 	{
 		agui::gui->RmElement(settingsWindow);
 		settingsWindow = NULL;
-		int p = name.find(" = ");
+		size_t p = name.find(" = ");
 		if(p != std::string::npos) {
 			configHandler->SetString(name.substr(0,p), name.substr(p + 3));
 			ShowSettingsList();
 		}
 		if(curSelect)
 			curSelect->list->SetFocus(true);
-	}
-}
-
-void SelectMenu::ShowUpdateWindow(bool show)
-{
-	if (show)
-	{
-		if (!updWindow)
-			updWindow = new LobbyConnection();
-		updWindow->ConnectDialog(true);
-	}
-	else if (!show && updWindow)
-	{
-		delete updWindow;
-		updWindow = NULL;
 	}
 }
 
@@ -364,7 +263,9 @@ void SelectMenu::ShowSettingsList()
 	}
 	curSelect->list->RemoveAllItems();
 	const std::map<std::string, std::string> &data = configHandler->GetData();
-	for(std::map<std::string,std::string>::const_iterator iter = data.begin(); iter != data.end(); ++iter)
+	typedef std::map<std::string, std::string, doj::alphanum_less<std::string> > DataSorted;
+	const DataSorted dataSorted(data.begin(), data.end());
+	for(DataSorted::const_iterator iter = dataSorted.begin(); iter != dataSorted.end(); ++iter)
 		curSelect->list->AddItem(iter->first + " = " + iter->second, "");
 	if(data.find(userSetting) != data.end())
 		curSelect->list->SetCurrentItem(userSetting + " = " + configHandler->GetString(userSetting));
@@ -372,7 +273,7 @@ void SelectMenu::ShowSettingsList()
 }
 
 void SelectMenu::SelectSetting(std::string setting) {
-	int p = setting.find(" = ");
+	size_t p = setting.find(" = ");
 	if(p != std::string::npos)
 		setting = setting.substr(0, p);
 	userSetting = setting;
@@ -391,10 +292,12 @@ void SelectMenu::CleanWindow() {
 void SelectMenu::DirectConnect(const std::string& addr)
 {
 	configHandler->SetString("address", addr);
-	mySettings->hostIP = addr;
-	mySettings->isHost = false;
-	pregame = new CPreGame(mySettings);
-	agui::gui->RmElement(this);
+
+	clientSetup->hostIP = addr;
+	clientSetup->isHost = false;
+
+	pregame = new CPreGame(clientSetup);
+	return (agui::gui->RmElement(this));
 }
 
 bool SelectMenu::HandleEventSelf(const SDL_Event& ev)
@@ -402,7 +305,7 @@ bool SelectMenu::HandleEventSelf(const SDL_Event& ev)
 	switch (ev.type) {
 		case SDL_KEYDOWN: {
 			if (ev.key.keysym.sym == SDLK_ESCAPE) {
-				LOG("User exited");
+				LOG("[SelectMenu] user exited");
 				Quit();
 			} else if (ev.key.keysym.sym == SDLK_RETURN) {
 				Single();

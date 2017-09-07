@@ -2,7 +2,7 @@
 
 /*
 	Simple Frontend for the Stacktrace translator on http://springrts.com:8000/
-	
+
 	Note: the file lastrun has to be writable by the webserver
 
 */
@@ -23,23 +23,6 @@ function limit(){
 		touch($lastrun);
 }
 
-/**
-	returns the spring version of the string in filecontents
-	for example
-	echo getVersion("Spring 85.0\n")."\n";
-	echo getVersion("Spring 84.0.1-567-g3294e6c\n")."\n";
-	echo getVersion("Spring {roam}84.0.1-418-g1455ce1\n")."\n";
-*/
-function getVersion($filecontents){
-	$res=preg_match('/Spring ([0-9]+.[0-9]+)(\n)/',$filecontents,$matches);
-	if (($res==1) && (strpos($matches[1],"g")===false)){
-		$pos=strpos($matches[1]," ");
-		if ($pos===false)
-			return $matches[1];
-		return substr($matches[1],0,$pos);
-	}
-	return "develop";
-}
 /**
 	returns true if url is valid http:// url
 	has to return false if url is local file
@@ -110,8 +93,9 @@ function getinfolog(){
 		if (array_key_exists('request',$_REQUEST))
 			$infolog=$_REQUEST['request'];
 		else
-			return "";	
+			return "";
 	}
+	$infolog=addslashes($infolog);
 	$infolog=str_replace("\r\n","\n",$infolog); //windows linebreaks f'up some things here...
 	$infolog=str_replace("\n\n","\n",$infolog);
 	return stripslashes($infolog);
@@ -127,7 +111,7 @@ function parse_template($tpl, $vars){
 /**
 	parses the result of an xmlrequest and returns a string ready for html output
 */
-function parse_result($res,$ver){
+function parse_result($res, $commit, $branch){
 	$pastebin="";
 	$name="";
 	$textwithlinks="";
@@ -136,21 +120,32 @@ function parse_result($res,$ver){
 		$cleantext.= "Maybe this stacktrace is from an self-compiled spring, or is the stack-trace to old?\n";
 		$cleantext.= "This script only can handle >=0.82\n";
 	}else{
-		$textwithlinks="<h1>translated with links to github source ('$ver' detected)</h1>\n";
+		$textwithlinks="<h1>translated with links to github source ('".$commit." ".$branch."' detected)</h1>\n";
 		$textwithlinks.="<table><tr><td>module</td><td>address</td><td>file</td><td>line</td></tr>\n";
-		$cleantext="";
+		$cleantext= "https://github.com/spring/spring/tree/".$commit."\n\n";
 		for($i=0;$i<count($res); $i++){
 			$module = $res[$i][0];
 			$address = $res[$i][1];
 			$filename = $res[$i][2];
 			$line = $res[$i][3];
+			if (!empty($filename)) {
+				$regres=preg_match('/.*(rts\/.*)/', $filename, $matches);
+				if ($regres==1 && !empty($matches[1])) {
+					$filename=$matches[1];
+				}
+			}
 			if ($name=="")
 				$name=$filename.":".$line;
 			$textwithlinks.="<tr>\n";
 			$textwithlinks.= "<td>".$module . "</td><td> " . $address . "</td><td> " . $filename . "</td>\n";
-			$cleantext.= $module." ".$address." ".$filename.":".$line."\n";
-			if ((strlen($filename)>0) && ($filename[0]=='r')){
-				$textwithlinks.='<td><a target="_blank" href="http://github.com/spring/spring/tree/'.$ver.'/'.$filename.'#L'.$line.'">'.$line.'</a></td>';
+			$cleantext.= $filename.":".$line."\n";
+
+			if (!empty($filename) && ($filename[0]=='r')){
+				if (!empty($commit)){
+					$textwithlinks.='<td><a target="_blank" href="https://github.com/spring/spring/blob/'.$commit.'/'.$filename.'#L'.$line.'">'.$line.'</a></td>';
+				} else {
+					$textwithlinks.='<td><a target="_blank" href="http://github.com/spring/spring/tree/'.$branch.'/'.$filename.'#L'.$line.'">'.$line.'</a></td>';
+				}
 			}else {
 				$textwithlinks.="<td>$line</td>";
 			}
@@ -178,12 +173,7 @@ $res['INFO']="";
 if ($res['TEXTAREA']!=""){
 	limit();
 	$tmp=xmlrpcrequest($res['TRANSLATOR'],$res['TEXTAREA']);
-/*	if (array_key_exists('faultString',$tmp)){
-		$res['INFO']="<h1>Warning: using local translator, as remote can't translate</h1>";
-		$res['TRANSLATOR']="http://abma.de:8000";
-		$tmp=xmlrpcrequest($res['TRANSLATOR'],$res['TEXTAREA']);
-	}*/
-	$res=array_merge($res,parse_result($tmp,getVersion($res['TEXTAREA'])));
+	$res=array_merge($res,parse_result($tmp['stacktrace'], $tmp['rev'], $tmp['branch']));
 }
 $res['ACTION']=$_SERVER['SCRIPT_NAME'];
 echo parse_template("index.tpl",$res);

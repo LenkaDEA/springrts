@@ -2,14 +2,15 @@
 
 #include "System/Platform/Win/win32.h"
 #if !defined(HEADLESS)
-#include "Rendering/Textures/Bitmap.h"
+	#include "Rendering/Textures/Bitmap.h"
 #endif
+#include "Rendering/GlobalRendering.h"
 
 #if defined(__APPLE__) || defined(HEADLESS)
 	// no hardware cursor support for mac's and headless build
 	// FIXME: duno how to create cursors at runtime on macs
 #elif defined(WIN32)
-	#include "windows.h"
+	#include <windows.h>
 	#include "System/Input/MouseInput.h"
 	typedef unsigned char byte;
 #else
@@ -19,9 +20,7 @@
 #include "HwMouseCursor.h"
 
 #if !defined(__APPLE__) && !defined(HEADLESS)
-#include "System/mmgr.h"
 
-#include "Rendering/GL/myGL.h"
 #include "System/bitops.h"
 #include "MouseCursor.h"
 #include "CommandColors.h"
@@ -31,6 +30,7 @@
 #include "System/myMath.h"
 #include <cstring> // for memset
 
+#include <SDL_config.h>
 #include <SDL_syswm.h>
 #include <SDL_mouse.h>
 #include <SDL_events.h>
@@ -61,8 +61,8 @@ class CHwDummyCursor : public IHwCursor {
 #elif defined(WIN32)
 class CHwWinCursor : public IHwCursor {
 	public:
-		CHwWinCursor(void);
-		~CHwWinCursor(void);
+		CHwWinCursor();
+		~CHwWinCursor();
 
 		void PushImage(int xsize, int ysize, void* mem);
 		void SetDelay(float delay);
@@ -76,8 +76,9 @@ class CHwWinCursor : public IHwCursor {
 		bool IsValid() {return (cursor!=NULL);};
 	protected:
 		HCURSOR cursor;
-
+#ifndef _MSC_VER
 	#pragma push(pack,1)
+#endif
 		struct CursorDirectoryHeader {
 			byte  xsize,ysize,ncolors,reserved1;
 			short hotx,hoty;
@@ -93,8 +94,10 @@ class CHwWinCursor : public IHwCursor {
 		struct AnihStructure {
 			DWORD size,images,frames,width,height,bpp,planes,rate,flags;
 		};
+#ifndef _MSC_VER
 	#pragma pop(pack)
-		
+#endif
+
 	protected:
 		struct ImageData {
 			unsigned char* data;
@@ -116,8 +119,8 @@ class CHwWinCursor : public IHwCursor {
 #else
 class CHwX11Cursor : public IHwCursor {
 	public:
-		CHwX11Cursor(void);
-		~CHwX11Cursor(void);
+		CHwX11Cursor();
+		~CHwX11Cursor();
 
 		void PushImage(int xsize, int ysize, void* mem);
 		void SetDelay(float delay);
@@ -297,16 +300,27 @@ void CHwWinCursor::buildIco(unsigned char* dst, ImageData &image)
 	fclose(pFile); */
 }
 
+
+static inline int GetBestCursorSize(const int minSize)
+{
+	auto stdSizes = {/*16,*/ 32, 48, 64, 96, 128};
+	for (const int s: stdSizes)
+		if (s >= minSize)
+			return s;
+
+	return next_power_of_2(minSize);
+}
+
+
 void CHwWinCursor::Finish()
 {
-	if (frames.size()<1)
+	if (frames.empty())
 		return;
 
 	hotx = (hotSpot==CMouseCursor::TopLeft) ? 0 : (short)xmaxsize/2;
 	hoty = (hotSpot==CMouseCursor::TopLeft) ? 0 : (short)ymaxsize/2;
 
-	//note: windows only except 16x16,32x32,64x64,etc. (and some more not 2^n ones)
-	int squaresize =  next_power_of_2( std::max(xmaxsize,ymaxsize) );
+	int squaresize = GetBestCursorSize( std::max(xmaxsize,ymaxsize) );
 
 	//resize images
 	for (std::vector<ImageData>::iterator it=icons.begin(); it<icons.end(); ++it)
@@ -408,7 +422,7 @@ void CHwWinCursor::Bind()
 	mouseInput->SetWMMouseCursor(cursor);
 }
 
-CHwWinCursor::CHwWinCursor(void)
+CHwWinCursor::CHwWinCursor()
 {
 	cursor = NULL;
 	hotSpot= CMouseCursor::Center;
@@ -417,7 +431,7 @@ CHwWinCursor::CHwWinCursor(void)
 	hotx = hoty = 0;
 }
 
-CHwWinCursor::~CHwWinCursor(void)
+CHwWinCursor::~CHwWinCursor()
 {
 	if (cursor!=NULL)
 		DestroyCursor(cursor);
@@ -497,32 +511,34 @@ void CHwX11Cursor::PushFrame(int index, float delay)
 
 void CHwX11Cursor::Finish()
 {
-	if (cimages.size()<1)
+	if (cimages.empty())
 		return;
+
+	int squaresize = next_power_of_2( std::max(xmaxsize,ymaxsize) );
 
 	//resize images
 	for (std::vector<XcursorImage*>::iterator it = cimages.begin(); it < cimages.end(); ++it)
-		resizeImage(*it, xmaxsize, ymaxsize);
+		resizeImage(*it, squaresize, squaresize);
 
 	XcursorImages *cis = XcursorImagesCreate(cimages.size());
 	cis->nimage = cimages.size();
 	for (int i = 0; i < int(cimages.size()); ++i) {
 		XcursorImage* ci = cimages[i];
-		ci->xhot = (hotSpot==CMouseCursor::TopLeft) ? 0 : ci->width/2;
-		ci->yhot = (hotSpot==CMouseCursor::TopLeft) ? 0 : ci->height/2;
+		ci->xhot = (hotSpot==CMouseCursor::TopLeft) ? 0 : xmaxsize/2;
+		ci->yhot = (hotSpot==CMouseCursor::TopLeft) ? 0 : ymaxsize/2;
 		cis->images[i] = ci;
 	}
 
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
-	if (!SDL_GetWMInfo(&info)) {
+	if (!SDL_GetWindowWMInfo(globalRendering->window, &info)) {
+		LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 		XcursorImagesDestroy(cis);
 		cimages.clear();
-		LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 		return;
 	}
 
-	cursor = XcursorImagesLoadCursor(info.info.x11.display,cis);
+	cursor = XcursorImagesLoadCursor(info.info.x11.display, cis);
 	XcursorImagesDestroy(cis);
 	cimages.clear();
 }
@@ -531,25 +547,23 @@ void CHwX11Cursor::Bind()
 {
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
-	if (!SDL_GetWMInfo(&info)) {
+	if (!SDL_GetWindowWMInfo(globalRendering->window, &info)) {
 		LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 		return;
 	}
 	// do between lock/unlock so SDL's default cursors doesn't flicker in
-	info.info.x11.lock_func();
-		SDL_ShowCursor(SDL_ENABLE);
-		XDefineCursor(info.info.x11.display, info.info.x11.window, cursor);
-	info.info.x11.unlock_func();
+	SDL_ShowCursor(SDL_ENABLE);
+	XDefineCursor(info.info.x11.display, info.info.x11.window, cursor);
 }
 
-CHwX11Cursor::CHwX11Cursor(void)
+CHwX11Cursor::CHwX11Cursor()
 {
-	cursor = 0;
-	hotSpot=CMouseCursor::Center;
+	cursor   = 0;
+	hotSpot  = CMouseCursor::Center;
 	xmaxsize = ymaxsize = 0;
 }
 
-CHwX11Cursor::~CHwX11Cursor(void)
+CHwX11Cursor::~CHwX11Cursor()
 {
 	for (std::vector<XcursorImage*>::iterator it=cimages.begin() ; it < cimages.end(); ++it )
 		XcursorImageDestroy(*it);
@@ -558,7 +572,7 @@ CHwX11Cursor::~CHwX11Cursor(void)
 	if (cursor!=0) {
 		SDL_SysWMinfo info;
 		SDL_VERSION(&info.version);
-		if (!SDL_GetWMInfo(&info)) {
+		if (!SDL_GetWindowWMInfo(globalRendering->window, &info)) {
 			LOG_L(L_ERROR, "SDL error: can't get X11 window info");
 			return;
 		}

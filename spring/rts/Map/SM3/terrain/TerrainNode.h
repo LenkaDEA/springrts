@@ -48,7 +48,7 @@ namespace terrain
 	public:
 		TQuad();
 		~TQuad();
-		bool isLeaf() const { return childs[0] == NULL; }
+		bool isLeaf() const { return children[0] == NULL; }
 		// sqStart=start in square coordinates
 		// hmStart=start pixel on hm
 		void Build(Heightmap* hm, int2 sqStart, int2 hmStart, int2 quadPos, int w, int depth);
@@ -66,7 +66,7 @@ namespace terrain
 		std::vector<Sm3VisibilityNode*> nodeLinks;
 
 		TQuad* parent;
-		TQuad* childs[4];
+		TQuad* children[4];
 		Vector3 start, end;  ///< quad node bounding box
 		int2 qmPos; ///< Quad map coordinates
 		int2 hmPos;
@@ -185,7 +185,7 @@ namespace terrain
 
 		void Alloc(int W, int H);
 		void LodScaleDown(Heightmap* dst);
-		void FindMinMax(int2 st, int2 size, float& minH, float& maxH);
+		void FindMinMax(int2 st, int2 size, float& minHgt, float& maxHgt, bool synced = true);
 		Heightmap* CreateLowDetailHM();
 		void GenerateNormals();
 		void UpdateLowerUnsynced(int sx, int sy, int w, int h);

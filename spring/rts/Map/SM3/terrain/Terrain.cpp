@@ -62,7 +62,6 @@ namespace terrain {
 	{
 		w = W;
 		map = new TQuad*[w*w];
-		memset(map, 0, sizeof(TQuad*) * w*w);
 	}
 
 	void QuadMap::Fill(TQuad* q)
@@ -73,7 +72,7 @@ namespace terrain {
 			assert(highDetail);
 
 			for (int a = 0; a < 4; a++)
-				highDetail->Fill(q->childs[a]);
+				highDetail->Fill(q->children[a]);
 		}
 	}
 
@@ -86,7 +85,7 @@ namespace terrain {
 	{
 		parent = 0;
 		for (int a = 0; a < 4; a++)
-			childs[a] = 0;
+			children[a] = 0;
 		depth = width = 0;
 		drawState = NoDraw;
 		renderData = 0;
@@ -100,7 +99,7 @@ namespace terrain {
 	{
 		if (!isLeaf()) {
 			for (int a = 0; a < 4; a++)
-				delete childs[a];
+				delete children[a];
 		}
 
 		// delete cached texture
@@ -115,14 +114,14 @@ namespace terrain {
 		// create child nodes if necessary
 		if (hm->highDetail) {
 			for (int a = 0; a < 4; a++) {
-				childs[a] = new TQuad;
-				childs[a]->parent = this;
+				children[a] = new TQuad;
+				children[a]->parent = this;
 
 				int2 sqPos(sqStart.x   + (a & 1)*w/2, sqStart.y + (a & 2)*w/4); // square pos
 				int2 hmPos(hmStart.x*2 + (a & 1)*QUAD_W, hmStart.y*2 + (a & 2)*QUAD_W/2); // heightmap pos
 				int2 cqPos(quadPos.x*2 + (a & 1), quadPos.y*2 + (a & 2)/2);// child quad pos
 
-				childs[a]->Build(hm->highDetail, sqPos, hmPos, cqPos, w/2, d + 1);
+				children[a]->Build(hm->highDetail, sqPos, hmPos, cqPos, w/2, d + 1);
 			}
 		}
 
@@ -233,7 +232,7 @@ namespace terrain {
 	{
 		if (!isLeaf()) {
 			for (int a = 0; a < 4; a++)
-				childs[a]->CollectNodes(quads);
+				children[a]->CollectNodes(quads);
 		}
 		quads.push_back(this);
 	}
@@ -251,7 +250,7 @@ namespace terrain {
 		if (depth < maxdepth)
 		{
 			for (int a = 0; a < 4; a++) {
-				TQuad* r = childs[a]->FindSmallestContainingQuad2D(pos,range,maxdepth);
+				TQuad* r = children[a]->FindSmallestContainingQuad2D(pos,range,maxdepth);
 				if (r) return r;
 			}
 		}
@@ -318,7 +317,7 @@ namespace terrain {
 			// change the queued quad to a parent quad
 			q->parent->drawState = TQuad::Parent;
 			for (int a = 0; a < 4; a++) {
-				TQuad* ch = q->parent->childs [a];
+				TQuad* ch = q->parent->children [a];
 
 				updatequads.push_back(ch);
 				ch->drawState = TQuad::Queued;
@@ -366,7 +365,7 @@ namespace terrain {
 
 		if (q->drawState == TQuad::Parent) {
 			for(int a = 0; a < 4; a++)
-				UpdateLodFix(q->childs [a]);
+				UpdateLodFix(q->children [a]);
 		}
 		else if (q->parent) {
 			// find the nabours, and make sure at least them or their parents are drawn
@@ -388,7 +387,7 @@ namespace terrain {
 			if (q->depth < quadTreeDepth-config.maxLodLevel || (lod > 1.0f && !q->isLeaf())) {
 				q->drawState = TQuad::Parent;
 				for (int a = 0; a < 4; a++)
-					QuadVisLod(q->childs[a]);
+					QuadVisLod(q->children[a]);
 			} else q->drawState = TQuad::Queued;
 			updatequads.push_back(q);
 
@@ -433,8 +432,8 @@ namespace terrain {
 
 			// Update the frustum based on the camera, to cull away TQuad nodes
 			//Camera* camera = rc->cam;
-		//	frustum.CalcCameraPlanes(&camera->pos, &camera->right, &camera->up, &camera->front, camera->fov, camera->aspect);
-			//assert(camera->pos.x == 0.0f || frustum.IsPointVisible(camera->pos + camera->front * 20)==Frustum::Inside);
+		//	frustum.CalcCameraPlanes(&camera->GetPos(), &camera->right, &camera->up, &camera->front, camera->fov, camera->aspect);
+			//assert(camera->GetPos().x == 0.0f || frustum.IsPointVisible(camera->GetPos() + camera->front * 20)==Frustum::Inside);
 
 			// determine the new set of quads to draw
 			QuadVisLod(quadtree);
@@ -625,15 +624,13 @@ namespace terrain {
 			texturing->BeginTexturing();
 
 			for (int pass = 0; pass < numPasses; pass++) {
-				bool skipNodes = false;
-
 				texturing->BeginPass(pass);
 
 				for (size_t a = 0; a < activeRC->quads.size(); a++) {
 					TQuad* q = activeRC->quads[a].quad;
 
 					// Setup node texturing
-					skipNodes = !texturing->SetupNode(q, pass);
+					const bool skipNodes = !texturing->SetupNode(q, pass);
 
 					assert(q->renderData);
 
@@ -713,7 +710,7 @@ namespace terrain {
 			if (q->isLeaf()) return q;
 
 			for (int a = 0; a < 4; a++)  {
-				TQuad* r = FindQuad(q->childs[a], cpos);
+				TQuad* r = FindQuad(q->children[a], cpos);
 				if (r) return r;
 			}
 		}
@@ -846,27 +843,20 @@ namespace terrain {
 				config.anisotropicFiltering = 0.0f;
 			else {
 				float maxAnisotropy = 0.0f;
-				glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT,&maxAnisotropy);
+				glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
 				if (config.anisotropicFiltering > maxAnisotropy)
 					config.anisotropicFiltering = maxAnisotropy;
 			}
 		}
 
-		float hmScale = atof(tdf.SGetValueDef("1000", "MAP\\TERRAIN\\HeightScale").c_str());
-		float hmOffset = atof(tdf.SGetValueDef("0", "MAP\\TERRAIN\\HeightOffset").c_str());
-
-		// apply scaling and offset to the heightmap
-		for (int y = 0; y < heightmap->w * heightmap->h; y++) {
-			heightmap->dataSynced[y] = heightmap->dataSynced[y] * hmScale + hmOffset;
-			heightmap->dataUnsynced[y] = heightmap->dataSynced[y];
-		}
-
-		if (cb) cb->PrintMsg("initializing heightmap renderer...");
+		if (cb)
+			cb->PrintMsg("initializing heightmap renderer...");
 
 		// create a set of low resolution heightmaps
 		int w = heightmap->w - 1;
 		Heightmap* prev = heightmap;
 		quadTreeDepth = 0;
+
 		while (w > QUAD_W) {
 			prev = prev->CreateLowDetailHM();
 			quadTreeDepth++;
@@ -877,6 +867,7 @@ namespace terrain {
 
 		// set heightmap squareSize for all lod's
 		heightmap->squareSize = SquareSize;
+
 		for (Heightmap *lod = heightmap->lowDetail; lod; lod = lod->lowDetail)
 			lod->squareSize = lod->highDetail->squareSize * 2.0f;
 
@@ -888,6 +879,7 @@ namespace terrain {
 		// create a quad map for each LOD level
 		Heightmap* cur = prev;
 		QuadMap* qm = 0;
+
 		while (cur) {
 			if (qm) {
 				qm->highDetail = new QuadMap;
@@ -905,11 +897,14 @@ namespace terrain {
 		qmaps.front()->Fill(quadtree);
 
 		// generate heightmap normals
-		if (cb) cb->PrintMsg("  generating terrain normals for shading...");
+		if (cb)
+			cb->PrintMsg("  generating terrain normals for shading...");
+
 		for (Heightmap *lod = heightmap; lod; lod = lod->lowDetail)
 			lod->GenerateNormals();
 
-		if (cb) cb->PrintMsg("initializing texturing system...");
+		if (cb)
+			cb->PrintMsg("initializing texturing system...");
 
 		// load textures
 		texturing = new TerrainTexture;
@@ -944,6 +939,15 @@ namespace terrain {
 		}
 
 		LOG("heightmap size: %dx%d", GetHeightmapWidth(), GetHeightmapHeight());
+
+		const float hmScale = atof(parser.SGetValueDef("1000", "MAP\\TERRAIN\\HeightScale").c_str());
+		const float hmOffset = atof(parser.SGetValueDef("0", "MAP\\TERRAIN\\HeightOffset").c_str());
+
+		// apply scaling and offset to the heightmap ASAP
+		for (int y = 0; y < heightmap->w * heightmap->h; y++) {
+			heightmap->dataSynced[y] = heightmap->dataSynced[y] * hmScale + hmOffset;
+			heightmap->dataUnsynced[y] = heightmap->dataSynced[y];
+		}
 
 		if ((GetHeightmapWidth() - 1) != atoi(parser.SGetValueDef("","MAP\\GameAreaW").c_str()) ||
 			(GetHeightmapHeight() - 1) != atoi(parser.SGetValueDef("","MAP\\GameAreaH").c_str())) {
@@ -989,21 +993,23 @@ namespace terrain {
 		}
 
 		int len = fh.FileSize();
-
 		int w = -1, bits;
+
 		FindRAWProps(len, w, bits, cb);
 		bits *= 8;
-		if (w < 0) return 0;
+
+		if (w < 0)
+			return 0;
 
 		Heightmap* hm = new Heightmap;
 		hm->Alloc(w, w);
 
 		if (bits == 16) {
-			ushort* tmp = new ushort[w * w];
-			fh.Read(tmp, len);
+			std::vector<ushort> tmp(w * w);
+			fh.Read(&tmp[0], len);
 
 			for (int y = 0; y < w * w; y++) {
-				hm->dataSynced[y] = float(tmp[y]) / float((1 << 16) - 1);
+				hm->dataSynced[y] = float(tmp[y]) / float((1 << bits) - 1);
 				hm->dataUnsynced[y] = hm->dataSynced[y];
 			}
 #ifdef SWAP_SHORT
@@ -1012,14 +1018,15 @@ namespace terrain {
 				std::swap(p[0], p[1]);
 #endif
 		} else {
-			uchar* buf = new uchar[len], *p = buf;
-			fh.Read(buf, len);
+			std::vector<uchar> buf(len);
+			fh.Read(&buf[0], len);
+
+			uchar* p = &buf[0];
 
 			for (w = w * w - 1; w >= 0; w--) {
-				hm->dataSynced[w] = *(p++) / 255.0f;
+				hm->dataSynced[w] = *(p++) / float((1 << bits) - 1);
 				hm->dataUnsynced[w] = hm->dataSynced[w];
 			}
-			delete[] buf;
 		}
 
 		return hm;
@@ -1036,13 +1043,11 @@ namespace terrain {
 		ilGenImages(1, &ilheightmap);
 		ilBindImage(ilheightmap);
 
-		int len=fh.FileSize();
-		assert(len >= 0);
+		assert(fh.FileSize() >= 0);
+		std::vector<char> buffer(fh.FileSize());
+		fh.Read(&buffer[0], buffer.size());
 
-		char* buffer = new char[len];
-		fh.Read(buffer, len);
-        bool success = !!ilLoadL(IL_TYPE_UNKNOWN, buffer, len);
-		delete [] buffer;
+		const bool success = !!ilLoadL(IL_TYPE_UNKNOWN, &buffer[0], buffer.size());
 
 		if (!success) {
 			ilDeleteImages(1,&ilheightmap);
@@ -1050,8 +1055,8 @@ namespace terrain {
 			return NULL;
 		}
 
-		int hmWidth = ilGetInteger(IL_IMAGE_WIDTH);
-		int hmHeight = ilGetInteger (IL_IMAGE_HEIGHT);
+		const int hmWidth = ilGetInteger(IL_IMAGE_WIDTH);
+		const int hmHeight = ilGetInteger (IL_IMAGE_HEIGHT);
 
 		// does it have the correct size? 129,257,513
 		int testw = 1;
@@ -1062,7 +1067,7 @@ namespace terrain {
 		}
 		if ((testw > hmWidth) || (hmWidth != hmHeight)) {
 			cb->PrintMsg("Heightmap %s has wrong dimensions (should be 129x129,257x257...)", hmfile);
-			ilDeleteImages(1,&ilheightmap);
+			ilDeleteImages(1, &ilheightmap);
 			return NULL;
 		}
 
@@ -1079,7 +1084,7 @@ namespace terrain {
 		ushort* imgData = (ushort*) ilGetData();
 
 		for (int y = 0; y < hmWidth * hmHeight; y++) {
-			hm->dataSynced[y] = imgData[y] / float((1 << 16) - 1);
+			hm->dataSynced[y] = imgData[y] / float((1 << (sizeof(short) * 8)) - 1);
 			hm->dataUnsynced[y] = hm->dataSynced[y];
 		}
 
@@ -1124,14 +1129,18 @@ namespace terrain {
 		//     in the highDetail chain) - ONLY the top-level node
 		//     (this->heightmap) carries the actual sync-relevant
 		//     height values
+		// TODO:
+		//     this should also update {face,center}NormalsUnsynced
+		//     like SMFReadMap does; currently they are initialized
+		//     only once (in ReadMap::UpdateFaceNormals)
 		heightmap->UpdateLowerUnsynced(sx, sy, w, h);
 
 		Update();
 		CacheTextures();
 	}
 
-	std::vector<float>* Terrain::GetCornerHeightMapSynced()   { return &heightmap->dataSynced; }
-	std::vector<float>* Terrain::GetCornerHeightMapUnsynced() { return &heightmap->dataUnsynced; }
+	std::vector<float>& Terrain::GetCornerHeightMapSynced()   { return heightmap->dataSynced; }
+	std::vector<float>& Terrain::GetCornerHeightMapUnsynced() { return heightmap->dataUnsynced; }
 
 
 	void Terrain::SetShadowParams(ShadowMapParams* smp)

@@ -5,22 +5,19 @@
 
 #include "Weapon.h"
 
-class CNoWeapon :
-	public CWeapon
+class CNoWeapon: public CWeapon
 {
-	CR_DECLARE(CNoWeapon);
+	CR_DECLARE_DERIVED(CNoWeapon)
 public:
-	CNoWeapon(CUnit *owner = 0);
-	~CNoWeapon(void);
+	CNoWeapon(CUnit* owner, const WeaponDef* def);
 
-	void Update(void);
-	void SlowUpdate(void);
-	bool TryTarget(const float3& pos,bool userTarget,CUnit* unit);
-
-	void Init(void);
+	void Update() override final {}
+	void SlowUpdate() override final {}
+	void Init() override final {}
 
 private:
-	virtual void FireImpl();
+	bool TestTarget(const float3 pos, const SWeaponTarget& trg) const override final { return false; }
+	void FireImpl(const bool scriptCall) override final {}
 };
 
 

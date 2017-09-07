@@ -3,11 +3,13 @@
 #ifndef _OFFSCREENGLCONTEXT_H
 #define _OFFSCREENGLCONTEXT_H
 
-#ifdef HEADLESS
+#include "Rendering/GL/myGL.h"
+
+#if defined(HEADLESS)
 	//! nothing
-#elif WIN32
+#elif defined(WIN32)
 	#include "System/Platform/Win/win32.h"
-#elif __APPLE__
+#elif defined(__APPLE__)
 	#include <OpenGL/CGLTypes.h>
 #else
 	#include <GL/glx.h>
@@ -45,10 +47,12 @@ private:
 
 /******************************************************************************/
 
-#include <boost/thread.hpp>
-#include <boost/bind.hpp>
 #include <boost/function.hpp>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
 
+namespace boost {
+	class thread;
+}
 
 /**
  * @brief COffscreenGLThread
@@ -63,6 +67,7 @@ public:
 
 	bool IsFinished(boost::posix_time::time_duration wait = boost::posix_time::milliseconds(200));
 	void Join();
+	void join() {Join();}
 
 private:
 	void WrapFunc(boost::function<void()> f);

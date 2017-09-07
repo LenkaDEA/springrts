@@ -9,6 +9,9 @@
 #define _ERROR_HANDLER_H
 
 #include <string>
+#ifndef NO_CATCH_EXCEPTIONS
+#include <sstream>
+#endif
 #include <boost/thread/exceptions.hpp>
 #include <boost/system/system_error.hpp>
 #include "System/Exceptions.h"
@@ -31,7 +34,7 @@
  *                 - MBF_INFO : Info
  *                 - MBF_CRASH: Crash
  */
-void ErrorMessageBox(const std::string& msg, const std::string& caption, unsigned int flags = MBF_OK);
+void ErrorMessageBox(const std::string& msg, const std::string& caption, unsigned int flags = MBF_OK, bool fromMain = false);
 
 /**
  * sets springs exit code
@@ -57,21 +60,30 @@ int GetExitCode();
 	}                                                                                        \
 	catch (const user_error& e) {                                                            \
 		ErrorMessageBox(e.what(), "Spring: Fatal Error (user)", MBF_OK | MBF_EXCL);          \
+	}                                                                                        \
+	catch (const unsupported_error& e) {                                                     \
+		ErrorMessageBox(e.what(), "Spring: Hardware Problem: ", MBF_OK | MBF_CRASH);         \
+	}                                                                                        \
+	catch (const network_error& e) {                                                     \
+		ErrorMessageBox(e.what(), "Spring: Network Error: ", MBF_OK | MBF_EXCL);         \
 	}
 
 /**
  * Spring's exception handler additions to BASE for non DEBUG builds.
  */
 #define CATCH_SPRING_ERRORS_EXTENDED                                                        \
+	catch (const boost::lock_error& e) {                                                    \
+		std::ostringstream ss;                                                              \
+		ss << e.native_error() << ": " << e.what();                                         \
+		ErrorMessageBox(ss.str(), "Spring: Fatal Error (boost-lock)", MBF_OK | MBF_CRASH);  \
+	}                                                                                       \
 	catch (const boost::system::system_error& e) {                                          \
 		std::ostringstream ss;                                                              \
 		ss << e.code().value() << ": " << e.what();                                         \
 		ErrorMessageBox(ss.str(), "Spring: Fatal Error (boost)", MBF_OK | MBF_CRASH);       \
 	}                                                                                       \
-	catch (const boost::lock_error& e) {                                                    \
-		std::ostringstream ss;                                                              \
-		ss << e.native_error() << ": " << e.what();                                         \
-		ErrorMessageBox(ss.str(), "Spring: Fatal Error (boost-lock)", MBF_OK | MBF_CRASH);  \
+	catch (const std::bad_alloc& e) {                                                       \
+		ErrorMessageBox(e.what(), "Spring: Fatal Error (out of memory)", MBF_OK | MBF_CRASH);     \
 	}                                                                                       \
 	catch (const std::exception& e) {                                                       \
 		ErrorMessageBox(e.what(), "Spring: Fatal Error (general)", MBF_OK | MBF_CRASH);     \

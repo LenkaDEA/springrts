@@ -3,12 +3,12 @@
 #ifndef I_AUDIO_CHANNEL_H
 #define I_AUDIO_CHANNEL_H
 
-#include <string.h>
 #include "System/float3.h"
+
+#include <string>
 
 struct GuiSoundSet;
 class CSoundSource;
-class CUnit;
 class CWorldObject;
 
 /**
@@ -20,9 +20,9 @@ class CWorldObject;
 class IAudioChannel {
 protected:
 	IAudioChannel();
+public:
 	virtual ~IAudioChannel();
 
-public:
 	virtual void Enable(bool newState) = 0;
 	bool IsEnabled() const
 	{
@@ -45,10 +45,9 @@ public:
 	virtual void PlaySample(size_t id, const float3& p, float volume = 1.0f) = 0;
 	virtual void PlaySample(size_t id, const float3& p, const float3& velocity, float volume = 1.0f) = 0;
 
-	virtual void PlaySample(size_t id, const CUnit* u, float volume = 1.0f) = 0;
 	virtual void PlaySample(size_t id, const CWorldObject* p, float volume = 1.0f) = 0;
 
-	virtual void PlayRandomSample(const GuiSoundSet& soundSet, const CUnit* unit) = 0;
+	virtual void PlayRandomSample(const GuiSoundSet& soundSet, const CWorldObject* obj) = 0;
 	virtual void PlayRandomSample(const GuiSoundSet& soundSet, const float3& pos) = 0;
 
 	/**

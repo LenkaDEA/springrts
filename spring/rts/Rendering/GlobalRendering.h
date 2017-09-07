@@ -5,6 +5,9 @@
 
 #include "System/creg/creg_cond.h"
 #include "System/Misc/SpringTime.h"
+#include "System/type2.h"
+
+struct SDL_Window;
 
 /**
  * @brief Globally accessible unsynced, rendering related data
@@ -13,17 +16,19 @@
  * that does not remain synced.
  */
 class CGlobalRendering {
-	CR_DECLARE(CGlobalRendering);
-
-	CGlobalRendering();
+	CR_DECLARE_STRUCT(CGlobalRendering)
 
 public:
+	CGlobalRendering();
 	void PostInit();
+	void SetFullScreen(bool configFullScreen, bool cmdLineWindowed, bool cmdLineFullScreen);
 	void SetDualScreenParams();
-	void UpdateWindowGeometry();
 	void UpdateViewPortGeometry();
 	void UpdatePixelGeometry();
+	int2 GetWantedViewSize(const bool fullscreen);
 
+	bool SetGetDrawDebug(bool dbg) { const bool ret =       dbg; drawdebug = dbg; return ret; }
+	bool GetSetDrawDebug(bool dbg) { const bool ret = drawdebug; drawdebug = dbg; return ret; }
 
 	/**
 	 * @brief time offset
@@ -36,14 +41,14 @@ public:
 	/**
 	 * @brief last frame time
 	 *
-	 * How long the last draw cycle took in real time
+	 * How long the last draw cycle took in real time (MILLIseconds)
 	 */
 	float lastFrameTime;
 
 	/// the starting time in tick for last draw frame
 	spring_time lastFrameStart;
 
-	/// 0.001f * GAME_SPEED * gs->speedFactor, used for rendering
+	/// 0.001f * gu->simFPS, used for rendering
 	float weightedSpeedFactor;
 
 	/// the draw frame number (never 0)
@@ -53,6 +58,11 @@ public:
 	float FPS;
 
 	/// the window state (0=normal,1=maximized,2=minimized)
+	enum {
+		WINSTATE_DEFAULT   = 0,
+		WINSTATE_MAXIMIZED = 1,
+		WINSTATE_MINIMIZED = 2
+	};
 	int winState;
 
 	/// the screen size in pixels
@@ -62,7 +72,7 @@ public:
 	/// the window position relative to the screen's bottom-left corner
 	int winPosX;
 	int winPosY;
-	
+
 	/// the window size in pixels
 	int winSizeX;
 	int winSizeY;
@@ -103,13 +113,6 @@ public:
 	int FSAA;
 
 	/**
-	 * @brief Depthbuffer bits
-	 *
-	 * depthbuffer precision
-	 */
-	int depthBufferBits;
-
-	/**
 	 * @brief maxTextureSize
 	 *
 	 * maximum 2D texture size
@@ -135,6 +138,12 @@ public:
 	 */
 	bool drawdebug;
 
+	/**
+	 * @brief draw debug
+	 *
+	 * Whether debugging info is drawn
+	 */
+	bool drawdebugtraceray;
 
 	/**
 	 * Does the user want team colored nanospray?
@@ -233,7 +242,7 @@ public:
 	 */
 	bool fullScreen;
 
-
+	SDL_Window* window;
 
 	/**
 	* @brief max view range in elmos
@@ -244,6 +253,15 @@ public:
 	* @brief near z-plane distance in elmos
 	*/
 	static const float NEAR_PLANE;
+
+
+	/// magic constant to reduce overblending on SMF maps
+	/// (scales the MapInfo::light_t::ground*Color values)
+	static const float SMF_INTENSITY_MULT;
+
+
+	static const int minWinSizeX;
+	static const int minWinSizeY;
 };
 
 extern CGlobalRendering* globalRendering;

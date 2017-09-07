@@ -27,7 +27,7 @@
 # * GetVersionPlusDepFile
 # * GetNativeSourcesRecursive
 # * CheckMinCMakeVersion
-#
+# * MakeGlobalVar
 
 
 If   (CMAKE_HOST_WIN32)
@@ -56,7 +56,12 @@ If     (APPLE)
 ElseIf (MINGW)
 	Set(PIC_FLAG "")
 Else   ()
-	Set(PIC_FLAG "-fpic")
+	if (CMAKE_SIZEOF_VOID_P EQUAL 8) # add fpic flag on 64 bit platforms
+		Set(PIC_FLAG "-fpic")
+	else () #no fpic needed on 32bit
+		set(CMAKE_POSITION_INDEPENDENT_CODE FALSE)
+		Set(PIC_FLAG "")
+	endif()
 EndIf  ()
 
 
@@ -89,7 +94,6 @@ EndMacro (FixLibName targetName)
 # 			C-AIInterface
 # 			NullAI
 # 			KAIK
-# 			ArchiveMover
 # 		)
 # 	CreateInstallTarget(myPkg myInstallDeps myInstallDirs)
 # This creates a new target "install-myPkg"
@@ -162,10 +166,11 @@ EndFunction (MakeGlobal)
 # Find all CMakeLists.txt files in sub-directories
 Macro    (GetListOfSubModules list_var)
 	File(GLOB ${list_var} RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" FOLLOW_SYMLINKS "${CMAKE_CURRENT_SOURCE_DIR}/*/CMakeLists.txt")
-
 	# Strip away the "/CMakeLists.txt" parts, so we end up with just a list of dirs,
 	# for example: AAI;RAI;KAIK
-	String(REPLACE "//CMakeLists.txt" "" ${list_var} "${${list_var}}")
+	# GLOB can prefix with "//" or "/" (perhaps changed in cmake 3.1.0), this double replace will support both "//" and "/"
+	String(REPLACE "/CMakeLists.txt" "" ${list_var} "${${list_var}}")
+	String(REPLACE "/" "" ${list_var} "${${list_var}}")
 EndMacro (GetListOfSubModules list_var)
 
 
@@ -269,3 +274,34 @@ Macro    (CatchRegexGroup pattern group var str)
 		String(REGEX REPLACE "${pattern}" "\\${group}" ${var} "${str}")
 	EndIf  ()
 EndMacro (CatchRegexGroup)
+
+
+# macro that adds "freetype-6 freetype6" to find_library on win32
+Macro(FindFreetypeHack)
+	if(WIN32)
+
+PREFER_STATIC_LIBS()
+find_library(FREETYPE_LIBRARY
+  NAMES freetype libfreetype freetype219 freetype-6 freetype6
+  HINTS
+    ENV FREETYPE_DIR
+  PATH_SUFFIXES lib
+  PATHS
+  /usr/X11R6
+  /usr/local/X11R6
+  /usr/local/X11
+  /usr/freeware
+)
+UNPREFER_STATIC_LIBS()
+	endif()
+EndMacro()
+
+
+# make a var global (not cached in CMakeCache.txt!)
+# both calls are required, else the variable is empty
+# http://www.cmake.org/Bug/view.php?id=15093
+macro(MakeGlobalVar varname)
+        set(${varname} ${ARGN} PARENT_SCOPE)
+        set(${varname} ${ARGN})
+endmacro()
+

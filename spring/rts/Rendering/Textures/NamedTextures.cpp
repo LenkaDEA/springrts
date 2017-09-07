@@ -3,8 +3,7 @@
 // must be included before streflop! else we get streflop/cmath resolve conflicts in its hash implementation files
 #include <boost/unordered_map.hpp>
 #include <vector>
-
-#include "System/mmgr.h"
+#include <mutex>
 
 #include "NamedTextures.h"
 
@@ -13,12 +12,14 @@
 #include "Rendering/GlobalRendering.h"
 #include "System/bitops.h"
 #include "System/TimeProfiler.h"
-#include "System/Vec2.h"
+#include "System/type2.h"
 #include "System/Log/ILog.h"
+#include "System/Threading/SpringMutex.h"
+
 
 #ifdef _MSC_VER
 	#include <map>
-	// only way to compile unordered_map with MSVC appears to require inclusion of math.h instead of streflop, 
+	// only way to compile unordered_map with MSVC appears to require inclusion of math.h instead of streflop,
 	// and that cannot be done here because it gives rise to other conflicts
 	typedef std::map<std::string, CNamedTextures::TexInfo> TEXMAP;
 #else
@@ -29,24 +30,26 @@ namespace CNamedTextures {
 
 	static TEXMAP texMap;
 	static std::vector<std::string> texWaiting;
+	static spring::recursive_mutex mutex;
 
 	/******************************************************************************/
 
 	void Init()
 	{
+		texMap.clear();
+		texWaiting.clear();
 	}
-
 
 	void Kill()
 	{
-		GML_STDMUTEX_LOCK(ntex); // Kill
-
-		TEXMAP::iterator it;
-		for (it = texMap.begin(); it != texMap.end(); ++it) {
+		const std::lock_guard<spring::recursive_mutex> lck(mutex);
+		for (auto it = texMap.cbegin(); it != texMap.cend(); ++it) {
 			const GLuint texID = it->second.id;
 			glDeleteTextures(1, &texID);
 		}
+
 		texMap.clear();
+		texWaiting.clear();
 	}
 
 
@@ -54,8 +57,6 @@ namespace CNamedTextures {
 
 	static bool Load(const std::string& texName, unsigned int texID)
 	{
-		ScopedTimer timer("Textures::NamedTextures");
-
 		//! strip off the qualifiers
 		std::string filename = texName;
 		bool border  = false;
@@ -128,27 +129,19 @@ namespace CNamedTextures {
 
 		if (!bitmap.Load(filename)) {
 			LOG_L(L_WARNING, "Couldn't find texture \"%s\"!", filename.c_str());
+			const std::lock_guard<spring::recursive_mutex> lck(mutex);
 			texMap[texName] = texInfo;
 			glBindTexture(GL_TEXTURE_2D, 0);
 			return false;
 		}
 
-		if (bitmap.type == CBitmap::BitmapTypeDDS) {
+		if (bitmap.compressed) {
 			texID = bitmap.CreateDDSTexture(texID);
 		} else {
-			if (resize) {
-				bitmap = bitmap.CreateRescaled(resizeDimensions.x,resizeDimensions.y);
-			}
-			if (invert) {
-				bitmap.InvertColors();
-			}
-			if (greyed) {
-				bitmap.GrayScale();
-			}
-			if (tint) {
-				bitmap.Tint(tintColor);
-			}
-
+			if (resize) bitmap = bitmap.CreateRescaled(resizeDimensions.x,resizeDimensions.y);
+			if (invert) bitmap.InvertColors();
+			if (greyed) bitmap.GrayScale();
+			if (tint)   bitmap.Tint(tintColor);
 
 			//! make the texture
 			glBindTexture(GL_TEXTURE_2D, texID);
@@ -181,7 +174,7 @@ namespace CNamedTextures {
 
 				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
 							bitmap.xsize, bitmap.ysize, border ? 1 : 0,
-							GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+							GL_RGBA, GL_UNSIGNED_BYTE, &bitmap.mem[0]);
 			} else {
 				//! MIPMAPPING (default)
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -191,11 +184,11 @@ namespace CNamedTextures {
 					GLEW_ARB_texture_non_power_of_two)
 				{
 					glBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
-								GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+								GL_RGBA, GL_UNSIGNED_BYTE, &bitmap.mem[0]);
 				} else {
 					//! glu auto resizes to next POT
 					gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
-									GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+									GL_RGBA, GL_UNSIGNED_BYTE, &bitmap.mem[0]);
 				}
 			}
 
@@ -209,12 +202,11 @@ namespace CNamedTextures {
 		}
 
 		texInfo.id    = texID;
-		texInfo.type  = bitmap.type;
 		texInfo.xsize = bitmap.xsize;
 		texInfo.ysize = bitmap.ysize;
 
+		const std::lock_guard<spring::recursive_mutex> lck(mutex);
 		texMap[texName] = texInfo;
-
 		return true;
 	}
 
@@ -225,12 +217,10 @@ namespace CNamedTextures {
 			return false;
 		}
 
-		GML_STDMUTEX_LOCK(ntex); // Bind
-
 		// cached
-		TEXMAP::iterator it = texMap.find(texName);
+		const auto it = texMap.find(texName);
 		if (it != texMap.end()) {
-			const GLuint& texID = it->second.id;
+			const GLuint texID = it->second.id;
 			glBindTexture(GL_TEXTURE_2D, texID);
 			return (texID != 0);
 		}
@@ -239,6 +229,7 @@ namespace CNamedTextures {
 		GLboolean inListCompile;
 		glGetBooleanv(GL_LIST_INDEX, &inListCompile);
 		if (inListCompile) {
+			const std::lock_guard<spring::recursive_mutex> lck(mutex);
 			GLuint texID = 0;
 			glGenTextures(1, &texID);
 
@@ -264,13 +255,13 @@ namespace CNamedTextures {
 			return;
 		}
 
-		GML_STDMUTEX_LOCK(ntex); // Update
-		
+		const std::lock_guard<spring::recursive_mutex> lck(mutex);
+
 		glPushAttrib(GL_TEXTURE_BIT);
-		for (std::vector<std::string>::iterator it = texWaiting.begin(); it != texWaiting.end(); ++it) {
-			TEXMAP::iterator mit = texMap.find(*it);
+		for (const std::string& texString: texWaiting) {
+			const auto mit = texMap.find(texString);
 			if (mit != texMap.end()) {
-				Load(*it,mit->second.id);
+				Load(texString, mit->second.id);
 			}
 		}
 		glPopAttrib();
@@ -284,9 +275,8 @@ namespace CNamedTextures {
 			return false;
 		}
 
-		GML_STDMUTEX_LOCK(ntex); // Free
-
-		TEXMAP::iterator it = texMap.find(texName);
+		const std::lock_guard<spring::recursive_mutex> lck(mutex);
+		const auto it = texMap.find(texName);
 		if (it != texMap.end()) {
 			const GLuint texID = it->second.id;
 			glDeleteTextures(1, &texID);
@@ -297,18 +287,39 @@ namespace CNamedTextures {
 	}
 
 
-	const TexInfo* GetInfo(const std::string& texName)
+	const TexInfo* GetInfo(const std::string& texName, const bool forceLoad)
 	{
 		if (texName.empty()) {
 			return NULL;
 		}
 
-		GML_STDMUTEX_LOCK(ntex); // GetInfo
-
 		TEXMAP::const_iterator it = texMap.find(texName);
 		if (it != texMap.end()) {
 			return &it->second;
 		}
+
+		if (forceLoad) {
+			// load texture
+			GLboolean inListCompile;
+			glGetBooleanv(GL_LIST_INDEX, &inListCompile);
+			if (inListCompile) {
+				const std::lock_guard<spring::recursive_mutex> lck(mutex);
+				GLuint texID = 0;
+				glGenTextures(1, &texID);
+
+				TexInfo texInfo;
+				texInfo.id = texID;
+				texMap[texName] = texInfo;
+
+				texWaiting.push_back(texName);
+			} else {
+				GLuint texID = 0;
+				glGenTextures(1, &texID);
+				Load(texName, texID);
+			}
+			return &texMap[texName];
+		}
+
 		return NULL;
 	}
 

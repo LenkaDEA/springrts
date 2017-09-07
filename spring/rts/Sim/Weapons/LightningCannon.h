@@ -5,24 +5,18 @@
 
 #include "Weapon.h"
 
-class CLightningCannon :
-	public CWeapon
+class CLightningCannon: public CWeapon
 {
-	CR_DECLARE(CLightningCannon);
+	CR_DECLARE_DERIVED(CLightningCannon)
 public:
-	CLightningCannon(CUnit* owner);
-	~CLightningCannon(void);
-
-	void Update(void);
-	bool TryTarget(const float3& pos,bool userTarget,CUnit* unit);
-
-	void Init(void);
-
-	float3 color;
-	void SlowUpdate(void);
+	CLightningCannon(CUnit* owner, const WeaponDef* def);
 
 private:
-	virtual void FireImpl();
+	void FireImpl(const bool scriptCall) override final;
+	float GetPredictedImpactTime(float3 p) const override final;
+
+private:
+	float3 color;
 };
 
 

@@ -3,81 +3,12 @@
 #ifndef CONFIG_VALUE_H
 #define CONFIG_VALUE_H
 
-#include <boost/utility.hpp>
+#include <boost/noncopyable.hpp>
 #include <map>
-#include <sstream>
 #include <string>
+#include "System/StringConvertibleOptionalValue.h"
 
-/**
- * @brief Untyped base class for TypedStringConvertibleOptionalValue.
- */
-class StringConvertibleOptionalValue : public boost::noncopyable
-{
-public:
-	StringConvertibleOptionalValue() : isSet(false) {}
-	virtual ~StringConvertibleOptionalValue() {}
-	virtual std::string ToString() const = 0;
-	bool IsSet() const { return isSet; }
 
-protected:
-	bool isSet;
-};
-
-/**
- * @brief Wraps a value and detects whether it has been assigned to.
- */
-template<typename T>
-class TypedStringConvertibleOptionalValue : public StringConvertibleOptionalValue
-{
-public:
-	TypedStringConvertibleOptionalValue<T>& operator=(const T& x) {
-		value = x;
-		isSet = true;
-		return *this;
-	}
-	const T& Get() const { return value; }
-
-	std::string ToString() const
-	{
-		std::ostringstream buf;
-		buf << value;
-		return buf.str();
-	}
-
-	static T FromString(const std::string& value)
-	{
-		std::istringstream buf(value);
-		T temp;
-		buf >> temp;
-		return temp;
-	}
-
-protected:
-	T value;
-};
-
-/**
- * @brief Specialization for std::string
- *
- * This exists because 1) converting from std::string to std::string is a no-op
- * and 2) converting from std::string to std::string using std::istringstream
- * will treat spaces as word boundaries, which we do not want.
- */
-template<>
-class TypedStringConvertibleOptionalValue<std::string> : public StringConvertibleOptionalValue
-{
-	typedef std::string T;
-
-public:
-	void operator=(const T& x) { value = x; isSet = true; }
-	const T& Get() const { return value; }
-
-	std::string ToString() const { return value; }
-	static T FromString(const std::string& value) { return value; }
-
-protected:
-	T value;
-};
 
 /**
  * @brief Untyped configuration variable meta data.
@@ -104,6 +35,12 @@ public:
 
 	/// @brief Get the safemode value of this config variable.
 	virtual const StringConvertibleOptionalValue& GetSafemodeValue() const = 0;
+
+	/// @brief Get the headless value of this config variable.
+	virtual const StringConvertibleOptionalValue& GetHeadlessValue() const = 0;
+
+	/// @brief Get the dedicated value of this config variable.
+	virtual const StringConvertibleOptionalValue& GetDedicatedValue() const = 0;
 
 	/// @brief Clamp a value using the declared minimum and maximum value.
 	virtual std::string Clamp(const std::string& value) const = 0;
@@ -143,6 +80,8 @@ public:
 	const StringConvertibleOptionalValue& GetMinimumValue() const { return minimumValue; }
 	const StringConvertibleOptionalValue& GetMaximumValue() const { return maximumValue; }
 	const StringConvertibleOptionalValue& GetSafemodeValue() const { return safemodeValue; }
+	const StringConvertibleOptionalValue& GetHeadlessValue() const { return headlessValue; }
+	const StringConvertibleOptionalValue& GetDedicatedValue() const { return dedicatedValue; }
 
 	/**
 	 * @brief Clamp a value using the declared minimum and maximum value.
@@ -175,6 +114,8 @@ protected:
 	TypedStringConvertibleOptionalValue<T> minimumValue;
 	TypedStringConvertibleOptionalValue<T> maximumValue;
 	TypedStringConvertibleOptionalValue<T> safemodeValue;
+	TypedStringConvertibleOptionalValue<T> headlessValue;
+	TypedStringConvertibleOptionalValue<T> dedicatedValue;
 
 	template<typename F> friend class ConfigVariableBuilder;
 };
@@ -212,6 +153,8 @@ public:
 	MAKE_CHAIN_METHOD(minimumValue, T);
 	MAKE_CHAIN_METHOD(maximumValue, T);
 	MAKE_CHAIN_METHOD(safemodeValue, T);
+	MAKE_CHAIN_METHOD(headlessValue, T);
+	MAKE_CHAIN_METHOD(dedicatedValue, T);
 
 #undef MAKE_CHAIN_METHOD
 

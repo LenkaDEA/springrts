@@ -89,11 +89,11 @@ struct Shader {
 	void DebugOutput(GLenum shaderType)
 	{
 		char fn[20];
-		static int fpc = 0;
-		static int vpc = 0;
 		if (shaderType == GL_FRAGMENT_SHADER_ARB) {
+			static int fpc = 0;
 			sprintf(fn, "shader%dfp.txt", fpc++);
 		} else {
+			static int vpc = 0;
 			sprintf(fn, "shader%dvp.txt", vpc++);
 		}
 		WriteToFile(fn);
@@ -268,7 +268,7 @@ ShaderBuilder::ShadingMethod  ShaderBuilder::CalculateShadingMethod(ShaderDef* s
 
 	// diffuse + bumpmap in one pass?
 	if (total.Fits(hwmax)) {
-		LOG("\tnormalMapStages.size()="_STPF_", SM_DiffuseBumpmapSP", sd->normalMapStages.size());
+		LOG("\tnormalMapStages.size()=" _STPF_ ", SM_DiffuseBumpmapSP", sd->normalMapStages.size());
 		return SM_DiffuseBumpmapSP;
 	}
 
@@ -282,7 +282,7 @@ ShaderBuilder::ShadingMethod  ShaderBuilder::CalculateShadingMethod(ShaderDef* s
 
 	// is multipass possible?
 	if (diffuseRQ.Fits(hwmax) && (bumpmapRQ + special).Fits(hwmax)) {
-		LOG("\tnormalMapStages.size()="_STPF_", SM_DiffuseBumpmapMP", sd->normalMapStages.size());
+		LOG("\tnormalMapStages.size()=" _STPF_ ", SM_DiffuseBumpmapMP", sd->normalMapStages.size());
 		return SM_DiffuseBumpmapMP;
 	}
 
@@ -505,7 +505,7 @@ void ShaderBuilder::BuildVertexShader(NodeGLSLShader* ns, uint passIndex, Shader
 	static const size_t buf_sizeMax = 160;
 	for (size_t a = 0; a < ns->texCoordGen.size(); a++) {
 		char buf[buf_sizeMax];
-		SNPRINTF(buf, buf_sizeMax, "gl_TexCoord["_STPF_"].st = vec2(dot(gl_Vertex, gl_ObjectPlaneS["_STPF_"]), dot(gl_Vertex,gl_ObjectPlaneT["_STPF_"]));\n", a, a, a);
+		SNPRINTF(buf, buf_sizeMax, "gl_TexCoord[" _STPF_ "].st = vec2(dot(gl_Vertex, gl_ObjectPlaneS[" _STPF_ "]), dot(gl_Vertex,gl_ObjectPlaneT[" _STPF_ "]));\n", a, a, a);
 		tcgen += buf;
 	}
 	tcgen += "}\n";
@@ -719,11 +719,7 @@ void NodeGLSLShader::Setup(NodeSetupParams& params) {
 	if (params.shadowMapParams) {
 		if (shadowMapLocation >= 0) {
 			glUniform1i(shadowMapLocation, texUnits.size());
-			glActiveTextureARB(GL_TEXTURE0_ARB + texUnits.size());
-			glBindTexture(GL_TEXTURE_2D, params.shadowMapParams->shadowMap);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_COMPARE_R_TO_TEXTURE);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC_ARB, GL_LEQUAL);
-			glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
+			shadowHandler->SetupShadowTexSampler(GL_TEXTURE0 + texUnits.size() /*, params.shadowMapParams->shadowMap*/);
 		}
 
 		ShadowMapParams& smp = *params.shadowMapParams;

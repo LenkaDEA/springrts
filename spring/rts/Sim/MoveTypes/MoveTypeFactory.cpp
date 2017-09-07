@@ -1,9 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 #include "MoveTypeFactory.h"
-#include "MoveInfo.h"
+#include "MoveDefHandler.h"
 #include "StrafeAirMoveType.h"
 #include "HoverAirMoveType.h"
-#include "ClassicGroundMoveType.h"
 #include "GroundMoveType.h"
 #include "StaticMoveType.h"
 #include "Sim/Misc/GlobalSynced.h"
@@ -15,24 +14,21 @@ AMoveType* MoveTypeFactory::GetMoveType(CUnit* unit, const UnitDef* ud) {
 	if (ud->IsGroundUnit()) {
 		// mobile ground-unit
 		assert(!ud->canfly);
-		assert(ud->moveDef != NULL);
+		assert(ud->pathType != -1U);
 		assert(unit->moveDef == NULL);
 
-		unit->moveDef = new MoveDef(ud->moveDef);
+		unit->moveDef = moveDefHandler->GetMoveDefByPathType(ud->pathType);
 
-		if (modInfo.useClassicGroundMoveType) {
-			return (new CClassicGroundMoveType(unit));
-		} else {
-			return (new CGroundMoveType(unit));
-		}
+		return (new CGroundMoveType(unit));
 	}
 
 	if (ud->IsAirUnit()) {
 		// mobile air-unit
 		assert(ud->canfly);
-		assert(ud->moveDef == NULL);
+		assert(ud->pathType == -1U);
+		assert(unit->moveDef == NULL);
 
-		if (!ud->builder && !ud->IsTransportUnit() && ud->IsNonHoveringAirUnit()) {
+		if (ud->IsStrafingAirUnit()) {
 			return (new CStrafeAirMoveType(unit));
 		} else {
 			// flying builders, transports, gunships

@@ -82,6 +82,7 @@ private:
 		}
 	}
 
+	__FORCE_ALIGN_STACK__
 	void SaveStuff()
 	{
 		Threading::SetThreadName("screenshot");
@@ -109,7 +110,7 @@ SaverThread screenshotThread;
 void TakeScreenshot(std::string type)
 {
 	if (type.empty())
-		type = "png";
+		type = "jpg";
 
 	if (FileSystem::CreateDirectory("screenshots"))
 	{

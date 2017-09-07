@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "LuaConstCMD.h"
 
@@ -71,7 +70,7 @@ bool LuaConstCMD::PushEntries(lua_State* L)
 	PUSH_CMD(RESURRECT);
 	PUSH_CMD(CAPTURE);
 	PUSH_CMD(AUTOREPAIRLEVEL);
-	PUSH_CMD(LOOPBACKATTACK);
+	LuaInsertDualMapPair(L, "LOOPBACKATTACK", CMD_ATTACK); // backward compability (TODO: find a way to print a warning when used!)
 	PUSH_CMD(IDLEMODE);
 
 	return true;

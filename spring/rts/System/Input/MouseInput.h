@@ -4,11 +4,9 @@
 #define MOUSE_INPUT_H
 
 #include <SDL_events.h>
-#include <boost/signals/connection.hpp>
+#include <boost/signals2/connection.hpp>
 
-#include "System/Vec2.h"
-
-struct int2;
+#include "System/type2.h"
 
 class IMouseInput
 {
@@ -19,6 +17,8 @@ public:
 	IMouseInput ();
 	virtual ~IMouseInput() {}
 
+	virtual void InstallWndCallback() {}
+
 	virtual int2 GetPos() { return mousepos; }
 	void SetPos(int2 pos);
 
@@ -28,7 +28,7 @@ public:
 	
 protected:
 	int2 mousepos;
-	boost::signals::connection inputCon;
+	boost::signals2::connection inputCon;
 };
 
 extern IMouseInput* mouseInput;

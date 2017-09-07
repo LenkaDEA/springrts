@@ -9,6 +9,8 @@
  * what is logged and what not.
  */
 
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,6 +19,8 @@ extern "C" {
  * @name logging_filter_defaultFilter_control
  * @{
  */
+
+
 
 /**
  * Sets the minimum level to log for all sections, including the default one.
@@ -38,6 +42,8 @@ void log_filter_global_setMinLevel(int level);
  * @see #log_filter_section_getMinLevel
  */
 int log_filter_global_getMinLevel();
+
+
 
 /**
  * Sets whether log messages for a certain section are logged or not.
@@ -66,17 +72,23 @@ void log_filter_section_setMinLevel(const char* section, int level);
  */
 int log_filter_section_getMinLevel(const char* section);
 
+
+
 /**
  * Returns the number of currently registered sections.
  * @see #log_filter_section_getRegisteredIndex
  */
-int log_filter_section_getRegistered();
+int log_filter_section_getNumRegisteredSections();
 
 /**
  * Returns a registered section.
- * @see #log_filter_section_getRegistered
  */
 const char* log_filter_section_getRegisteredIndex(int index);
+
+#define LOG_DISABLE() log_enable_and_disable(false)
+#define LOG_ENABLE()  log_enable_and_disable(true)
+
+void log_enable_and_disable(const bool enable);
 
 #ifdef __cplusplus
 } // extern "C"
@@ -85,12 +97,15 @@ const char* log_filter_section_getRegisteredIndex(int index);
 #ifdef __cplusplus
 #include <set>
 
+
 /**
  * Returns the registered sections.
  * This is simply to be more C++ friendly.
- * @see #log_filter_section_getRegistered
  */
 std::set<const char*> log_filter_section_getRegisteredSet();
+
+const char* log_filter_section_getSectionCString(const char* section_cstr_tmp);
+
 #endif
 
 /** @} */ // logging_filter_defaultFilter_control

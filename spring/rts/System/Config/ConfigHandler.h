@@ -11,6 +11,7 @@
 #include <boost/bind.hpp>
 
 #include "ConfigVariable.h"
+#include "System/Util.h"
 
 /**
  * @brief Config handler interface
@@ -23,6 +24,10 @@ public:
 	 * @param configSource the config file to be used, using the default one if empty
 	 *
 	 * Re-instantiates if the configHandler already existed.
+	 *
+	 * Note: we don't use &ConfigSource, because showed in past that under some
+	 *    conditions this default variable isn't initialized yet and so getting the
+	 *    ref of it fails causing a crash.
 	 */
 	static void Instantiate(const std::string configSource = "", const bool safemode = false);
 
@@ -46,8 +51,15 @@ public:
 	void NotifyOnChange(T* observer)
 	{
 		// issues: still needs to call configHandler->Get() on startup, automate it
-		AddObserver(boost::bind(&T::ConfigNotify, observer, _1, _2));
-	};
+		AddObserver(boost::bind(&T::ConfigNotify, observer, _1, _2), (void*)observer);
+	}
+
+	template<class T>
+	void RemoveObserver(T* observer)
+	{
+		RemoveObserver((void*)observer);
+	}
+
 
 	/// @see SetString
 	template<typename T>
@@ -59,7 +71,7 @@ public:
 	}
 
 	/// @brief Get bool, throw if key not present
-	bool  GetBool(const std::string& key)     const { return Get<bool>(key); }
+	bool  GetBool(const std::string& key)     const { return Get(key); }
 	/// @brief Get int, throw if key not present
 	int   GetInt(const std::string& key)      const { return Get<int>(key); }
 	/// @brief Get int, throw if key not present
@@ -120,14 +132,26 @@ public:
 	virtual const std::map<std::string, std::string> GetData() const = 0;
 
 	/**
+	 * @brief Get a map containing all key value pairs, which aren't default values
+	 * @note This excludes default values!
+	 */
+	virtual std::map<std::string, std::string> GetDataWithoutDefaults() const = 0;
+
+	/**
 	 * @brief Calls observers if config values changed
 	 */
 	virtual void Update() = 0;
 
+	/**
+	 * @brief Toggles write protection for this confighandler
+	 */
+	virtual void EnableWriting(bool write) = 0;
+
 protected:
 	typedef boost::function<void(const std::string&, const std::string&)> ConfigNotifyCallback;
 
-	virtual void AddObserver(ConfigNotifyCallback observer) = 0;
+	virtual void AddObserver(ConfigNotifyCallback observer, void* holder) = 0;
+	virtual void RemoveObserver(void* holder) = 0;
 
 private:
 	/// @see GetString
@@ -138,6 +162,13 @@ private:
 		T temp;
 		buf >> temp;
 		return temp;
+	}
+
+	/// @see Get
+	/// @brief <bool> specialization of Get<> (we cannot use template spezialization here, so just overload it)
+	bool Get(const std::string& key) const
+	{
+		return StringToBool(GetString(key));
 	}
 };
 

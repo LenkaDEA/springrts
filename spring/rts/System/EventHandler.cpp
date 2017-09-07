@@ -4,9 +4,6 @@
 
 #include "Lua/LuaCallInCheck.h"
 #include "Lua/LuaOpenGL.h"  // FIXME -- should be moved
-#include "Lua/LuaRules.h"
-#include "Lua/LuaGaia.h"
-#include "Lua/LuaUI.h"  // FIXME -- should be moved
 
 #include "System/Config/ConfigHandler.h"
 #include "System/Platform/Threading.h"
@@ -29,8 +26,6 @@ void CEventHandler::SetupEvent(const string& eName,
 	eventMap[eName] = EventInfo(eName, list, props);
 }
 
-#define SETUP_EVENT(name, props) SetupEvent(#name, &list ## name, props)
-
 /******************************************************************************/
 /******************************************************************************/
 
@@ -38,158 +33,30 @@ CEventHandler::CEventHandler()
 {
 	mouseOwner = NULL;
 
-	// synced call-ins
-	SETUP_EVENT(Load, MANAGED_BIT);
-
-	SETUP_EVENT(GamePreload,   MANAGED_BIT);
-	SETUP_EVENT(GameStart,     MANAGED_BIT);
-	SETUP_EVENT(GameOver,      MANAGED_BIT);
-	SETUP_EVENT(GamePaused,    MANAGED_BIT);
-	SETUP_EVENT(GameFrame,     MANAGED_BIT);
-	SETUP_EVENT(GameID,        MANAGED_BIT);
-
-	SETUP_EVENT(TeamDied,      MANAGED_BIT);
-	SETUP_EVENT(TeamChanged,   MANAGED_BIT);
-	SETUP_EVENT(PlayerChanged, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(PlayerAdded,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(PlayerRemoved, MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(UnitCreated,     MANAGED_BIT);
-	SETUP_EVENT(UnitFinished,    MANAGED_BIT);
-	SETUP_EVENT(UnitFromFactory, MANAGED_BIT);
-	SETUP_EVENT(UnitDestroyed,   MANAGED_BIT);
-	SETUP_EVENT(UnitTaken,       MANAGED_BIT);
-	SETUP_EVENT(UnitGiven,       MANAGED_BIT);
-
-	SETUP_EVENT(UnitIdle,       MANAGED_BIT);
-	SETUP_EVENT(UnitCommand,    MANAGED_BIT);
-	SETUP_EVENT(UnitCmdDone,    MANAGED_BIT);
-	SETUP_EVENT(UnitDamaged,    MANAGED_BIT);
-	SETUP_EVENT(UnitExperience, MANAGED_BIT);
-
-	SETUP_EVENT(UnitSeismicPing,  MANAGED_BIT);
-	SETUP_EVENT(UnitEnteredRadar, MANAGED_BIT);
-	SETUP_EVENT(UnitEnteredLos,   MANAGED_BIT);
-	SETUP_EVENT(UnitLeftRadar,    MANAGED_BIT);
-	SETUP_EVENT(UnitLeftLos,      MANAGED_BIT);
-
-	SETUP_EVENT(UnitEnteredWater, MANAGED_BIT);
-	SETUP_EVENT(UnitEnteredAir,   MANAGED_BIT);
-	SETUP_EVENT(UnitLeftWater,    MANAGED_BIT);
-	SETUP_EVENT(UnitLeftAir,      MANAGED_BIT);
-
-	SETUP_EVENT(UnitLoaded,     MANAGED_BIT);
-	SETUP_EVENT(UnitUnloaded,   MANAGED_BIT);
-	SETUP_EVENT(UnitCloaked,    MANAGED_BIT);
-	SETUP_EVENT(UnitDecloaked,  MANAGED_BIT);
-
-	SETUP_EVENT(UnitUnitCollision,    MANAGED_BIT);
-	SETUP_EVENT(UnitFeatureCollision, MANAGED_BIT);
-	SETUP_EVENT(UnitMoved,            MANAGED_BIT);
-	SETUP_EVENT(UnitMoveFailed,       MANAGED_BIT);
-
-	SETUP_EVENT(FeatureCreated,   MANAGED_BIT);
-	SETUP_EVENT(FeatureDestroyed, MANAGED_BIT);
-	SETUP_EVENT(FeatureMoved,     MANAGED_BIT);
-
-	SETUP_EVENT(ProjectileCreated,   MANAGED_BIT);
-	SETUP_EVENT(ProjectileDestroyed, MANAGED_BIT);
-
-	SETUP_EVENT(Explosion, MANAGED_BIT);
-
-	SETUP_EVENT(StockpileChanged, MANAGED_BIT);
-
-	// unsynced call-ins
-	SETUP_EVENT(Save,           MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(UnsyncedHeightMapUpdate, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(Update,         MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(KeyPress,       MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(KeyRelease,     MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(MouseMove,      MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(MousePress,     MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(MouseRelease,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(MouseWheel,     MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(JoystickEvent,  MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(IsAbove,        MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(GetTooltip,     MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(DefaultCommand, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(CommandNotify,  MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(AddConsoleLine, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(LastMessagePosition, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(GroupChanged,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(GameSetup,      MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(WorldTooltip,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(MapDrawCmd,     MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(SunChanged,     MANAGED_BIT | UNSYNCED_BIT); //FIXME make synced? (whole dynSun code needs to then)
-
-	SETUP_EVENT(ViewResize,     MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(DrawGenesis,         MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawWorld,           MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawWorldPreUnit,    MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawWorldShadow,     MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawWorldReflection, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawWorldRefraction, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawScreenEffects,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawScreen,          MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(DrawInMiniMap,       MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(RenderUnitCreated,      MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(RenderUnitDestroyed,    MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(RenderUnitCloakChanged, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(RenderUnitLOSChanged,   MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(RenderFeatureCreated,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(RenderFeatureDestroyed, MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(RenderFeatureMoved,     MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(RenderProjectileCreated,   MANAGED_BIT | UNSYNCED_BIT);
-	SETUP_EVENT(RenderProjectileDestroyed, MANAGED_BIT | UNSYNCED_BIT);
-
-	SETUP_EVENT(GameProgress,  MANAGED_BIT | UNSYNCED_BIT);
-
-	// unmanaged call-ins
-	SetupEvent("Shutdown", NULL, 0);
-	SetupEvent("RecvLuaMsg", NULL, 0);
-
-	SetupEvent("DrawUnit", NULL, UNSYNCED_BIT);
-	SetupEvent("DrawFeature", NULL, UNSYNCED_BIT);
-	SetupEvent("RecvSkirmishAIMessage", NULL, UNSYNCED_BIT);
-
-	// LuaIntro
-	SetupEvent("DrawLoadScreen",  NULL, UNSYNCED_BIT);
-	SetupEvent("LoadProgress",  NULL, UNSYNCED_BIT);
-
-	// LuaUI
-	SetupEvent("ConfigureLayout", NULL, UNSYNCED_BIT | CONTROL_BIT);
-
-	// LuaRules
-	SetupEvent("CommandFallback",        NULL, CONTROL_BIT);
-	SetupEvent("AllowCommand",           NULL, CONTROL_BIT);
-	SetupEvent("AllowUnitCreation",      NULL, CONTROL_BIT);
-	SetupEvent("AllowUnitTransfer",      NULL, CONTROL_BIT);
-	SetupEvent("AllowUnitBuildStep",     NULL, CONTROL_BIT);
-	SetupEvent("AllowFeatureCreation",   NULL, CONTROL_BIT);
-	SetupEvent("AllowFeatureBuildStep",  NULL, CONTROL_BIT);
-	SetupEvent("AllowResourceLevel",     NULL, CONTROL_BIT);
-	SetupEvent("AllowResourceTransfer",  NULL, CONTROL_BIT);
-	SetupEvent("AllowDirectUnitControl", NULL, CONTROL_BIT);
-	SetupEvent("AllowStartPosition",     NULL, CONTROL_BIT);
-	SetupEvent("TerraformComplete",      NULL, CONTROL_BIT);
-	SetupEvent("MoveCtrlNotify",         NULL, CONTROL_BIT);
-	SetupEvent("UnitPreDamaged",         NULL, CONTROL_BIT);
-	SetupEvent("ShieldPreDamaged",       NULL, CONTROL_BIT);
-	SetupEvent("AllowWeaponTargetCheck", NULL, CONTROL_BIT);
-	SetupEvent("AllowWeaponTarget",      NULL, CONTROL_BIT);
+	SetupEvents();
 }
 
-
 CEventHandler::~CEventHandler()
+{ }
+
+
+void CEventHandler::ResetState()
 {
+	mouseOwner = NULL;
+
+	eventMap.clear();
+	handles.clear();
+
+	SetupEvents();
+}
+
+void CEventHandler::SetupEvents()
+{
+	#define SETUP_EVENT(name, props) SetupEvent(#name, &list ## name, props);
+	#define SETUP_UNMANAGED_EVENT(name, props) SetupEvent(#name, NULL, props);
+		#include "Events.def"
+	#undef SETUP_EVENT
+	#undef SETUP_UNMANAGED_EVENT
 }
 
 
@@ -200,17 +67,15 @@ void CEventHandler::AddClient(CEventClient* ec)
 {
 	ListInsert(handles, ec);
 
-	EventMap::const_iterator it;
-	for (it = eventMap.begin(); it != eventMap.end(); ++it) {
+	for (auto it = eventMap.cbegin(); it != eventMap.cend(); ++it) {
 		const EventInfo& ei = it->second;
-		if (ei.HasPropBit(MANAGED_BIT) && (ei.GetList() != NULL)) {
+		if (ei.HasPropBit(MANAGED_BIT)) {
 			if (ec->WantsEvent(it->first)) {
-				ListInsert(*ei.GetList(), ec);
+				InsertEvent(ec, it->first);
 			}
 		}
 	}
 }
-
 
 void CEventHandler::RemoveClient(CEventClient* ec)
 {
@@ -220,11 +85,10 @@ void CEventHandler::RemoveClient(CEventClient* ec)
 
 	ListRemove(handles, ec);
 
-	EventMap::const_iterator it;
-	for (it = eventMap.begin(); it != eventMap.end(); ++it) {
+	for (auto it = eventMap.cbegin(); it != eventMap.cend(); ++it) {
 		const EventInfo& ei = it->second;
-		if (ei.HasPropBit(MANAGED_BIT) && (ei.GetList() != NULL)) {
-			ListRemove(*ei.GetList(), ec);
+		if (ei.HasPropBit(MANAGED_BIT)) {
+			RemoveEvent(ec, it->first);
 		}
 	}
 }
@@ -236,8 +100,8 @@ void CEventHandler::RemoveClient(CEventClient* ec)
 void CEventHandler::GetEventList(vector<string>& list) const
 {
 	list.clear();
-	EventMap::const_iterator it;
-	for (it = eventMap.begin(); it != eventMap.end(); ++it) {
+
+	for (auto it = eventMap.cbegin(); it != eventMap.cend(); ++it) {
 		list.push_back(it->first);
 	}
 }
@@ -251,21 +115,21 @@ bool CEventHandler::IsKnown(const string& eName) const
 
 bool CEventHandler::IsManaged(const string& eName) const
 {
-	EventMap::const_iterator it = eventMap.find(eName);
+	const EventMap::const_iterator it = eventMap.find(eName);
 	return ((it != eventMap.end()) && (it->second.HasPropBit(MANAGED_BIT)));
 }
 
 
 bool CEventHandler::IsUnsynced(const string& eName) const
 {
-	EventMap::const_iterator it = eventMap.find(eName);
+	const EventMap::const_iterator it = eventMap.find(eName);
 	return ((it != eventMap.end()) && (it->second.HasPropBit(UNSYNCED_BIT)));
 }
 
 
 bool CEventHandler::IsController(const string& eName) const
 {
-	EventMap::const_iterator it = eventMap.find(eName);
+	const EventMap::const_iterator it = eventMap.find(eName);
 	return ((it != eventMap.end()) && (it->second.HasPropBit(CONTROL_BIT)));
 }
 
@@ -322,12 +186,205 @@ void CEventHandler::ListRemove(EventClientList& ecList, CEventClient* ec)
 {
 	// FIXME: efficient, hardly
 	EventClientList newList;
+	newList.reserve(ecList.size());
 	for (size_t i = 0; i < ecList.size(); i++) {
 		if (ec != ecList[i]) {
 			newList.push_back(ecList[i]);
 		}
 	}
-	ecList = newList;
+	ecList.swap(newList);
+}
+
+
+/******************************************************************************/
+/******************************************************************************/
+
+#define CONTROL_ITERATE_DEF_TRUE(name, ...) \
+	bool result = true;                        \
+	for (int i = 0; i < list##name.size(); ) { \
+		CEventClient* ec = list##name[i];  \
+		result &= ec->name(__VA_ARGS__);   \
+		if (i < list##name.size() && ec == list##name[i]) \
+			++i; /* the call-in may remove itself from the list */ \
+	} \
+	return result;
+
+#define CONTROL_ITERATE_DEF_FALSE(name, ...) \
+	bool result = false;                        \
+	for (int i = 0; i < list##name.size(); ) { \
+		CEventClient* ec = list##name[i];  \
+		result |= ec->name(__VA_ARGS__);   \
+		if (i < list##name.size() && ec == list##name[i]) \
+			++i; /* the call-in may remove itself from the list */ \
+	} \
+	return result;
+
+
+bool CEventHandler::CommandFallback(const CUnit* unit, const Command& cmd)
+{
+	CONTROL_ITERATE_DEF_TRUE(CommandFallback, unit, cmd)
+}
+
+
+bool CEventHandler::AllowCommand(const CUnit* unit, const Command& cmd, bool fromSynced)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowCommand, unit, cmd, fromSynced)
+}
+
+
+bool CEventHandler::AllowUnitCreation(const UnitDef* unitDef, const CUnit* builder, const BuildInfo* buildInfo)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowUnitCreation, unitDef, builder, buildInfo)
+}
+
+
+bool CEventHandler::AllowUnitTransfer(const CUnit* unit, int newTeam, bool capture)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowUnitTransfer, unit, newTeam, capture)
+}
+
+
+bool CEventHandler::AllowUnitBuildStep(const CUnit* builder, const CUnit* unit, float part)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowUnitBuildStep, builder, unit, part)
+}
+
+
+bool CEventHandler::AllowFeatureCreation(const FeatureDef* featureDef, int allyTeamID, const float3& pos)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowFeatureCreation, featureDef, allyTeamID, pos)
+}
+
+
+bool CEventHandler::AllowFeatureBuildStep(const CUnit* builder, const CFeature* feature, float part)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowFeatureBuildStep, builder, feature, part)
+}
+
+
+bool CEventHandler::AllowResourceLevel(int teamID, const string& type, float level)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowResourceLevel, teamID, type, level)
+}
+
+
+bool CEventHandler::AllowResourceTransfer(int oldTeam, int newTeam, const string& type, float amount)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowResourceTransfer, oldTeam, newTeam, type, amount)
+}
+
+
+bool CEventHandler::AllowDirectUnitControl(int playerID, const CUnit* unit)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowDirectUnitControl, playerID, unit)
+}
+
+
+bool CEventHandler::AllowBuilderHoldFire(const CUnit* unit, int action)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowBuilderHoldFire, unit, action)
+}
+
+
+bool CEventHandler::AllowStartPosition(int playerID, unsigned char readyState, const float3& clampedPos, const float3& rawPickPos)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowStartPosition, playerID, readyState, clampedPos, rawPickPos)
+}
+
+
+
+bool CEventHandler::TerraformComplete(const CUnit* unit, const CUnit* build)
+{
+	CONTROL_ITERATE_DEF_FALSE(TerraformComplete, unit, build)
+}
+
+
+bool CEventHandler::MoveCtrlNotify(const CUnit* unit, int data)
+{
+	CONTROL_ITERATE_DEF_FALSE(MoveCtrlNotify, unit, data)
+}
+
+
+int CEventHandler::AllowWeaponTargetCheck(unsigned int attackerID, unsigned int attackerWeaponNum, unsigned int attackerWeaponDefID)
+{
+	int result = -1;
+	for (int i = 0; i < listAllowWeaponTargetCheck.size(); ) {
+		CEventClient* ec = listAllowWeaponTargetCheck[i];
+		int result2 = ec->AllowWeaponTargetCheck(attackerID, attackerWeaponNum, attackerWeaponDefID);
+		if (result2 > result) result = result2;
+		if (i < listAllowWeaponTargetCheck.size() && ec == listAllowWeaponTargetCheck[i])
+			++i; /* the call-in may remove itself from the list */
+	}
+	return result;
+}
+
+
+bool CEventHandler::AllowWeaponTarget(
+	unsigned int attackerID,
+	unsigned int targetID,
+	unsigned int attackerWeaponNum,
+	unsigned int attackerWeaponDefID,
+	float* targetPriority
+) {
+	CONTROL_ITERATE_DEF_TRUE(AllowWeaponTarget, attackerID, targetID, attackerWeaponNum, attackerWeaponDefID, targetPriority)
+}
+
+
+bool CEventHandler::AllowWeaponInterceptTarget(const CUnit* interceptorUnit, const CWeapon* interceptorWeapon, const CProjectile* interceptorTarget)
+{
+	CONTROL_ITERATE_DEF_TRUE(AllowWeaponInterceptTarget, interceptorUnit, interceptorWeapon, interceptorTarget)
+}
+
+
+bool CEventHandler::UnitPreDamaged(
+	const CUnit* unit,
+	const CUnit* attacker,
+	float damage,
+	int weaponDefID,
+	int projectileID,
+	bool paralyzer,
+	float* newDamage,
+	float* impulseMult
+) {
+	CONTROL_ITERATE_DEF_FALSE(UnitPreDamaged, unit, attacker, damage, weaponDefID, projectileID, paralyzer, newDamage, impulseMult)
+}
+
+
+bool CEventHandler::FeaturePreDamaged(
+	const CFeature* feature,
+	const CUnit* attacker,
+	float damage,
+	int weaponDefID,
+	int projectileID,
+	float* newDamage,
+	float* impulseMult
+) {
+	CONTROL_ITERATE_DEF_FALSE(FeaturePreDamaged, feature, attacker, damage, weaponDefID, projectileID, newDamage, impulseMult)
+}
+
+
+bool CEventHandler::ShieldPreDamaged(
+	const CProjectile* projectile,
+	const CWeapon* shieldEmitter,
+	const CUnit* shieldCarrier,
+	bool bounceProjectile,
+	const CWeapon* beamEmitter,
+	const CUnit* beamCarrier
+) {
+	CONTROL_ITERATE_DEF_FALSE(ShieldPreDamaged, projectile, shieldEmitter, shieldCarrier, bounceProjectile, beamEmitter, beamCarrier)
+}
+
+
+bool CEventHandler::SyncedActionFallback(const string& line, int playerID)
+{
+	for (int i = 0; i < listSyncedActionFallback.size(); ) {
+		CEventClient* ec = listSyncedActionFallback[i];
+		if (ec->SyncedActionFallback(line, playerID))
+			return true;
+		if (i < listSyncedActionFallback.size() && ec == listSyncedActionFallback[i])
+			++i; /* the call-in may remove itself from the list */
+	}
+	return false;
 }
 
 
@@ -341,6 +398,7 @@ void CEventHandler::ListRemove(EventClientList& ecList, CEventClient* ec)
 		if (i < list##name.size() && ec == list##name[i]) \
 			++i; /* the call-in may remove itself from the list */ \
 	}
+
 
 void CEventHandler::Save(zipFile archive)
 {
@@ -417,109 +475,53 @@ void CEventHandler::PlayerRemoved(int playerID, int reason)
 /******************************************************************************/
 /******************************************************************************/
 
+void CEventHandler::UnitHarvestStorageFull(const CUnit* unit)
+{
+	const int unitAllyTeam = unit->allyteam;
+	const int count = listUnitHarvestStorageFull.size();
+	for (int i = 0; i < count; i++) {
+		CEventClient* ec = listUnitHarvestStorageFull[i];
+		if (ec->CanReadAllyTeam(unitAllyTeam)) {
+			ec->UnitHarvestStorageFull(unit);
+		}
+	}
+}
+
+/******************************************************************************/
+/******************************************************************************/
+
+void CEventHandler::CollectGarbage()
+{
+	ITERATE_EVENTCLIENTLIST(CollectGarbage);
+}
+
+
+void CEventHandler::DbgTimingInfo(DbgTimingInfoType type, const spring_time start, const spring_time end)
+{
+	ITERATE_EVENTCLIENTLIST(DbgTimingInfo, type, start, end);
+}
+
+
 void CEventHandler::Load(IArchive* archive)
 {
 	ITERATE_EVENTCLIENTLIST(Load, archive);
 }
 
 
-#ifdef USE_GML
-	#define GML_DRAW_CALLIN_SELECTOR() if(!globalConfig->enableDrawCallIns) return
-#else
-	#define GML_DRAW_CALLIN_SELECTOR()
-#endif
-
-#define GML_CALLIN_MUTEXES() \
-	GML_THRMUTEX_LOCK(feat, GML_DRAW); \
-	GML_THRMUTEX_LOCK(unit, GML_DRAW)/*; \
-	GML_THRMUTEX_LOCK(proj, GML_DRAW)*/
-
-
-#define EVENTHANDLER_CHECK(name, ...) \
-	const int count = list ## name.size(); \
-	if (count <= 0) \
-		return __VA_ARGS__; \
-	GML_CALLIN_MUTEXES()
-
-
 void CEventHandler::Update()
 {
-	GML_DRAW_CALLIN_SELECTOR();
-
-	EVENTHANDLER_CHECK(Update);
-
 	ITERATE_EVENTCLIENTLIST(Update);
 }
 
 
 
-void CEventHandler::UpdateUnits(void) { eventBatchHandler->UpdateUnits(); }
-void CEventHandler::UpdateDrawUnits() { eventBatchHandler->UpdateDrawUnits(); }
-void CEventHandler::DeleteSyncedUnits() {
-	eventBatchHandler->DeleteSyncedUnits();
-	GML_STDMUTEX_LOCK(luaui); // DeleteSyncedUnits
-	if (luaUI) luaUI->ExecuteUnitEventBatch();
-}
-
-void CEventHandler::UpdateFeatures(void) { eventBatchHandler->UpdateFeatures(); }
-void CEventHandler::UpdateDrawFeatures() { eventBatchHandler->UpdateDrawFeatures(); }
-void CEventHandler::DeleteSyncedFeatures() {
-	eventBatchHandler->DeleteSyncedFeatures();
-	GML_STDMUTEX_LOCK(luaui); // DeleteSyncedFeatures
-	if (luaUI) luaUI->ExecuteFeatEventBatch();
-}
-
-void CEventHandler::UpdateProjectiles() { eventBatchHandler->UpdateProjectiles(); }
-void CEventHandler::UpdateDrawProjectiles() { eventBatchHandler->UpdateDrawProjectiles(); }
-
-inline void ExecuteAllCallsFromSynced() {
-#if (LUA_MT_OPT & LUA_MUTEX)
-	bool exec;
-	do { // these calls can be chained, need to purge them all
-		exec = false;
-		if (luaRules && luaRules->ExecuteCallsFromSynced())
-			exec = true;
-		if (luaGaia && luaGaia->ExecuteCallsFromSynced())
-			exec = true;
-
-		GML_STDMUTEX_LOCK(luaui); // ExecuteAllCallsFromSynced
-		if (luaUI && luaUI->ExecuteCallsFromSynced())
-			exec = true;
-	} while (exec);
-#endif
-}
-
-void CEventHandler::DeleteSyncedProjectiles() {
-	ExecuteAllCallsFromSynced();
-	eventBatchHandler->DeleteSyncedProjectiles();
-
-	GML_STDMUTEX_LOCK(luaui); // DeleteSyncedProjectiles
-	if (luaUI) luaUI->ExecuteProjEventBatch();
-}
-
-void CEventHandler::UpdateObjects() {
-	eventBatchHandler->UpdateObjects();
-}
-void CEventHandler::DeleteSyncedObjects() {
-	ExecuteAllCallsFromSynced();
-
-	GML_STDMUTEX_LOCK(luaui); // DeleteSyncedObjects
-	if (luaUI) luaUI->ExecuteObjEventBatch();
-}
-
-
-
-void CEventHandler::SunChanged(const float3& sunDir)
+void CEventHandler::SunChanged()
 {
-	EVENTHANDLER_CHECK(SunChanged);
-
-	ITERATE_EVENTCLIENTLIST(SunChanged, sunDir);
+	ITERATE_EVENTCLIENTLIST(SunChanged);
 }
 
 void CEventHandler::ViewResize()
 {
-	EVENTHANDLER_CHECK(ViewResize);
-
 	ITERATE_EVENTCLIENTLIST(ViewResize);
 }
 
@@ -530,25 +532,23 @@ void CEventHandler::GameProgress(int gameFrame)
 }
 
 
-#define DRAW_CALLIN(name)                         \
-  void CEventHandler:: Draw ## name ()            \
-  {                                               \
-    GML_DRAW_CALLIN_SELECTOR();                   \
-		                                          \
-    EVENTHANDLER_CHECK(Draw ## name);             \
-                                                  \
-    LuaOpenGL::EnableDraw ## name ();             \
-    listDraw ## name [0]->Draw ## name ();        \
-                                                  \
-    for (int i = 1; i < listDraw ## name.size(); ) { \
-      LuaOpenGL::ResetDraw ## name ();            \
-      CEventClient* ec = listDraw ## name [i];    \
-      ec-> Draw ## name ();                       \
+#define DRAW_CALLIN(name)                                            \
+  void CEventHandler:: Draw ## name ()                               \
+  {                                                                  \
+    if (listDraw ## name.empty())                                    \
+      return;                                                        \
+    LuaOpenGL::EnableDraw ## name ();                                \
+    listDraw ## name [0]->Draw ## name ();                           \
+                                                                     \
+    for (int i = 1; i < listDraw ## name.size(); ) {                 \
+      LuaOpenGL::ResetDraw ## name ();                               \
+      CEventClient* ec = listDraw ## name [i];                       \
+      ec-> Draw ## name ();                                          \
       if (i < listDraw ## name.size() && ec == listDraw ## name [i]) \
-	    ++i;                                      \
-    }                                             \
-                                                  \
-    LuaOpenGL::DisableDraw ## name ();            \
+	    ++i;                                                         \
+    }                                                                \
+                                                                     \
+    LuaOpenGL::DisableDraw ## name ();                               \
   }
 
 DRAW_CALLIN(Genesis)
@@ -557,67 +557,86 @@ DRAW_CALLIN(WorldPreUnit)
 DRAW_CALLIN(WorldShadow)
 DRAW_CALLIN(WorldReflection)
 DRAW_CALLIN(WorldRefraction)
+DRAW_CALLIN(GroundPreForward)
+DRAW_CALLIN(GroundPreDeferred)
+DRAW_CALLIN(GroundPostDeferred)
+DRAW_CALLIN(UnitsPostDeferred)
+DRAW_CALLIN(FeaturesPostDeferred)
 DRAW_CALLIN(ScreenEffects)
 DRAW_CALLIN(Screen)
 DRAW_CALLIN(InMiniMap)
+DRAW_CALLIN(InMiniMapBackground)
 
+
+#define DRAW_ENTITY_CALLIN(name, args, args2)     \
+  bool CEventHandler:: Draw ## name args        \
+  {                                               \
+    bool skipEngineDrawing = false;               \
+    for (int i = 0; i < listDraw ## name.size(); ) { \
+      CEventClient* ec = listDraw ## name [i];    \
+      skipEngineDrawing |= ec-> Draw ## name args2 ; \
+      if (i < listDraw ## name.size() && ec == listDraw ## name [i]) \
+	    ++i;                                      \
+    } \
+    return skipEngineDrawing; \
+  }
+
+DRAW_ENTITY_CALLIN(Unit, (const CUnit* unit), (unit))
+DRAW_ENTITY_CALLIN(Feature, (const CFeature* feature), (feature))
+DRAW_ENTITY_CALLIN(Shield, (const CUnit* unit, const CWeapon* weapon), (unit, weapon))
+DRAW_ENTITY_CALLIN(Projectile, (const CProjectile* projectile), (projectile))
 
 /******************************************************************************/
 /******************************************************************************/
+
+#define CONTROL_REVERSE_ITERATE_DEF_TRUE(name, ...) \
+	for (int i = list##name.size() - 1; i >= 0; --i) { \
+		CEventClient* ec = list##name[i]; \
+		if (ec->name(__VA_ARGS__)) \
+			return true; \
+	}
+
+#define CONTROL_REVERSE_ITERATE_STRING(name, ...) \
+	for (int i = list##name.size() - 1; i >= 0; --i) { \
+		CEventClient* ec = list##name[i]; \
+		const std::string& str = ec->name(__VA_ARGS__); \
+		if (!str.empty()) \
+			return str; \
+	}
 
 bool CEventHandler::CommandNotify(const Command& cmd)
 {
-	EVENTHANDLER_CHECK(CommandNotify, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listCommandNotify[i];
-		if (ec->CommandNotify(cmd)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(CommandNotify, cmd)
 	return false;
 }
 
 
-bool CEventHandler::KeyPress(unsigned short key, bool isRepeat)
+bool CEventHandler::KeyPress(int key, bool isRepeat)
 {
-	EVENTHANDLER_CHECK(KeyPress, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listKeyPress[i];
-		if (ec->KeyPress(key, isRepeat)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(KeyPress, key, isRepeat)
 	return false;
 }
 
 
-bool CEventHandler::KeyRelease(unsigned short key)
+bool CEventHandler::KeyRelease(int key)
 {
-	EVENTHANDLER_CHECK(KeyRelease, false);
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(KeyRelease, key)
+	return false;
+}
 
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listKeyRelease[i];
-		if (ec->KeyRelease(key)) {
-			return true;
-		}
-	}
+
+bool CEventHandler::TextInput(const std::string& utf8)
+{
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(TextInput, utf8)
 	return false;
 }
 
 
 bool CEventHandler::MousePress(int x, int y, int button)
 {
-	EVENTHANDLER_CHECK(MousePress, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
+	for (int i = listMousePress.size() - 1; i >= 0; --i) {
 		CEventClient* ec = listMousePress[i];
-		if (ec->MousePress(x, y, button)) {
+		if (ec->MousePress(x,y,button)) {
 			if (!mouseOwner)
 				mouseOwner = ec;
 			return true;
@@ -627,19 +646,11 @@ bool CEventHandler::MousePress(int x, int y, int button)
 }
 
 
-// return a cmd index, or -1
-int CEventHandler::MouseRelease(int x, int y, int button)
+void CEventHandler::MouseRelease(int x, int y, int button)
 {
-	if (mouseOwner == NULL) {
-		return -1;
-	}
-	else
-	{
-		GML_CALLIN_MUTEXES();
-
-		const int retval = mouseOwner->MouseRelease(x, y, button);
+	if (mouseOwner) {
+		mouseOwner->MouseRelease(x, y, button);
 		mouseOwner = NULL;
-		return retval;
 	}
 }
 
@@ -650,94 +661,54 @@ bool CEventHandler::MouseMove(int x, int y, int dx, int dy, int button)
 		return false;
 	}
 
-	GML_CALLIN_MUTEXES();
-
 	return mouseOwner->MouseMove(x, y, dx, dy, button);
 }
 
 
 bool CEventHandler::MouseWheel(bool up, float value)
 {
-	EVENTHANDLER_CHECK(MouseWheel, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listMouseWheel[i];
-		if (ec->MouseWheel(up, value)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(MouseWheel, up, value)
 	return false;
 }
 
 bool CEventHandler::JoystickEvent(const std::string& event, int val1, int val2)
 {
-	EVENTHANDLER_CHECK(JoystickEvent, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listMouseWheel[i];
-		if (ec->JoystickEvent(event, val1, val2)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(JoystickEvent, event, val1, val2)
 	return false;
 }
 
 bool CEventHandler::IsAbove(int x, int y)
 {
-	EVENTHANDLER_CHECK(IsAbove, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listIsAbove[i];
-		if (ec->IsAbove(x, y)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(IsAbove, x, y)
 	return false;
 }
 
 string CEventHandler::GetTooltip(int x, int y)
 {
-	EVENTHANDLER_CHECK(GetTooltip, "");
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listGetTooltip[i];
-		const string tt = ec->GetTooltip(x, y);
-		if (!tt.empty()) {
-			return tt;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_STRING(GetTooltip, x, y)
 	return "";
 }
 
 
 bool CEventHandler::AddConsoleLine(const std::string& msg, const std::string& section, int level)
 {
-	EVENTHANDLER_CHECK(AddConsoleLine, false);
+	if (listAddConsoleLine.empty())
+		return false;
 
 	ITERATE_EVENTCLIENTLIST(AddConsoleLine, msg, section, level);
-
 	return true;
 }
 
 
 void CEventHandler::LastMessagePosition(const float3& pos)
 {
-	EVENTHANDLER_CHECK(LastMessagePosition);
-	//GML_STDMUTEX_LOCK(log); // LastMessagePosition FIXME would this be required?
 	ITERATE_EVENTCLIENTLIST(LastMessagePosition, pos);
 }
 
 
 bool CEventHandler::GroupChanged(int groupID)
 {
-	EVENTHANDLER_CHECK(GroupChanged, false);
-
 	ITERATE_EVENTCLIENTLIST(GroupChanged, groupID);
-
 	return false;
 }
 
@@ -746,33 +717,40 @@ bool CEventHandler::GroupChanged(int groupID)
 bool CEventHandler::GameSetup(const string& state, bool& ready,
                                   const map<int, string>& playerStates)
 {
-	EVENTHANDLER_CHECK(GameSetup, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listGameSetup[i];
-		if (ec->GameSetup(state, ready, playerStates)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(GameSetup, state, ready, playerStates)
 	return false;
 }
 
+void CEventHandler::DownloadQueued(int ID, const string& archiveName, const string& archiveType)
+{
+	ITERATE_EVENTCLIENTLIST(DownloadQueued, ID, archiveName, archiveType);
+}
+
+void CEventHandler::DownloadStarted(int ID)
+{
+	ITERATE_EVENTCLIENTLIST(DownloadStarted, ID);
+}
+
+void CEventHandler::DownloadFinished(int ID)
+{
+	ITERATE_EVENTCLIENTLIST(DownloadFinished, ID);
+}
+
+void CEventHandler::DownloadFailed(int ID, int errorID)
+{
+	ITERATE_EVENTCLIENTLIST(DownloadFailed, ID, errorID);
+}
+
+void CEventHandler::DownloadProgress(int ID, long downloaded, long total)
+{
+	ITERATE_EVENTCLIENTLIST(DownloadProgress, ID, downloaded, total);
+}
 
 string CEventHandler::WorldTooltip(const CUnit* unit,
                                    const CFeature* feature,
                                    const float3* groundPos)
 {
-	EVENTHANDLER_CHECK(WorldTooltip, "");
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listWorldTooltip[i];
-		const string tt = ec->WorldTooltip(unit, feature, groundPos);
-		if (!tt.empty()) {
-			return tt;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_STRING(WorldTooltip, unit, feature, groundPos)
 	return "";
 }
 
@@ -781,19 +759,16 @@ bool CEventHandler::MapDrawCmd(int playerID, int type,
                                const float3* pos0, const float3* pos1,
                                    const string* label)
 {
-	EVENTHANDLER_CHECK(MapDrawCmd, false);
-
-	// reverse order, user has the override
-	for (int i = (count - 1); i >= 0; i--) {
-		CEventClient* ec = listMapDrawCmd[i];
-		if (ec->MapDrawCmd(playerID, type, pos0, pos1, label)) {
-			return true;
-		}
-	}
+	CONTROL_REVERSE_ITERATE_DEF_TRUE(MapDrawCmd, playerID, type, pos0, pos1, label)
 	return false;
 }
 
 
 /******************************************************************************/
 /******************************************************************************/
+
+void CEventHandler::MetalMapChanged(const int x, const int z)
+{
+	ITERATE_EVENTCLIENTLIST(MetalMapChanged, x, z);
+}
 

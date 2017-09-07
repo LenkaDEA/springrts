@@ -10,6 +10,8 @@
 #include "Icon.h"
 #include "System/float3.h"
 
+class CVertexArray;
+
 namespace icon {
 	class CIconData {
 		public:
@@ -25,6 +27,7 @@ namespace icon {
 			void CopyData(const CIconData* iconData);
 
 			void BindTexture() const;
+			void DrawArray(CVertexArray* va, float x0, float y0, float x1, float y1, const unsigned char* c) const;
 			void Draw(float x0, float y0, float x1, float y1) const;
 			void Draw(const float3& botLeft, const float3& botRight,
 					const float3& topLeft, const float3& topRight) const;
@@ -33,9 +36,11 @@ namespace icon {
 			inline const float        GetSize()         const { return size;         }
 			inline const float        GetDistance()     const { return distance;     }
 			inline const float        GetDistanceSqr()  const { return distSqr;      }
+			inline const float        GetRadiusScale()  const { return 30.0f;        }
 			inline const bool         GetRadiusAdjust() const { return radiusAdjust; }
 			inline const int          GetSizeX()        const { return xsize;        }
 			inline const int          GetSizeY()        const { return ysize;        }
+			inline const unsigned int GetTextureID()    const { return texID;        }
 
 		private:
 			bool ownTexture;
@@ -56,8 +61,9 @@ namespace icon {
 		friend class CIcon;
 
 		public:
-			CIconHandler(void);
-			~CIconHandler(void);
+			CIconHandler();
+			~CIconHandler();
+			CIconHandler(const CIconHandler&) = delete; // no-copy
 
 			bool AddIcon(const std::string& iconName,
 									const std::string& textureName,
@@ -88,6 +94,6 @@ namespace icon {
 	};
 
 	extern CIconHandler* iconHandler;
-};
+}
 
 #endif // ICON_HANDLER_H

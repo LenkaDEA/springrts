@@ -1,12 +1,12 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "glExtra.h"
 #include "VertexArray.h"
 #include "Map/Ground.h"
 #include "Sim/Weapons/Weapon.h"
-
+#include "Sim/Weapons/WeaponDef.h"
+#include "System/ThreadPool.h"
 
 /**
  *  Draws a trigonometric circle in 'resolution' steps.
@@ -20,7 +20,7 @@ static void defSurfaceCircle(const float3& center, float radius, unsigned int re
 		float3 pos;
 		pos.x = center.x + (fastmath::sin(radians) * radius);
 		pos.z = center.z + (fastmath::cos(radians) * radius);
-		pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + 5.0f;
+		pos.y = CGround::GetHeightAboveWater(pos.x, pos.z, false) + 5.0f;
 		va->AddVertex0(pos);
 	}
 	va->DrawArray0(GL_LINE_LOOP);
@@ -36,10 +36,10 @@ static void defSurfaceSquare(const float3& center, float xsize, float zsize)
 
 	CVertexArray* va=GetVertexArray();
 	va->Initialize();
-		va->AddVertex0(p0.x, ground->GetHeightAboveWater(p0.x, p0.z, false), p0.z);
-		va->AddVertex0(p1.x, ground->GetHeightAboveWater(p1.x, p1.z, false), p1.z);
-		va->AddVertex0(p2.x, ground->GetHeightAboveWater(p2.x, p2.z, false), p2.z);
-		va->AddVertex0(p3.x, ground->GetHeightAboveWater(p3.x, p3.z, false), p3.z);
+		va->AddVertex0(p0.x, CGround::GetHeightAboveWater(p0.x, p0.z, false), p0.z);
+		va->AddVertex0(p1.x, CGround::GetHeightAboveWater(p1.x, p1.z, false), p1.z);
+		va->AddVertex0(p2.x, CGround::GetHeightAboveWater(p2.x, p2.z, false), p2.z);
+		va->AddVertex0(p3.x, CGround::GetHeightAboveWater(p3.x, p3.z, false), p3.z);
 	va->DrawArray0(GL_LINE_LOOP);
 }
 
@@ -66,25 +66,32 @@ void glBallisticCircle(const float3& center, const float radius,
                        const CWeapon* weapon,
                        unsigned int resolution, float slope)
 {
-	CVertexArray* va=GetVertexArray();
+	int rdiv = 50;
+	resolution *= 2;
+	rdiv *= 1;
+	CVertexArray* va = GetVertexArray();
 	va->Initialize();
-	for (unsigned int i = 0; i < resolution; ++i) {
+	va->EnlargeArrays(resolution, 0, VA_SIZE_0);
+
+	float3* vertices = va->GetTypedVertexArray<float3>(resolution);
+	const float heightMod = weapon ? weapon->weaponDef->heightmod : 1.0f;
+
+	for_mt(0, resolution, [&](const int i) {
 		const float radians = (2.0f * PI) * (float)i / (float)resolution;
 		float rad = radius;
-		float3 pos;
 		float sinR = fastmath::sin(radians);
 		float cosR = fastmath::cos(radians);
+		float3 pos;
 		pos.x = center.x + (sinR * rad);
 		pos.z = center.z + (cosR * rad);
-		pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false);
-		float heightDiff = (pos.y - center.y)/2;
+		pos.y = CGround::GetHeightAboveWater(pos.x, pos.z, false);
+		float heightDiff = (pos.y - center.y) * 0.5f;
 		rad -= heightDiff * slope;
-		float adjRadius = weapon ? weapon->GetRange2D(heightDiff*weapon->heightMod) : rad;
-		float adjustment = rad/2;
+		float adjRadius = weapon ? weapon->GetRange2D(heightDiff * heightMod) : rad;
+		float adjustment = rad * 0.5f;
 		float ydiff = 0;
-		int j;
-		for(j = 0; j < 50 && math::fabs(adjRadius - rad) + ydiff > .01*rad; j++){
-			if(adjRadius > rad) {
+		for(int j = 0; j < rdiv && std::fabs(adjRadius - rad) + ydiff > .01 * rad; j++){
+			if (adjRadius > rad) {
 				rad += adjustment;
 			} else {
 				rad -= adjustment;
@@ -92,17 +99,19 @@ void glBallisticCircle(const float3& center, const float radius,
 			}
 			pos.x = center.x + (sinR * rad);
 			pos.z = center.z + (cosR * rad);
-			float newY = ground->GetHeightAboveWater(pos.x, pos.z, false);
-			ydiff = math::fabs(pos.y - newY);
+			float newY = CGround::GetHeightAboveWater(pos.x, pos.z, false);
+			ydiff = std::fabs(pos.y - newY);
 			pos.y = newY;
 			heightDiff = (pos.y - center.y);
-			adjRadius = weapon ? weapon->GetRange2D(heightDiff*weapon->heightMod) : rad;
+			adjRadius = weapon ? weapon->GetRange2D(heightDiff * heightMod) : rad;
 		}
 		pos.x = center.x + (sinR * adjRadius);
 		pos.z = center.z + (cosR * adjRadius);
-		pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + 5.0f;
-		va->AddVertex0(pos);
-	}
+		pos.y = CGround::GetHeightAboveWater(pos.x, pos.z, false) + 5.0f;
+
+		vertices[i] = pos;
+	});
+
 	va->DrawArray0(GL_LINE_LOOP);
 }
 
@@ -222,8 +231,8 @@ void glWireCylinder(unsigned int* listID, unsigned int numDivs, float zSize) {
 		for (unsigned int n = 0; n <= numDivs; n++) {
 			const unsigned int i = n % numDivs;
 
-			vertices[i].x = math::cosf(i * ((PI + PI) / numDivs));
-			vertices[i].y = math::sinf(i * ((PI + PI) / numDivs));
+			vertices[i].x = std::cos(i * ((PI + PI) / numDivs));
+			vertices[i].y = std::sin(i * ((PI + PI) / numDivs));
 			vertices[i].z = 0.0f;
 
 			glVertex3f(vertices[i].x, vertices[i].y, vertices[i].z);
@@ -277,9 +286,9 @@ void glWireSphere(unsigned int* listID, unsigned int numRows, unsigned int numCo
 
 			float3& v = vertices[row * numCols + col];
 
-			v.x = math::cosf(a) * math::sinf(b);
-			v.y = math::sinf(a) * math::sinf(b);
-			v.z = math::cosf(b);
+			v.x = std::cos(a) * std::sin(b);
+			v.y = std::sin(a) * std::sin(b);
+			v.z = std::cos(b);
 		}
 	}
 

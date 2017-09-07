@@ -4,7 +4,8 @@
 #define GUI_H
 
 #include <list>
-#include <boost/signals/connection.hpp>
+#include <boost/signals2/connection.hpp>
+#include <boost/signals2/shared_connection_block.hpp>
 
 union SDL_Event;
 
@@ -17,7 +18,9 @@ class Gui
 {
 public:
 	Gui();
+	virtual ~Gui();
 	
+	void Clean();
 	void Draw();
 	void AddElement(GuiElement*, bool asBackground = false);
 	/// deletes the element on the next draw
@@ -29,7 +32,8 @@ public:
 
 private:
 	bool HandleEvent(const SDL_Event& ev);
-	boost::signals::scoped_connection inputCon;
+	boost::signals2::scoped_connection inputCon;
+	boost::signals2::shared_connection_block inputConBlock;
 
 	struct GuiItem
 	{
@@ -45,6 +49,7 @@ private:
 
 extern Gui* gui;
 void InitGui();
+void FreeGui();
 
 }
 

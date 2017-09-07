@@ -14,11 +14,11 @@ class LuaTable;
 struct UnitDef;
 struct GuiSoundSet;
 
-/// Takes care of all the unit definitions
+class LuaParser;
 class CUnitDefHandler : CommonDefHandler
 {
 public:
-	CUnitDefHandler();
+	CUnitDefHandler(LuaParser* defsParser);
 	~CUnitDefHandler();
 
 	void Init();
@@ -29,7 +29,7 @@ public:
 	const UnitDef* GetUnitDefByName(std::string name);
 	const UnitDef* GetUnitDefByID(int id);
 
-	bool IsValidUnitDefID(const int& id) const {
+	bool IsValidUnitDefID(const int id) const {
 		/// zero is not valid!
 		return (id > 0) && (id < (int)unitDefs.size());
 	}
@@ -45,8 +45,8 @@ public:
 	std::map<int, std::set<int> > decoyMap;
 	std::set<int> startUnitIDs;
 
-//protected: //FIXME UnitDef::sfxExplGens,buildingDecalType,trackType are initialized in UnitDrawer.cpp
-	std::vector<UnitDef*> unitDefs;
+//protected: //FIXME UnitDef::*ExplGens,buildingDecalType,trackType are initialized in UnitDrawer.cpp
+	std::vector<UnitDef> unitDefs;
 	std::map<std::string, int> unitDefIDsByName;
 
 protected:
@@ -58,7 +58,7 @@ protected:
 
 	void FindStartUnits();
 
-	void AssignTechLevel(UnitDef* ud, int level);
+	void AssignTechLevel(UnitDef& ud, int level);
 
 private:
 	std::map<std::string, std::string> decoyNameMap;

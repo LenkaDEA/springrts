@@ -3,72 +3,73 @@
 #ifndef S3O_TEXTURE_HANDLER_H
 #define S3O_TEXTURE_HANDLER_H
 
-#include <map>
+#include <boost/unordered_map.hpp>
 #include <string>
 #include <vector>
-#include "Rendering/GL/myGL.h"
-#include "System/Platform/Threading.h"
-#include "lib/gml/gml_base.h"
 
-struct TexFile;
+#include "System/Threading/SpringMutex.h"
+
 struct S3DModel;
-class CFileHandler;
+class CBitmap;
 
 class CS3OTextureHandler
 {
 public:
-	struct S3oTex {
+	struct S3OTexMat {
 		int num;
-		GLuint tex1;
+
+		unsigned int tex1;
+		unsigned int tex2;
+
 		unsigned int tex1SizeX;
 		unsigned int tex1SizeY;
-		GLuint tex2;
+
 		unsigned int tex2SizeX;
 		unsigned int tex2SizeY;
 	};
 
+	struct CachedS3OTex {
+		unsigned int texID;
+		unsigned int xsize;
+		unsigned int ysize;
+	};
+
 	CS3OTextureHandler();
-	virtual ~CS3OTextureHandler();
+	~CS3OTextureHandler();
 
-	void Update();
-	void LoadS3OTexture(S3DModel* model);
-	int LoadS3OTextureNow(const S3DModel* model);
-	void SetS3oTexture(int num);
-
-private:
-	inline void DoUpdateDraw() {
-		if (GML::SimEnabled() && GML::ShareLists()) {
-			while (s3oTexturesDraw.size() < s3oTextures.size())
-				s3oTexturesDraw.push_back(s3oTextures[s3oTexturesDraw.size()]);
-		}
-	}
-	static const S3oTex* DoGetS3oTex(int num, std::vector<S3oTex *>& s3oTex) {
-		if ((num < 0) || (num >= (int)s3oTex.size())) {
-			return NULL;
-		}
-		return s3oTex[num];
-	}
+	void LoadTexture(S3DModel* model);
+	void PreloadTexture(S3DModel* model, bool invertAxis = false, bool invertAlpha = false);
 
 public:
-	const S3oTex* GetS3oTex(int num) {
-		if (GML::SimEnabled() && GML::ShareLists()) {
-			if (!GML::IsSimThread())
-				return DoGetS3oTex(num, s3oTexturesDraw);
+	const S3OTexMat* GetTexture(unsigned int num) {
+		if (num < textures.size())
+			return &textures[num];
 
-			GML_RECMUTEX_LOCK(model); // GetS3oTex
-			return DoGetS3oTex(num, s3oTextures);
-		}
-		else {
-			return DoGetS3oTex(num, s3oTextures);
-		}
+		return nullptr;
 	}
 
-	void UpdateDraw();
+private:
+	unsigned int LoadAndCacheTexture(
+		const S3DModel* model,
+		unsigned int texNum,
+		bool invertAxis,
+		bool invertAlpha,
+		bool preloadCall
+	);
+	unsigned int InsertTextureMat(const S3DModel* model);
 
 private:
-	std::map<std::string, int> s3oTextureNames;
-	std::vector<S3oTex *> s3oTextures;
-	std::vector<S3oTex *> s3oTexturesDraw;
+	typedef boost::unordered_map<std::string, CachedS3OTex> TextureCache;
+	typedef boost::unordered_map<std::string, CBitmap> BitmapCache;
+	typedef boost::unordered_map<boost::uint64_t, unsigned int> TextureTable;
+
+	TextureCache textureCache; // stores individual primary- and secondary-textures by name
+	TextureTable textureTable; // stores (primary, secondary) texture-pairs by unique ident
+	BitmapCache bitmapCache;
+
+	spring::mutex cacheMutex;
+
+	std::vector<S3OTexMat> textures;
 };
 
 extern CS3OTextureHandler* texturehandlerS3O;

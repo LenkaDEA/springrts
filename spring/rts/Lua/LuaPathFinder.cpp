@@ -1,14 +1,12 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 
-#include "System/mmgr.h"
-
 #include "LuaPathFinder.h"
 #include "LuaInclude.h"
 #include "LuaHandle.h"
 #include "LuaUtils.h"
 #include "Sim/Path/IPathManager.h"
-#include "Sim/MoveTypes/MoveInfo.h"
+#include "Sim/MoveTypes/MoveDefHandler.h"
 
 #include <stdlib.h>
 #include <algorithm>
@@ -44,13 +42,17 @@ static void CreatePathMetatable(lua_State* L);
 
 bool LuaPathFinder::PushEntries(lua_State* L)
 {
+	// safety in case of reload
+	costArrayMapSynced.clear();
+	costArrayMapUnsynced.clear();
+
 	CreatePathMetatable(L);
 
 #define REGISTER_LUA_CFUNC(x)   \
 	lua_pushstring(L, #x);      \
 	lua_pushcfunction(L, x);    \
 	lua_rawset(L, -3)
-                        
+
 	REGISTER_LUA_CFUNC(RequestPath);
 	REGISTER_LUA_CFUNC(InitPathNodeCostsArray);
 	REGISTER_LUA_CFUNC(FreePathNodeCostsArray);
@@ -64,9 +66,8 @@ bool LuaPathFinder::PushEntries(lua_State* L)
 
 int LuaPathFinder::PushPathNodes(lua_State* L, const int pathID)
 {
-	if (pathID == 0) {
+	if (pathID == 0)
 		return 0;
-	}
 
 	vector<float3> points;
 	vector<int>    starts;
@@ -80,14 +81,13 @@ int LuaPathFinder::PushPathNodes(lua_State* L, const int pathID)
 		lua_newtable(L);
 
 		for (int i = 0; i < pointCount; i++) {
-			lua_pushnumber(L, i + 1);
 			lua_newtable(L); {
 				const float3& p = points[i];
-				lua_pushnumber(L, 1); lua_pushnumber(L, p.x); lua_rawset(L, -3);
-				lua_pushnumber(L, 2); lua_pushnumber(L, p.y); lua_rawset(L, -3);
-				lua_pushnumber(L, 3); lua_pushnumber(L, p.z); lua_rawset(L, -3);
+				lua_pushnumber(L, p.x); lua_rawseti(L, -2, 1);
+				lua_pushnumber(L, p.y); lua_rawseti(L, -2, 2);
+				lua_pushnumber(L, p.z); lua_rawseti(L, -2, 3);
 			}
-			lua_rawset(L, -3);
+			lua_rawseti(L, -2, i + 1);
 		}
 	}
 
@@ -95,9 +95,8 @@ int LuaPathFinder::PushPathNodes(lua_State* L, const int pathID)
 		lua_newtable(L);
 
 		for (int i = 0; i < startCount; i++) {
-			lua_pushnumber(L, i + 1);
 			lua_pushnumber(L, starts[i] + 1);
-			lua_rawset(L, -3);
+			lua_rawseti(L, -2, i + 1);
 		}
 	}
 
@@ -111,9 +110,9 @@ static int path_next(lua_State* L)
 {
 	const int* idPtr = (int*)luaL_checkudata(L, 1, "Path");
 	const int pathID = *idPtr;
-	if (pathID == 0) {
+
+	if (pathID == 0)
 		return 0;
-	}
 
 	const int args = lua_gettop(L);
 
@@ -127,7 +126,7 @@ static int path_next(lua_State* L)
 	const float minDist = luaL_optfloat(L, 5, 0.0f);
 
 	const bool synced = CLuaHandle::GetHandleSynced(L);
-	const float3 point = pathManager->NextWayPoint(pathID, callerPos, minDist, 0, 0, synced);
+	const float3 point = pathManager->NextWayPoint(NULL, pathID, 0, callerPos, minDist, synced);
 
 	if ((point.x == -1.0f) &&
 	    (point.y == -1.0f) &&
@@ -155,9 +154,10 @@ static int path_index(lua_State* L)
 {
 	const int* idPtr = (int*)luaL_checkudata(L, 1, "Path");
 	const int pathID = *idPtr;
-	if (pathID == 0) {
+
+	if (pathID == 0)
 		return 0;
-	}
+
 	const string key = luaL_checkstring(L, 2);
 	if (key == "Next") {
 		lua_pushcfunction(L, path_next);
@@ -179,16 +179,17 @@ static int path_gc(lua_State* L)
 {
 	int* idPtr = (int*)luaL_checkudata(L, 1, "Path");
 	const int pathID = *idPtr;
-	if (pathID == 0) {
+
+	if (pathID == 0)
 		return 0;
-	}
+
 	pathManager->DeletePath(*idPtr);
 	*idPtr = 0;
 	return 0;
 }
 
 
-static void CreatePathMetatable(lua_State* L) 
+static void CreatePathMetatable(lua_State* L)
 {
 	luaL_newmetatable(L, "Path");
 	HSTR_PUSH_CFUNC(L, "__gc",       path_gc);
@@ -204,20 +205,21 @@ static void CreatePathMetatable(lua_State* L)
 int LuaPathFinder::RequestPath(lua_State* L)
 {
 	const MoveDef* moveDef = NULL;
-	
+
 	if (lua_israwstring(L, 1)) {
-		moveDef = moveDefHandler->GetMoveDefFromName(lua_tostring(L, 1));
+		moveDef = moveDefHandler->GetMoveDefByName(lua_tostring(L, 1));
 	} else {
-		const int moveID = luaL_checkint(L, 1);
-		if ((moveID < 0) || ((size_t)moveID >= moveDefHandler->moveDefs.size())) {
+		const unsigned int pathType = luaL_checkint(L, 1);
+
+		if (pathType >= moveDefHandler->GetNumMoveDefs()) {
 			luaL_error(L, "Invalid moveID passed to RequestPath");
 		}
-		moveDef = moveDefHandler->moveDefs[moveID];
+
+		moveDef = moveDefHandler->GetMoveDefByPathType(pathType);
 	}
 
-	if (moveDef == NULL) {
+	if (moveDef == NULL)
 		return 0;
-	}
 
 	const float3 start(luaL_checkfloat(L, 2),
 	                   luaL_checkfloat(L, 3),
@@ -230,12 +232,12 @@ int LuaPathFinder::RequestPath(lua_State* L)
 	const float radius = luaL_optfloat(L, 8, 8.0f);
 
 	const bool synced = CLuaHandle::GetHandleSynced(L);
-	const int pathID = pathManager->RequestPath(moveDef, start, end, radius, NULL, synced);
+	const int pathID = pathManager->RequestPath(NULL, moveDef, start, end, radius, synced);
 
 	if (pathID == 0) {
 		return 0;
 	}
-	
+
 	int* idPtr = (int*)lua_newuserdata(L, sizeof(int));
 	luaL_getmetatable(L, "Path");
 	lua_setmetatable(L, -2);

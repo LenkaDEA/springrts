@@ -26,17 +26,8 @@ System::Store "s" ; save all register
 ; portable mode
 ${toggleSection} "PORTABLE" ${SEC_PORTABLE}
 
-; lobbies
-${toggleSection} "NOSPRINGLOBBY" ${SEC_SPRINGLOBBY}
-${toggleSection} "NOZEROK" ${SEC_ZERO_K_LOBBY}
-
 ; desktop shortcuts
 ${toggleSection} "NODESKTOPLINK" ${SEC_DESKTOP}
-
-; tools
-!ifdef RAPID_ARCHIVE
-${toggleSection} "NORAPID" ${SEC_RAPID}
-!endif
 
 ; startmenu
 ${toggleSection} "NOSTARTMENU" ${SEC_START}

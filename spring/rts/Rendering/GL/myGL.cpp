@@ -1,5 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+#include <vector>
 #include <string>
 #include <SDL.h>
 
@@ -8,54 +9,37 @@
 #include <windef.h>
 #endif
 
-#include "System/mmgr.h"
 #include "myGL.h"
 #include "VertexArray.h"
-#include "VertexArrayRange.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/Textures/Bitmap.h"
 #include "System/Log/ILog.h"
 #include "System/Exceptions.h"
 #include "System/TimeProfiler.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/FileSystem/FileHandler.h"
+#include "System/Platform/CrashHandler.h"
 #include "System/Platform/MessageBox.h"
+#include "System/Platform/Threading.h"
+#include "System/type2.h"
 
 
-CONFIG(bool, DisableCrappyGPUWarning).defaultValue(false);
+CONFIG(bool, DisableCrappyGPUWarning).defaultValue(false).description("Disables the warning an user will receive if (s)he attempts to run Spring on an outdated and underpowered video card.");
+CONFIG(bool, DebugGL).defaultValue(false).description("Enables _driver_ debug feedback. (see GL_ARB_debug_output)");
+CONFIG(bool, DebugGLStacktraces).defaultValue(false).description("Create a stacktrace when an OpenGL error occurs");
 
 
-static CVertexArray* vertexArray1 = NULL;
-static CVertexArray* vertexArray2 = NULL;
+static std::vector<CVertexArray*> vertexArrays;
+static int currentVertexArray = 0;
 
-#ifdef USE_GML
-static CVertexArray vertexArrays1[GML_MAX_NUM_THREADS];
-static CVertexArray vertexArrays2[GML_MAX_NUM_THREADS];
-static CVertexArray* currentVertexArrays[GML_MAX_NUM_THREADS];
-#else
-static CVertexArray* currentVertexArray = NULL;
-#endif
-//BOOL gmlVertexArrayEnable = 0;
+
 /******************************************************************************/
 /******************************************************************************/
 
 CVertexArray* GetVertexArray()
 {
-#ifdef USE_GML // each thread gets its own array to avoid conflicts
-	int thread = GML::ThreadNumber();
-	if (currentVertexArrays[thread] == &vertexArrays1[thread]) {
-		currentVertexArrays[thread] = &vertexArrays2[thread];
-	} else {
-		currentVertexArrays[thread] = &vertexArrays1[thread];
-	}
-	return currentVertexArrays[thread];
-#else
-	if (currentVertexArray == vertexArray1){
-		currentVertexArray = vertexArray2;
-	} else {
-		currentVertexArray = vertexArray1;
-	}
-	return currentVertexArray;
-#endif
+	currentVertexArray = (currentVertexArray + 1) % vertexArrays.size();
+	return vertexArrays[currentVertexArray];
 }
 
 
@@ -64,33 +48,52 @@ CVertexArray* GetVertexArray()
 void PrintAvailableResolutions()
 {
 	// Get available fullscreen/hardware modes
-	SDL_Rect** modes = SDL_ListModes(NULL, SDL_FULLSCREEN|SDL_OPENGL);
-	if (modes == (SDL_Rect**)0) {
-		LOG("Supported Video modes: No modes available!");
-	} else if (modes == (SDL_Rect**)-1) {
-		LOG("Supported Video modes: All modes available.");
-	} else {
-		char buffer[1024];
-		unsigned char n = 0;
-		for (int i = 0; modes[i]; ++i) {
-			n += SNPRINTF(&buffer[n], 1024-n, "%dx%d, ", modes[i]->w, modes[i]->h);
+	const int numdisplays = SDL_GetNumVideoDisplays();
+	for(int k=0; k < numdisplays; ++k) {
+		std::string modes;
+		SDL_Rect rect;
+		const int nummodes = SDL_GetNumDisplayModes(k);
+		SDL_GetDisplayBounds(k, &rect);
+
+		std::set<int2> resolutions;
+		for (int i = 0; i < nummodes; ++i) {
+			SDL_DisplayMode mode;
+			SDL_GetDisplayMode(k, i, &mode);
+			resolutions.insert(int2(mode.w, mode.h));
 		}
-		// remove last comma
-		if (n >= 2) {
-			buffer[n - 2] = '\0';
+		for (const int2& res: resolutions) {
+			if (!modes.empty()) {
+				modes += ", ";
+			}
+			modes += IntToString(res.x) + "x" + IntToString(res.y);
 		}
-		LOG("Supported Video modes: %s", buffer);
+		if (nummodes < 1) {
+			modes = "NONE";
+		}
+		LOG("Supported Video modes on Display %d x:%d y:%d %dx%d:\n\t%s", k+1,rect.x, rect.y, rect.w, rect.h, modes.c_str());
 	}
 }
 
 #ifdef GL_ARB_debug_output
 #if defined(WIN32) && !defined(HEADLESS)
-	#define _APIENTRY APIENTRY
+	#if defined(_MSC_VER) && _MSC_VER >= 1600
+		#define _APIENTRY __stdcall
+	#else
+		#define _APIENTRY APIENTRY
+	#endif
 #else
 	#define _APIENTRY
 #endif
-void _APIENTRY OpenGLDebugMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, GLvoid* userParam)
+
+void _APIENTRY OpenGLDebugMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const GLvoid* userParam)
 {
+	if (id == 131185) {
+		// nvidia
+		// Gives detail about BufferObject's memory location
+		// example: "Buffer detailed info: Buffer object 260 (bound to GL_PIXEL_UNPACK_BUFFER_ARB, usage hint is GL_STREAM_DRAW) has been mapped in DMA CACHED memory."
+		return;
+	}
+
 	std::string sourceStr;
 	std::string typeStr;
 	std::string severityStr;
@@ -159,6 +162,10 @@ void _APIENTRY OpenGLDebugMessageCallback(GLenum source, GLenum type, GLuint id,
 	LOG_L(L_ERROR, "OpenGL: source<%s> type<%s> id<%u> severity<%s>:\n%s",
 			sourceStr.c_str(), typeStr.c_str(), id, severityStr.c_str(),
 			messageStr.c_str());
+
+	if (configHandler->GetBool("DebugGLStacktraces")) {
+		CrashHandler::Stacktrace(Threading::GetCurrentThread(), "rendering", LOG_LEVEL_WARNING);
+	}
 }
 #endif // GL_ARB_debug_output
 
@@ -180,8 +187,14 @@ static bool GetAvailableVideoRAM(GLint* memory)
 		memory[0] = texMemInfo[1];
 		memory[1] = texMemInfo[0];
 	} else
+#ifdef GLX_MESA_query_renderer
+	if (GLXEW_MESA_query_renderer) {
+		glGetIntegerv(GLX_RENDERER_VIDEO_MEMORY_MESA, &memory[0]);
+		memory[1] = texMemInfo[0];
+	} else
+#endif
 	{
-		memory[0] = SDL_GetVideoInfo()->video_mem;
+		memory[0] = 0;
 		memory[1] = memory[0]; // not available
 	}
 
@@ -189,13 +202,18 @@ static bool GetAvailableVideoRAM(GLint* memory)
 #endif
 }
 
-#if       !defined DEBUG
+
 static void ShowCrappyGpuWarning(const char* glVendor, const char* glRenderer)
 {
+#ifdef DEBUG
+	{ return; }
+#endif
+
 	// Print out warnings for really crappy graphic cards/drivers
 	const std::string gfxCardVendor = (glVendor != NULL)? glVendor: "UNKNOWN";
 	const std::string gfxCardModel  = (glRenderer != NULL)? glRenderer: "UNKNOWN";
 	bool gfxCardIsCrap = false;
+	bool msDrivers = false;
 
 	if (gfxCardVendor == "SiS") {
 		gfxCardIsCrap = true;
@@ -206,6 +224,8 @@ static void ShowCrappyGpuWarning(const char* glVendor, const char* glRenderer)
 		} else if (gfxCardModel.find(" 915G") != std::string::npos) {
 			gfxCardIsCrap = true;
 		}
+	} else if (gfxCardVendor.find("Microsoft") != std::string::npos) {
+		msDrivers = true;
 	}
 
 	if (gfxCardIsCrap) {
@@ -221,35 +241,61 @@ static void ShowCrappyGpuWarning(const char* glVendor, const char* glRenderer)
 		LOG_L(L_WARNING, "If the game crashes, looks ugly or runs slow, buy a better card!");
 		LOG_L(L_WARNING, ".");
 	}
+	if (msDrivers) {
+		LOG_L(L_WARNING, "WW     WWW     WW    AAA     RRRRR   NNN  NN  II  NNN  NN   GGGGG ");
+		LOG_L(L_WARNING, " WW   WW WW   WW    AA AA    RR  RR  NNNN NN  II  NNNN NN  GG     ");
+		LOG_L(L_WARNING, "  WW WW   WW WW    AAAAAAA   RRRRR   NN NNNN  II  NN NNNN  GG   GG");
+		LOG_L(L_WARNING, "   WWW     WWW    AA     AA  RR  RR  NN  NNN  II  NN  NNN   GGGGG ");
+		LOG_L(L_WARNING, "(warning)");
+		LOG_L(L_WARNING, "No OpenGL drivers installed.");
+		LOG_L(L_WARNING, "Please go to your GPU vendor's website and download their drivers.");
+		LOG_L(L_WARNING, ".");
+	}
 
 	if (!configHandler->GetBool("DisableCrappyGPUWarning")) {
 		if (gfxCardIsCrap) {
-			std::string msg =
+			const std::string msg =
 				"Warning!\n"
 				"Your graphics card is insufficient to play Spring.\n\n"
 				"If the game crashes, looks ugly or runs slow, buy a better card!\n"
 				"You may try \"spring --safemode\" to test if some of your issues are related to wrong settings.\n"
 				"\nHint: You can disable this MessageBox by appending \"DisableCrappyGPUWarning = 1\" to \"" + configHandler->GetConfigFile() + "\".";
+			LOG_L(L_WARNING, "%s", msg.c_str());
 			Platform::MsgBox(msg, "Warning: Your GPU is not supported", MBF_EXCL);
 		} else if (globalRendering->haveMesa) {
-			std::string mesa_msg =
+			const std::string mesa_msg =
 				"Warning!\n"
 				"OpenSource graphics card drivers detected.\n"
-				"MesaGL/Gallium drivers are not able to run Spring. Try to switch to proprietary drivers.\n\n"
+				"MesaGL/Gallium drivers don't work well with Spring. Try to switch to proprietary drivers.\n\n"
 				"You may try \"spring --safemode\".\n"
 				"\nHint: You can disable this MessageBox by appending \"DisableCrappyGPUWarning = 1\" to \"" + configHandler->GetConfigFile() + "\".";
+			LOG_L(L_WARNING, "%s", mesa_msg.c_str());
 			Platform::MsgBox(mesa_msg, "Warning: Your GPU driver is not supported", MBF_EXCL);
+		} else if (msDrivers) {
+			const std::string mesa_msg =
+				"Warning!\n"
+				"No OpenGL drivers installed.\n"
+				"Please go to your GPU vendor's website and download their drivers:\n"
+				" * Nvidia: http://www.nvidia.com\n"
+				" * AMD: http://support.amd.com\n"
+				" * Intel: http://downloadcenter.intel.com";
+			LOG_L(L_WARNING, "%s", mesa_msg.c_str());
+			Platform::MsgBox(mesa_msg, "Warning: No OpenGL drivers found", MBF_EXCL);
 		}
 	}
 }
-#endif
+
 
 //FIXME move most of this to globalRendering's ctor?
 void LoadExtensions()
 {
 	glewInit();
 
-	const SDL_version* sdlVersion = SDL_Linked_Version();
+	SDL_version sdlVersionCompiled;
+	SDL_version sdlVersionLinked;
+
+	SDL_VERSION(&sdlVersionCompiled);
+	SDL_GetVersion(&sdlVersionLinked);
 	const char* glVersion = (const char*) glGetString(GL_VERSION);
 	const char* glVendor = (const char*) glGetString(GL_VENDOR);
 	const char* glRenderer = (const char*) glGetString(GL_RENDERER);
@@ -260,36 +306,26 @@ void LoadExtensions()
 	GLint vidMemBuffer[2] = {0, 0};
 
 	if (GetAvailableVideoRAM(vidMemBuffer)) {
-		const char* memFmtStr = "total %iMB, available %iMB";
 		const GLint totalMemMB = vidMemBuffer[0] / 1024;
 		const GLint availMemMB = vidMemBuffer[1] / 1024;
 
-		if (totalMemMB > 0 && availMemMB > 0)
+		if (totalMemMB > 0 && availMemMB > 0) {
+			const char* memFmtStr = "total %iMB, available %iMB";
 			SNPRINTF(glVidMemStr, sizeof(glVidMemStr), memFmtStr, totalMemMB, availMemMB);
+		}
 	}
-	
+
 	// log some useful version info
-	LOG("SDL version:  %d.%d.%d", sdlVersion->major, sdlVersion->minor, sdlVersion->patch);
+	LOG("SDL version:  linked %d.%d.%d; compiled %d.%d.%d", sdlVersionLinked.major, sdlVersionLinked.minor, sdlVersionLinked.patch, sdlVersionCompiled.major, sdlVersionCompiled.minor, sdlVersionCompiled.patch);
 	LOG("GL version:   %s", glVersion);
 	LOG("GL vendor:    %s", glVendor);
 	LOG("GL renderer:  %s", glRenderer);
 	LOG("GLSL version: %s", glslVersion);
 	LOG("GLEW version: %s", glewVersion);
 	LOG("Video RAM:    %s", glVidMemStr);
+	LOG("SwapInterval: %d", SDL_GL_GetSwapInterval());
 
-#if       !defined DEBUG
 	ShowCrappyGpuWarning(glVendor, glRenderer);
-#endif // !defined DEBUG
-
-	/*{
-		std::string s = (char*)glGetString(GL_EXTENSIONS);
-		for (unsigned int i=0; i<s.length(); i++)
-			if (s[i]==' ') s[i]='\n';
-
-		std::ofstream ofs("ext.txt");
-		if (!ofs.bad() && ofs.is_open())
-			ofs.write(s.c_str(), s.length());
-	}*/
 
 	std::string missingExts = "";
 	if (!GLEW_ARB_multitexture) {
@@ -307,34 +343,40 @@ void LoadExtensions()
 		char errorMsg[errorMsg_maxSize];
 		SNPRINTF(errorMsg, errorMsg_maxSize,
 				"Needed OpenGL extension(s) not found:\n"
-				"%s\n"
+				"  %s\n\n"
 				"Update your graphic-card driver!\n"
-				"graphic card:   %s\n"
-				"OpenGL version: %s\n",
+				"  Graphic card:   %s\n"
+				"  OpenGL version: %s\n",
 				missingExts.c_str(),
 				glRenderer,
 				glVersion);
-		handleerror(0, errorMsg, "Update graphic drivers", 0);
+		throw unsupported_error(errorMsg);
 	}
 
-#if defined(GL_ARB_debug_output) && !defined(HEADLESS) //! it's not defined in older GLEW versions
-	if (GLEW_ARB_debug_output) {
+	// install OpenGL DebugMessageCallback
+#if defined(GL_ARB_debug_output) && !defined(HEADLESS)
+	if (GLEW_ARB_debug_output && configHandler->GetBool("DebugGL")) {
 		LOG("Installing OpenGL-DebugMessageHandler");
-		glDebugMessageCallbackARB(&OpenGLDebugMessageCallback, NULL);
+		//typecast is a workarround for #4510, signature of the callback message changed :-|
+		glDebugMessageCallbackARB((GLDEBUGPROCARB)&OpenGLDebugMessageCallback, NULL);
+
+		if (configHandler->GetBool("DebugGLStacktraces")) {
+			// The callback should happen in the thread that made the gl call
+			// so we get proper stacktraces.
+			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
+		}
 	}
 #endif
 
-	vertexArray1 = new CVertexArray;
-	vertexArray2 = new CVertexArray;
+	for (int i = 0; i<2; ++i)
+		vertexArrays.push_back(new CVertexArray);
 }
 
 
 void UnloadExtensions()
 {
-	delete vertexArray1;
-	delete vertexArray2;
-	vertexArray1 = NULL;
-	vertexArray2 = NULL;
+	for (CVertexArray* va: vertexArrays)
+		delete va;
 }
 
 /******************************************************************************/
@@ -355,10 +397,82 @@ void WorkaroundATIPointSizeBug()
 
 /******************************************************************************/
 
+void glSaveTexture(const GLuint textureID, const std::string& filename)
+{
+	const GLenum target = GL_TEXTURE_2D;
+	GLenum format = GL_RGBA8;
+	int sizeX, sizeY;
+
+	int bits = 0;
+	{
+		glBindTexture(GL_TEXTURE_2D, textureID);
+
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &sizeX);
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &sizeY);
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, (GLint*)&format);
+
+		GLint _cbits;
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_RED_SIZE, &_cbits); bits += _cbits;
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_GREEN_SIZE, &_cbits); bits += _cbits;
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_BLUE_SIZE, &_cbits); bits += _cbits;
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_ALPHA_SIZE, &_cbits); bits += _cbits;
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_DEPTH_SIZE, &_cbits); bits += _cbits;
+	}
+	assert(bits == 32);
+	assert(format == GL_RGBA8);
+
+	CBitmap bmp;
+	bmp.channels = 4;
+	bmp.Alloc(sizeX,sizeY);
+	glGetTexImage(target,0,GL_RGBA,GL_UNSIGNED_BYTE, &bmp.mem[0]);
+	bmp.Save(filename, false);
+}
+
+
+void glSpringBindTextures(GLuint first, GLsizei count, const GLuint* textures)
+{
+#ifdef GLEW_ARB_multi_bind
+	if (GLEW_ARB_multi_bind) {
+		glBindTextures(first, count, textures);
+	} else
+#endif
+	{
+		for (int i = 0; i < count; ++i) {
+			const GLuint texture = (textures == nullptr) ? 0 : textures[i];
+			glActiveTexture(GL_TEXTURE0 + first + i);
+			glBindTexture(GL_TEXTURE_2D, texture);
+		}
+		glActiveTexture(GL_TEXTURE0);
+
+	}
+}
+
+
+void glSpringTexStorage2D(const GLenum target, GLint levels, const GLint internalFormat, const GLsizei width, const GLsizei height)
+{
+#ifdef GLEW_ARB_texture_storage
+	if (levels < 0)
+		levels = std::ceil(std::log((float)(std::max(width, height) + 1)));
+
+	if (GLEW_ARB_texture_storage) {
+		glTexStorage2D(target, levels, internalFormat, width, height);
+	} else
+#endif
+	{
+		GLenum format = GL_RGBA, type = GL_UNSIGNED_BYTE;
+		switch (internalFormat) {
+			case GL_RGBA8: format = GL_RGBA; type = GL_UNSIGNED_BYTE; break;
+			case GL_RGB8:  format = GL_RGB;  type = GL_UNSIGNED_BYTE; break;
+			default: /*LOG_L(L_ERROR, "[%s] Couldn't detect format type for %i", __FUNCTION__, internalFormat);*/
+			break;
+		}
+		glTexImage2D(target, 0, internalFormat, width, height, 0, format, type, nullptr);
+	}
+}
+
+
 void glBuildMipmaps(const GLenum target, GLint internalFormat, const GLsizei width, const GLsizei height, const GLenum format, const GLenum type, const void* data)
 {
-	ScopedTimer timer("Textures::glBuildMipmaps");
-
 	if (globalRendering->compressTextures) {
 		switch ( internalFormat ) {
 			case 4:
@@ -375,15 +489,15 @@ void glBuildMipmaps(const GLenum target, GLint internalFormat, const GLsizei wid
 
 	// create mipmapped texture
 
-	if (IS_GL_FUNCTION_AVAILABLE(glGenerateMipmapEXT) && !globalRendering->atiHacks) {
+	if (IS_GL_FUNCTION_AVAILABLE(glGenerateMipmap) && !globalRendering->atiHacks) {
 		// newest method
 		glTexImage2D(target, 0, internalFormat, width, height, 0, format, type, data);
 		if (globalRendering->atiHacks) {
 			glEnable(target);
-			glGenerateMipmapEXT(target);
+			glGenerateMipmap(target);
 			glDisable(target);
 		} else {
-			glGenerateMipmapEXT(target);
+			glGenerateMipmap(target);
 		}
 	} else if (GLEW_VERSION_1_4) {
 		// This required GL-1.4
@@ -393,6 +507,16 @@ void glBuildMipmaps(const GLenum target, GLint internalFormat, const GLsizei wid
 	} else {
 		gluBuild2DMipmaps(target, internalFormat, width, height, format, type, data);
 	}
+}
+
+
+void glSpringMatrix2dProj(const int sizex, const int sizey)
+{
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	gluOrtho2D(0,sizex,0,sizey);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
 }
 
 
@@ -407,8 +531,8 @@ void ClearScreen()
 	glLoadIdentity();            // Reset The Projection Matrix
 	gluOrtho2D(0, 1, 0, 1);
 	glMatrixMode(GL_MODELVIEW);  // Select The Modelview Matrix
-
 	glLoadIdentity();
+
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_TEXTURE_2D);

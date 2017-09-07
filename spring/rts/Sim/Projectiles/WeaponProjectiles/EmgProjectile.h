@@ -7,20 +7,17 @@
 
 class CEmgProjectile : public CWeaponProjectile
 {
-	CR_DECLARE(CEmgProjectile);
+	CR_DECLARE_DERIVED(CEmgProjectile)
 public:
-	CEmgProjectile(const float3& pos, const float3& speed, CUnit* owner,
-			const float3& color, float intensity, int ttl,
-			const WeaponDef* weaponDef);
-	virtual ~CEmgProjectile();
+	CEmgProjectile() { }
+	CEmgProjectile(const ProjectileParams& params);
 
-	void Update();
-	void Draw();
-	void Collision(CUnit* unit);
-	void Collision();
+	void Update() override;
+	void Draw() override;
 
-	int ShieldRepulse(CPlasmaRepulser* shield, float3 shieldPos,
-			float shieldForce, float shieldMaxSpeed);
+	virtual int GetProjectilesCount() const override;
+
+	int ShieldRepulse(const float3& shieldPos, float shieldForce, float shieldMaxSpeed) override;
 
 private:
 	float intensity;

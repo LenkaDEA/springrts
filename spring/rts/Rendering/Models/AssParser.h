@@ -5,79 +5,104 @@
 
 #include <vector>
 #include <map>
+#include "3DModel.h"
 #include "IModelParser.h"
 #include "System/float3.h"
+#include "System/type2.h"
+
 
 struct aiNode;
 struct aiScene;
 class LuaTable;
 
-struct SAssVertex {
-	SAssVertex() : normal(UpVector), textureX(0.f), textureY(0.f), hasNormal(false), hasTangent(false) {}
+typedef SVertexData SAssVertex;
 
-	float3 pos;
-	float3 normal;
-	float textureX;
-	float textureY;
-	bool hasNormal;
-	bool hasTangent;
-};
 
 struct SAssPiece: public S3DModelPiece
 {
-	SAssPiece() : node(NULL) {}
+	SAssPiece(): numTexCoorChannels(0) {
+	}
 
-	void DrawForList() const;
-	const float3& GetVertexPos(const int idx) const { return vertices[idx].pos; }	
-	const float3& GetNormal(const int idx) const { return vertices[idx].normal; }
-	
-	//FIXME implement
-	//int GetVertexCount() const { return 0; }
-	//int GetNormalCount() const { return 0; }
-	//int GetTxCoorCount() const { return 0; }
-	//void SetMinMaxExtends() {}
-	//void SetVertexTangents() {}
-	//float3 GetPosOffset() const { return ZeroVector; }
-	//void Shatter(float, int, int, const float3&, const float3&) const
-	
+	void DrawForList() const override;
+	void UploadGeometryVBOs() override;
+	void BindVertexAttribVBOs() const override;
+	void UnbindVertexAttribVBOs() const override;
+
+	unsigned int GetVertexCount() const override { return vertices.size(); }
+	unsigned int GetVertexDrawIndexCount() const override { return indices.size(); }
+	const float3& GetVertexPos(const int idx) const override { return vertices[idx].pos; }
+	const float3& GetNormal(const int idx) const override { return vertices[idx].normal; }
+	const std::vector<unsigned>& GetVertexIndices() const override { return indices; }
+
+	unsigned int GetNumTexCoorChannels() const { return numTexCoorChannels; }
+	void SetNumTexCoorChannels(unsigned int n) { numTexCoorChannels = n; }
+
 public:
-	aiNode* node;
 	std::vector<SAssVertex> vertices;
-	std::vector<unsigned int> vertexDrawOrder;
+	std::vector<unsigned int> indices;
 
-	//! cannot store these in SAssVertex
-	std::vector<float3> sTangents; //! == T(angent) dirs
-	std::vector<float3> tTangents; //! == B(itangent) dirs
-};
-
-struct SAssModel: public S3DModel
-{
-	SAssModel() : scene(NULL) {}
-	
-public:
-	struct MinMax {
-		float3 mins,maxs;
-	};
-	std::vector<MinMax> mesh_minmax;
-
-	const aiScene* scene;       //! Assimp scene containing all loaded model data. NULL for S30/3DO.
+	unsigned int numTexCoorChannels;
 };
 
 
 class CAssParser: public IModelParser
 {
 public:
-	S3DModel* Load(const std::string& modelFileName);
+	typedef std::map<std::string, S3DModelPiece*> ModelPieceMap;
+	typedef std::map<SAssPiece*, std::string> ParentNameMap;
 
+	CAssParser();
+	~CAssParser();
+	S3DModel* Load(const std::string& modelFileName);
+	ModelType GetType() const { return MODELTYPE_ASS; }
 private:
-	static SAssPiece* LoadPiece(SAssModel* model, aiNode* node, const LuaTable& metaTable);
-	static void BuildPieceHierarchy(S3DModel* model);
-	static void CalculateRadius(S3DModel* model);
-	static void CalculateHeight(S3DModel* model);
-	static void CalculateMinMax(S3DModelPiece* piece);
-	static void LoadPieceTransformations(SAssPiece* piece, const LuaTable& metaTable);
-	
-	void CalculatePerMeshMinMax(SAssModel* model);
+
+	GLint maxIndices;
+	GLint maxVertices;
+
+	static void SetPieceName(
+		SAssPiece* piece,
+		const S3DModel* model,
+		const aiNode* pieceNode,
+		ModelPieceMap& pieceMap
+	);
+	static void SetPieceParentName(
+		SAssPiece* piece,
+		const S3DModel* model,
+		const aiNode* pieceNode,
+		const LuaTable& pieceTable,
+		ParentNameMap& parentMap
+	);
+	static void LoadPieceTransformations(
+		SAssPiece* piece,
+		const S3DModel* model,
+		const aiNode* pieceNode,
+		const LuaTable& pieceTable
+	);
+	static void LoadPieceGeometry(
+		SAssPiece* piece,
+		const aiNode* pieceNode,
+		const aiScene* scene
+	);
+	static SAssPiece* LoadPiece(
+		S3DModel* model,
+		const aiNode* pieceNode,
+		const aiScene* scene,
+		const LuaTable& modelTable,
+		ModelPieceMap& pieceMap,
+		ParentNameMap& parentMap
+	);
+
+	static void BuildPieceHierarchy(S3DModel* model, ModelPieceMap& pieceMap, const ParentNameMap& parentMap);
+	static void CalculateModelDimensions(S3DModel* model, S3DModelPiece* piece);
+	static void CalculateModelProperties(S3DModel* model, const LuaTable& pieceTable);
+	static void FindTextures(
+		S3DModel* model,
+		const aiScene* scene,
+		const LuaTable& pieceTable,
+		const std::string& modelPath,
+		const std::string& modelName
+	);
 };
 
 #endif /* ASS_PARSER_H */

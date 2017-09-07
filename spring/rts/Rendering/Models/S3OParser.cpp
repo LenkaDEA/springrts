@@ -2,25 +2,20 @@
 
 #include <cctype>
 #include <stdexcept>
-#include "System/mmgr.h"
 
 #include "S3OParser.h"
 #include "s3o.h"
 #include "Game/GlobalUnsynced.h"
-#include "Rendering/GL/myGL.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Textures/S3OTextureHandler.h"
 #include "Sim/Misc/CollisionVolume.h"
-#include "Sim/Projectiles/ProjectileHandler.h"
 #include "System/Exceptions.h"
 #include "System/Util.h"
-#include "System/Vec2.h"
 #include "System/Log/ILog.h"
 #include "System/FileSystem/FileHandler.h"
 #include "System/Platform/byteorder.h"
 
-static const float3 DEF_MIN_SIZE( 10000.0f,  10000.0f,  10000.0f);
-static const float3 DEF_MAX_SIZE(-10000.0f, -10000.0f, -10000.0f);
+
 
 S3DModel* CS3OParser::Load(const std::string& name)
 {
@@ -29,32 +24,32 @@ S3DModel* CS3OParser::Load(const std::string& name)
 		throw content_error("[S3OParser] could not find model-file " + name);
 	}
 
-	unsigned char* fileBuf = new unsigned char[file.FileSize()];
-	file.Read(fileBuf, file.FileSize());
+	std::vector<unsigned char> fileBuf(file.FileSize());
+	file.Read(&fileBuf[0], file.FileSize());
+
 	S3OHeader header;
-	memcpy(&header, fileBuf, sizeof(header));
+	memcpy(&header, &fileBuf[0], sizeof(header));
 	header.swap();
 
-	S3DModel* model = new S3DModel;
+	S3DModel* model = new S3DModel();
 		model->name = name;
 		model->type = MODELTYPE_S3O;
 		model->numPieces = 0;
-		model->tex1 = (char*) &fileBuf[header.texture1];
-		model->tex2 = (char*) &fileBuf[header.texture2];
+		model->texs[0] = (char*) &fileBuf[header.texture1];
+		model->texs[1] = (char*) &fileBuf[header.texture2];
 		model->mins = DEF_MIN_SIZE;
 		model->maxs = DEF_MAX_SIZE;
-	texturehandlerS3O->LoadS3OTexture(model);
 
-	SS3OPiece* rootPiece = LoadPiece(model, NULL, fileBuf, header.rootPiece);
+	texturehandlerS3O->PreloadTexture(model);
 
+	SS3OPiece* rootPiece = LoadPiece(model, NULL, &fileBuf[0], header.rootPiece);
 	model->SetRootPiece(rootPiece);
-	model->radius = (header.radius <= 0.01f)? (model->maxs.y - model->mins.y): header.radius;
-	model->height = (header.height <= 0.01f)? (model->radius + model->radius): header.height;
 
+	// set after the extrema are known
+	model->radius = (header.radius <= 0.01f)? (model->maxs   - model->mins  ).Length() * 0.5f: header.radius;
+	model->height = (header.height <= 0.01f)? (model->maxs.y - model->mins.y)                : header.height;
 	model->relMidPos = float3(header.midx, header.midy, header.midz);
-	model->relMidPos.y = std::max(model->relMidPos.y, 1.0f); // ?
 
-	delete[] fileBuf;
 	return model;
 }
 
@@ -62,77 +57,64 @@ SS3OPiece* CS3OParser::LoadPiece(S3DModel* model, SS3OPiece* parent, unsigned ch
 {
 	model->numPieces++;
 
+	// retrieve piece data
 	Piece* fp = (Piece*)&buf[offset];
 	fp->swap(); // Does it matter we mess with the original buffer here? Don't hope so.
+	Vertex* vertexList = reinterpret_cast<Vertex*>(&buf[fp->vertices]);
+	int*    indexList  = reinterpret_cast<int*>(&buf[fp->vertexTable]);
+	int*    childList  = reinterpret_cast<int*>(&buf[fp->children]);
 
+	// create piece
 	SS3OPiece* piece = new SS3OPiece();
-		piece->type = MODELTYPE_S3O;
-		piece->mins = DEF_MIN_SIZE;
-		piece->maxs = DEF_MAX_SIZE;
 		piece->offset.x = fp->xoffset;
 		piece->offset.y = fp->yoffset;
 		piece->offset.z = fp->zoffset;
-		piece->primitiveType = fp->primitiveType;
+		piece->primType = fp->primitiveType;
 		piece->name = (char*) &buf[fp->name];
 		piece->parent = parent;
-		piece->vertices.reserve(fp->numVertices);
-		piece->vertexDrawOrder.reserve((size_t)(fp->vertexTableSize * 1.1f)); //1.1f is just a guess (check below)
 
-	// retrieve each vertex
-	int vertexOffset = fp->vertices;
-
+	// retrieve vertices
+	piece->SetVertexCount(fp->numVertices);
 	for (int a = 0; a < fp->numVertices; ++a) {
-		Vertex* v = reinterpret_cast<Vertex*>(&buf[vertexOffset]);
-			v->swap();
-		SS3OVertex* sv = reinterpret_cast<SS3OVertex*>(&buf[vertexOffset]);
-			sv->normal.SafeANormalize();
+		Vertex* v = (vertexList++);
+		v->swap();
 
-		piece->vertices.push_back(*sv);
-		vertexOffset += sizeof(Vertex);
+		SS3OVertex sv;
+		sv.pos = float3(v->xpos, v->ypos, v->zpos);
+		sv.normal = float3(v->xnormal, v->ynormal, v->znormal).SafeANormalize();
+		sv.texCoords[0] = float2(v->texu, v->texv);
+		sv.texCoords[1] = float2(v->texu, v->texv);
+
+		piece->SetVertex(a, sv);
 	}
 
-
-	// retrieve the draw order for the vertices
-	int vertexTableOffset = fp->vertexTable;
-
+	// retrieve draw indices
+	piece->SetIndexCount(fp->vertexTableSize);
 	for (int a = 0; a < fp->vertexTableSize; ++a) {
-		const int vertexDrawIdx = swabDWord(*(int*) &buf[vertexTableOffset]);
-
-		piece->vertexDrawOrder.push_back(vertexDrawIdx);
-		vertexTableOffset += sizeof(int);
+		const int vertexDrawIdx = swabDWord(*(indexList++));
+		piece->SetIndex(a, vertexDrawIdx);
 	}
 
+	// post process the piece
+	{
+		piece->goffset = piece->offset + ((parent != NULL)? parent->goffset: ZeroVector);
 
-	piece->isEmpty = piece->vertexDrawOrder.empty();
-	piece->goffset = piece->offset + ((parent != NULL)? parent->goffset: ZeroVector);
+		piece->Trianglize();
+		piece->SetVertexTangents();
+		piece->SetMinMaxExtends();
 
-	piece->SetVertexTangents();
-	piece->SetMinMaxExtends();
+		model->mins = float3::min(piece->goffset + piece->mins, model->mins);
+		model->maxs = float3::max(piece->goffset + piece->maxs, model->maxs);
 
-	model->mins.x = std::min(piece->mins.x, model->mins.x);
-	model->mins.y = std::min(piece->mins.y, model->mins.y);
-	model->mins.z = std::min(piece->mins.z, model->mins.z);
-	model->maxs.x = std::max(piece->maxs.x, model->maxs.x);
-	model->maxs.y = std::max(piece->maxs.y, model->maxs.y);
-	model->maxs.z = std::max(piece->maxs.z, model->maxs.z);
+		piece->SetCollisionVolume(CollisionVolume("box", piece->maxs - piece->mins, (piece->maxs + piece->mins) * 0.5f));
+	}
 
-	const float3 cvScales = piece->maxs - piece->mins;
-	const float3 cvOffset =
-		(piece->maxs - piece->goffset) +
-		(piece->mins - piece->goffset);
-
-	piece->SetCollisionVolume(new CollisionVolume("box", cvScales, cvOffset * 0.5f, CollisionVolume::COLVOL_HITTEST_CONT));
-
-
-	int childTableOffset = fp->childs;
-
-	for (int a = 0; a < fp->numChilds; ++a) {
-		int childOffset = swabDWord(*(int*) &buf[childTableOffset]);
-
+	// load children pieces
+	piece->children.reserve(fp->numchildren);
+	for (int a = 0; a < fp->numchildren; ++a) {
+		int childOffset = swabDWord(*(childList++));
 		SS3OPiece* childPiece = LoadPiece(model, piece, buf, childOffset);
-		piece->childs.push_back(childPiece);
-
-		childTableOffset += sizeof(int);
+		piece->children.push_back(childPiece);
 	}
 
 	return piece;
@@ -143,76 +125,62 @@ SS3OPiece* CS3OParser::LoadPiece(S3DModel* model, SS3OPiece* parent, unsigned ch
 
 
 
-void SS3OPiece::DrawForList() const
+void SS3OPiece::UploadGeometryVBOs()
 {
-	if (isEmpty) {
+	if (!HasGeometryData())
 		return;
-	}
 
-	const SS3OVertex* s3ov = &vertices[0];
+	//FIXME share 1 VBO for ALL models
+	vboAttributes.Bind(GL_ARRAY_BUFFER);
+	vboAttributes.New(vertices.size() * sizeof(SS3OVertex), GL_STATIC_DRAW, &vertices[0]);
+	vboAttributes.Unbind();
 
-	// pass the tangents as 3D texture coordinates
-	// (array elements are float3's, which are 12
-	// bytes in size and each represent a single
-	// xyz triple)
-	if (!sTangents.empty()) {
+	vboIndices.Bind(GL_ELEMENT_ARRAY_BUFFER);
+	vboIndices.New(indices.size() * sizeof(unsigned int), GL_STATIC_DRAW, &indices[0]);
+	vboIndices.Unbind();
+
+	// NOTE: wasteful to keep these around, but still needed (eg. for Shatter())
+	// vertices.clear();
+	// indices.clear();
+}
+
+void SS3OPiece::BindVertexAttribVBOs() const
+{
+	vboAttributes.Bind(GL_ARRAY_BUFFER);
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glVertexPointer(3, GL_FLOAT, sizeof(SS3OVertex), vboAttributes.GetPtr(offsetof(SS3OVertex, pos)));
+
+		glEnableClientState(GL_NORMAL_ARRAY);
+		glNormalPointer(GL_FLOAT, sizeof(SS3OVertex), vboAttributes.GetPtr(offsetof(SS3OVertex, normal)));
+
+		glClientActiveTexture(GL_TEXTURE0);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(2, GL_FLOAT, sizeof(SS3OVertex), vboAttributes.GetPtr(offsetof(SS3OVertex, texCoords[0])));
+
+		glClientActiveTexture(GL_TEXTURE1);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(2, GL_FLOAT, sizeof(SS3OVertex), vboAttributes.GetPtr(offsetof(SS3OVertex, texCoords[1])));
+
 		glClientActiveTexture(GL_TEXTURE5);
 		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-		glTexCoordPointer(3, GL_FLOAT, sizeof(float3), &sTangents[0].x);
+		glTexCoordPointer(3, GL_FLOAT, sizeof(SS3OVertex), vboAttributes.GetPtr(offsetof(SS3OVertex, sTangent)));
 
 		glClientActiveTexture(GL_TEXTURE6);
 		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-		glTexCoordPointer(3, GL_FLOAT, sizeof(float3), &tTangents[0].x);
-	}
+		glTexCoordPointer(3, GL_FLOAT, sizeof(SS3OVertex), vboAttributes.GetPtr(offsetof(SS3OVertex, tTangent)));
+	vboAttributes.Unbind();
+}
 
-	glClientActiveTextureARB(GL_TEXTURE1_ARB);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(2, GL_FLOAT, sizeof(SS3OVertex), &s3ov->textureX);
 
-	glClientActiveTexture(GL_TEXTURE0);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(2, GL_FLOAT, sizeof(SS3OVertex), &s3ov->textureX);
+void SS3OPiece::UnbindVertexAttribVBOs() const
+{
+	glClientActiveTexture(GL_TEXTURE6);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, sizeof(SS3OVertex), &s3ov->pos.x);
+	glClientActiveTexture(GL_TEXTURE5);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 
-	glEnableClientState(GL_NORMAL_ARRAY);
-	glNormalPointer(GL_FLOAT, sizeof(SS3OVertex), &s3ov->normal.x);
-
-	switch (primitiveType) {
-		case S3O_PRIMTYPE_TRIANGLES: {
-			glDrawElements(GL_TRIANGLES, vertexDrawOrder.size(), GL_UNSIGNED_INT, &vertexDrawOrder[0]);
-		} break;
-		case S3O_PRIMTYPE_TRIANGLE_STRIP: {
-			#ifdef GLEW_NV_primitive_restart
-			if (globalRendering->supportRestartPrimitive) {
-				glPrimitiveRestartIndexNV(-1U); // GL_NV_primitive_restart: "PrimitiveRestartIndexNV is not compiled into display lists, but is executed immediately."
-				glEnableClientState(GL_PRIMITIVE_RESTART_NV);
-			}
-			#endif
-
-			glDrawElements(GL_TRIANGLE_STRIP, vertexDrawOrder.size(), GL_UNSIGNED_INT, &vertexDrawOrder[0]);
-
-			#ifdef GLEW_NV_primitive_restart
-			if (globalRendering->supportRestartPrimitive) {
-				glDisableClientState(GL_PRIMITIVE_RESTART_NV);
-			}
-			#endif
-		} break;
-		case S3O_PRIMTYPE_QUADS: {
-			glDrawElements(GL_QUADS, vertexDrawOrder.size(), GL_UNSIGNED_INT, &vertexDrawOrder[0]);
-		} break;
-	}
-
-	if (!sTangents.empty()) {
-		glClientActiveTexture(GL_TEXTURE6);
-		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-		glClientActiveTexture(GL_TEXTURE5);
-		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	}
-
-	glClientActiveTextureARB(GL_TEXTURE1_ARB);
+	glClientActiveTexture(GL_TEXTURE1);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 
 	glClientActiveTexture(GL_TEXTURE0);
@@ -222,30 +190,123 @@ void SS3OPiece::DrawForList() const
 	glDisableClientState(GL_NORMAL_ARRAY);
 }
 
+
+void SS3OPiece::DrawForList() const
+{
+	if (!HasGeometryData())
+		return;
+
+	BindVertexAttribVBOs();
+	vboIndices.Bind(GL_ELEMENT_ARRAY_BUFFER);
+	switch (primType) {
+		case S3O_PRIMTYPE_TRIANGLES: {
+			glDrawRangeElements(GL_TRIANGLES, 0, vertices.size() - 1, indices.size(), GL_UNSIGNED_INT, vboIndices.GetPtr());
+		} break;
+		case S3O_PRIMTYPE_TRIANGLE_STRIP: {
+			#ifdef GLEW_NV_primitive_restart
+			if (globalRendering->supportRestartPrimitive) {
+				// this is not compiled into display lists, but executed immediately
+				glPrimitiveRestartIndexNV(-1U);
+				glEnableClientState(GL_PRIMITIVE_RESTART_NV);
+			}
+			#endif
+
+			glDrawRangeElements(GL_TRIANGLE_STRIP, 0, vertices.size() - 1, indices.size(), GL_UNSIGNED_INT, vboIndices.GetPtr());
+
+			#ifdef GLEW_NV_primitive_restart
+			if (globalRendering->supportRestartPrimitive) {
+				glDisableClientState(GL_PRIMITIVE_RESTART_NV);
+			}
+			#endif
+		} break;
+		case S3O_PRIMTYPE_QUADS: {
+			glDrawRangeElements(GL_QUADS, 0, vertices.size() - 1, indices.size(), GL_UNSIGNED_INT, vboIndices.GetPtr());
+		} break;
+	}
+	vboIndices.Unbind();
+	UnbindVertexAttribVBOs();
+}
+
+
 void SS3OPiece::SetMinMaxExtends()
 {
-	for (std::vector<SS3OVertex>::const_iterator vi = vertices.begin(); vi != vertices.end(); ++vi) {
-		mins.x = std::min(mins.x, (goffset.x + vi->pos.x));
-		mins.y = std::min(mins.y, (goffset.y + vi->pos.y));
-		mins.z = std::min(mins.z, (goffset.z + vi->pos.z));
-		maxs.x = std::max(maxs.x, (goffset.x + vi->pos.x));
-		maxs.y = std::max(maxs.y, (goffset.y + vi->pos.y));
-		maxs.z = std::max(maxs.z, (goffset.z + vi->pos.z));
+	for (const SS3OVertex& v: vertices) {
+		mins = float3::min(mins, v.pos);
+		maxs = float3::max(maxs, v.pos);
 	}
 }
 
+
+void SS3OPiece::Trianglize()
+{
+	switch (primType) {
+		case S3O_PRIMTYPE_TRIANGLES: {
+		} break;
+		case S3O_PRIMTYPE_TRIANGLE_STRIP: {
+			if (indices.size() < 3) {
+				primType = S3O_PRIMTYPE_TRIANGLES;
+				indices.clear();
+				return;
+			}
+
+			decltype(indices) newIndices;
+			newIndices.resize(indices.size() * 3); // each index (can) create a new triangle
+
+			for (size_t i = 0; (i + 2) < indices.size(); ++i) {
+				// indices can contain end-of-strip markers (-1U)
+				if (indices[i + 0] == -1 || indices[i + 1] == -1 || indices[i + 2] == -1)
+					continue;
+
+				newIndices.push_back(indices[i + 0]);
+				newIndices.push_back(indices[i + 1]);
+				newIndices.push_back(indices[i + 2]);
+			}
+
+			primType = S3O_PRIMTYPE_TRIANGLES;
+			indices.swap(newIndices);
+		} break;
+		case S3O_PRIMTYPE_QUADS: {
+			if (indices.size() % 4 != 0) {
+				primType = S3O_PRIMTYPE_TRIANGLES;
+				indices.clear();
+				return;
+			}
+
+			decltype(indices) newIndices;
+			const size_t oldCount = indices.size();
+			newIndices.resize(oldCount + oldCount / 2); // 4 indices become 6
+
+			for (size_t i = 0, j = 0; i < indices.size(); i += 4) {
+				newIndices[j++] = indices[i + 0];
+				newIndices[j++] = indices[i + 1];
+				newIndices[j++] = indices[i + 2];
+
+				newIndices[j++] = indices[i + 0];
+				newIndices[j++] = indices[i + 2];
+				newIndices[j++] = indices[i + 3];
+			}
+
+			primType = S3O_PRIMTYPE_TRIANGLES;
+			indices.swap(newIndices);
+		} break;
+
+		default: {
+		} break;
+	}
+}
+
+
 void SS3OPiece::SetVertexTangents()
 {
-	if (isEmpty || primitiveType == S3O_PRIMTYPE_QUADS) {
+	if (!HasGeometryData())
 		return;
-	}
 
-	sTangents.resize(GetVertexCount(), ZeroVector);
-	tTangents.resize(GetVertexCount(), ZeroVector);
+	if (primType == S3O_PRIMTYPE_QUADS)
+		return;
 
 	unsigned stride = 0;
 
-	switch (primitiveType) {
+	switch (primType) {
 		case S3O_PRIMTYPE_TRIANGLES: {
 			stride = 3;
 		} break;
@@ -258,20 +319,20 @@ void SS3OPiece::SetVertexTangents()
 	// by the draw order of the vertices numbered <v, v + 1, v + 2>
 	// for v in [0, n - 2]
 	const unsigned vrtMaxNr = (stride == 1)?
-		vertexDrawOrder.size() - 2:
-		vertexDrawOrder.size();
+		indices.size() - 2:
+		indices.size();
 
 	// set the triangle-level S- and T-tangents
 	for (unsigned vrtNr = 0; vrtNr < vrtMaxNr; vrtNr += stride) {
 		bool flipWinding = false;
 
-		if (primitiveType == S3O_PRIMTYPE_TRIANGLE_STRIP) {
+		if (primType == S3O_PRIMTYPE_TRIANGLE_STRIP) {
 			flipWinding = ((vrtNr & 1) == 1);
 		}
 
-		const int v0idx = vertexDrawOrder[vrtNr                      ];
-		const int v1idx = vertexDrawOrder[vrtNr + (flipWinding? 2: 1)];
-		const int v2idx = vertexDrawOrder[vrtNr + (flipWinding? 1: 2)];
+		const int v0idx = indices[vrtNr                      ];
+		const int v1idx = indices[vrtNr + (flipWinding? 2: 1)];
+		const int v2idx = indices[vrtNr + (flipWinding? 1: 2)];
 
 		if (v1idx == -1 || v2idx == -1) {
 			// not a valid triangle, skip
@@ -287,9 +348,9 @@ void SS3OPiece::SetVertexTangents()
 		const float3& p1 = vrt1->pos;
 		const float3& p2 = vrt2->pos;
 
-		const float2 tc0(vrt0->textureX, vrt0->textureY);
-		const float2 tc1(vrt1->textureX, vrt1->textureY);
-		const float2 tc2(vrt2->textureX, vrt2->textureY);
+		const float2& tc0 = vrt0->texCoords[0];
+		const float2& tc1 = vrt1->texCoords[0];
+		const float2& tc2 = vrt2->texCoords[0];
 
 		const float x1x0 = p1.x - p0.x, x2x0 = p2.x - p0.x;
 		const float y1y0 = p1.y - p0.y, y2y0 = p2.y - p0.y;
@@ -308,27 +369,27 @@ void SS3OPiece::SetVertexTangents()
 		const float3 sdir((t2 * x1x0 - t1 * x2x0) * r, (t2 * y1y0 - t1 * y2y0) * r, (t2 * z1z0 - t1 * z2z0) * r);
 		const float3 tdir((s1 * x2x0 - s2 * x1x0) * r, (s1 * y2y0 - s2 * y1y0) * r, (s1 * z2z0 - s2 * z1z0) * r);
 
-		sTangents[v0idx] += sdir;
-		sTangents[v1idx] += sdir;
-		sTangents[v2idx] += sdir;
+		vertices[v0idx].sTangent += sdir;
+		vertices[v1idx].sTangent += sdir;
+		vertices[v2idx].sTangent += sdir;
 
-		tTangents[v0idx] += tdir;
-		tTangents[v1idx] += tdir;
-		tTangents[v2idx] += tdir;
+		vertices[v0idx].tTangent += tdir;
+		vertices[v1idx].tTangent += tdir;
+		vertices[v2idx].tTangent += tdir;
 	}
 
 	// set the smoothed per-vertex tangents
 	for (int vrtIdx = vertices.size() - 1; vrtIdx >= 0; vrtIdx--) {
 		float3& n = vertices[vrtIdx].normal;
-		float3& s = sTangents[vrtIdx];
-		float3& t = tTangents[vrtIdx];
+		float3& s = vertices[vrtIdx].sTangent;
+		float3& t = vertices[vrtIdx].tTangent;
 		int h = 1;
 
 		if (math::isnan(n.x) || math::isnan(n.y) || math::isnan(n.z)) {
-			n = float3(0.0f, 0.0f, 1.0f);
+			n = FwdVector;
 		}
-		if (s == ZeroVector) { s = float3(1.0f, 0.0f, 0.0f); }
-		if (t == ZeroVector) { t = float3(0.0f, 1.0f, 0.0f); }
+		if (s == ZeroVector) { s = RgtVector; }
+		if (t == ZeroVector) { t =  UpVector; }
 
 		h = ((n.cross(s)).dot(t) < 0.0f)? -1: 1;
 		s = (s - n * n.dot(s));
@@ -338,63 +399,5 @@ void SS3OPiece::SetVertexTangents()
 		// t = (s.cross(n));
 		// h = ((s.cross(t)).dot(n) >= 0.0f)? 1: -1;
 		// t = t * h;
-	}
-}
-
-
-
-void SS3OPiece::Shatter(float pieceChance, int texType, int team, const float3& pos, const float3& speed) const
-{
-	switch (primitiveType) {
-		case S3O_PRIMTYPE_TRIANGLES: {
-			for (size_t i = 0; i < vertexDrawOrder.size(); i += 3) {
-				if (gu->usRandFloat() > pieceChance)
-					continue;
-
-				SS3OVertex* verts = new SS3OVertex[4];
-
-				verts[0] = vertices[vertexDrawOrder[i + 0]];
-				verts[1] = vertices[vertexDrawOrder[i + 1]];
-				verts[2] = vertices[vertexDrawOrder[i + 1]];
-				verts[3] = vertices[vertexDrawOrder[i + 2]];
-
-				ph->AddFlyingPiece(texType, team, pos, speed + gu->usRandVector() * 2.0f, verts);
-			}
-		} break;
-		case S3O_PRIMTYPE_TRIANGLE_STRIP: {
-			// vertexDrawOrder can contain end-of-strip markers (-1U)
-			for (size_t i = 2; i < vertexDrawOrder.size(); ) {
-				if (gu->usRandFloat() > pieceChance) { i += 1; continue; }
-				if (vertexDrawOrder[i] == -1) { i += 3; continue; }
-
-				SS3OVertex* verts = new SS3OVertex[4];
-
-				verts[0] = vertices[vertexDrawOrder[i - 2]];
-				verts[1] = vertices[vertexDrawOrder[i - 1]];
-				verts[2] = vertices[vertexDrawOrder[i - 1]];
-				verts[3] = vertices[vertexDrawOrder[i - 0]];
-
-				ph->AddFlyingPiece(texType, team, pos, speed + gu->usRandVector() * 2.0f, verts);
-				i += 1;
-			}
-		} break;
-		case S3O_PRIMTYPE_QUADS: {
-			for (size_t i = 0; i < vertexDrawOrder.size(); i += 4) {
-				if (gu->usRandFloat() > pieceChance)
-					continue;
-
-				SS3OVertex* verts = new SS3OVertex[4];
-
-				verts[0] = vertices[vertexDrawOrder[i + 0]];
-				verts[1] = vertices[vertexDrawOrder[i + 1]];
-				verts[2] = vertices[vertexDrawOrder[i + 2]];
-				verts[3] = vertices[vertexDrawOrder[i + 3]];
-
-				ph->AddFlyingPiece(texType, team, pos, speed + gu->usRandVector() * 2.0f, verts);
-			}
-		} break;
-
-		default: {
-		} break;
 	}
 }

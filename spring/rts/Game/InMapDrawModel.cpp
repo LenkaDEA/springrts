@@ -2,63 +2,18 @@
 
 #include "InMapDrawModel.h"
 
-#include "Player.h"
 #include "Game/GlobalUnsynced.h"
-#include "Game/PlayerHandler.h"
-#include "Game/TeamController.h"
+#include "Game/Players/Player.h"
+#include "Game/Players/PlayerHandler.h"
+#include "Net/Protocol/BaseNetProtocol.h"
 #include "Map/Ground.h"
+#include "Map/ReadMap.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "System/EventHandler.h"
-#include "System/BaseNetProtocol.h"
 #include "System/creg/STL_List.h"
-#include "System/mmgr.h"
 
 
 CInMapDrawModel* inMapDrawerModel = NULL;
-
-CR_BIND(CInMapDrawModel, );
-
-CR_REG_METADATA(CInMapDrawModel, (
-	CR_MEMBER(drawQuads),
-	CR_MEMBER(numPoints),
-	CR_MEMBER(numLines),
-	CR_RESERVED(4)
-));
-
-CR_BIND(CInMapDrawModel::MapDrawPrimitive, (false, -1, NULL));
-
-CR_REG_METADATA_SUB(CInMapDrawModel, MapDrawPrimitive, (
-	CR_MEMBER(spectator),
-	CR_MEMBER(teamID),
-//	CR_MEMBER(teamController), // TODO this is only left out due to lazyness to creg-ify TeamController
-	CR_RESERVED(4)
-));
-
-CR_BIND(CInMapDrawModel::MapPoint, (false, -1, NULL, ZeroVector, ""));
-
-CR_REG_METADATA_SUB(CInMapDrawModel, MapPoint, (
-	CR_MEMBER(pos),
-	CR_MEMBER(label),
-	CR_RESERVED(4)
-));
-
-CR_BIND(CInMapDrawModel::MapLine, (false, -1, NULL, ZeroVector, ZeroVector));
-
-CR_REG_METADATA_SUB(CInMapDrawModel, MapLine, (
-	CR_MEMBER(pos1),
-	CR_MEMBER(pos2),
-	CR_RESERVED(4)
-));
-
-CR_BIND(CInMapDrawModel::DrawQuad, );
-
-//CR_REG_METADATA_SUB(CInMapDrawModel, DrawQuad, (
-//	CR_MEMBER(points), // TODO this is only left out due to lazyness
-//	CR_MEMBER(lines), // TODO this is only left out due to lazyness
-//	CR_RESERVED(4)
-//));
-
-
 
 const size_t CInMapDrawModel::DRAW_QUAD_SIZE = 32;
 
@@ -67,8 +22,8 @@ const float CInMapDrawModel::QUAD_SCALE = 1.0f / (DRAW_QUAD_SIZE * SQUARE_SIZE);
 
 
 CInMapDrawModel::CInMapDrawModel()
-	: drawQuadsX(gs->mapx / DRAW_QUAD_SIZE)
-	, drawQuadsY(gs->mapy / DRAW_QUAD_SIZE)
+	: drawQuadsX(mapDims.mapx / DRAW_QUAD_SIZE)
+	, drawQuadsY(mapDims.mapy / DRAW_QUAD_SIZE)
 	, drawAllMarks(false)
 	, numPoints(0)
 	, numLines(0)
@@ -79,14 +34,6 @@ CInMapDrawModel::CInMapDrawModel()
 
 CInMapDrawModel::~CInMapDrawModel()
 {
-}
-
-void CInMapDrawModel::PostLoad()
-{
-	if (drawQuads.size() != (drawQuadsX * drawQuadsY)) {
-		// For old savegames
-		drawQuads.resize(drawQuadsX * drawQuadsY);
-	}
 }
 
 bool CInMapDrawModel::MapDrawPrimitive::IsLocalPlayerAllowedToSee(const CInMapDrawModel* inMapDrawModel) const
@@ -126,21 +73,20 @@ bool CInMapDrawModel::AddPoint(const float3& constPos, const std::string& label,
 		return false;
 	}
 
-	GML_STDMUTEX_LOCK(inmap); // LocalPoint
-
 	// GotNetMsg() alreadys checks validity of playerID
 	const CPlayer* sender = playerHandler->Player(playerID);
 	const bool allowed = AllowedMsg(sender);
 
 	float3 pos = constPos;
 	pos.ClampInBounds();
-	pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + 2.0f;
+	pos.y = CGround::GetHeightAboveWater(pos.x, pos.z, false) + 2.0f;
 
 	// event clients may process the point
 	// if their owner is allowed to see it
 	if (allowed && eventHandler.MapDrawCmd(playerID, MAPDRAW_POINT, &pos, NULL, &label)) {
 		return false;
 	}
+
 
 	// let the engine handle it (disallowed
 	// points added here are filtered while
@@ -163,20 +109,19 @@ bool CInMapDrawModel::AddLine(const float3& constPos1, const float3& constPos2, 
 		return false;
 	}
 
-	GML_STDMUTEX_LOCK(inmap); // LocalLine
-
 	const CPlayer* sender = playerHandler->Player(playerID);
 
 	float3 pos1 = constPos1;
 	float3 pos2 = constPos2;
 	pos1.ClampInBounds();
 	pos2.ClampInBounds();
-	pos1.y = ground->GetHeightAboveWater(pos1.x, pos1.z, false) + 2.0f;
-	pos2.y = ground->GetHeightAboveWater(pos2.x, pos2.z, false) + 2.0f;
+	pos1.y = CGround::GetHeightAboveWater(pos1.x, pos1.z, false) + 2.0f;
+	pos2.y = CGround::GetHeightAboveWater(pos2.x, pos2.z, false) + 2.0f;
 
 	if (AllowedMsg(sender) && eventHandler.MapDrawCmd(playerID, MAPDRAW_LINE, &pos1, &pos2, NULL)) {
 		return false;
 	}
+
 
 	MapLine line(sender->spectator, sender->team, sender, pos1, pos2);
 
@@ -195,17 +140,16 @@ void CInMapDrawModel::EraseNear(const float3& constPos, int playerID)
 	if (!playerHandler->IsValidPlayer(playerID))
 		return;
 
-	GML_STDMUTEX_LOCK(inmap); // LocalErase
-
 	const CPlayer* sender = playerHandler->Player(playerID);
 
 	float3 pos = constPos;
 	pos.ClampInBounds();
-	pos.y = ground->GetHeightAboveWater(pos.x, pos.z, false) + 2.0f;
+	pos.y = CGround::GetHeightAboveWater(pos.x, pos.z, false) + 2.0f;
 
 	if (AllowedMsg(sender) && eventHandler.MapDrawCmd(playerID, MAPDRAW_ERASE, &pos, NULL, NULL)) {
 		return;
 	}
+
 
 	const float radius = 100.0f;
 	const int maxY = drawQuadsY - 1;

@@ -72,9 +72,6 @@ namespace SpringVersion
 	/// additional information (compiler flags, VCS revision etc.)
 	extern std::string GetAdditional();
 
-	/// time of build
-	extern const std::string& GetBuildTime();
-
 	/// build options
 	extern const std::string& GetBuildEnvironment();
 
@@ -83,6 +80,12 @@ namespace SpringVersion
 
 	/// Returns whether this is a release build of the engine
 	extern bool IsRelease();
+
+	/// Returns true if this build is a "HEADLESS" build
+	extern bool IsHeadless();
+	
+	/// Returns true if this build is a "UNITSYNC" build
+	extern bool IsUnitsync();
 
 	/**
 	 * The basic part of a spring version.
@@ -112,6 +115,6 @@ namespace SpringVersion
 	 * @see GetAdditional
 	 */
 	extern const std::string& GetFull();
-};
+}
 
 #endif // GAME_VERSION_H

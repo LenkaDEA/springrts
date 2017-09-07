@@ -6,15 +6,9 @@
 
 #include "System/EventClient.h"
 //FIXME#include "LuaArrays.h"
-#include "LuaCallInCheck.h"
-#include "LuaShaders.h"
-#include "LuaTextures.h"
-#include "LuaFBOs.h"
-#include "LuaRBOs.h"
-#include "LuaUtils.h"
-//FIXME#include "LuaVBOs.h"
-#include "LuaDisplayLists.h"
-#include "System/Platform/Threading.h"
+#include "LuaContextData.h"
+#include "LuaHashString.h"
+#include "lib/lua/include/LuaInclude.h" //FIXME needed for GetLuaContextData
 
 #include <string>
 #include <vector>
@@ -31,6 +25,7 @@ using std::set;
 #define LUA_HANDLE_ORDER_UNITS_UNSYNCED  1200
 #define LUA_HANDLE_ORDER_GAIA_UNSYNCED   1300
 #define LUA_HANDLE_ORDER_UI              2000
+#define LUA_HANDLE_ORDER_INTRO           3000
 
 
 class CUnit;
@@ -41,31 +36,13 @@ struct Command;
 struct SRectangle;
 struct LuaHashString;
 struct lua_State;
-class CLuaHandle;
+class LuaRBOs;
+class LuaFBOs;
+class LuaTextures;
+class LuaShaders;
+class CLuaDisplayLists;
+class CLuaRules;
 
-
-struct luaContextData {
-	luaContextData() : fullCtrl(false), fullRead(false), ctrlTeam(CEventClient::NoAccessTeam),
-		readTeam(0), readAllyTeam(0), selectTeam(CEventClient::NoAccessTeam), synced(false),
-		owner(NULL), drawingEnabled(false), running(0) {}
-	bool fullCtrl;
-	bool fullRead;
-	int  ctrlTeam;
-	int  readTeam;
-	int  readAllyTeam;
-	int  selectTeam;
-	//FIXME		LuaArrays arrays;
-	LuaShaders shaders;
-	LuaTextures textures;
-	//FIXME		LuaVBOs vbos;
-	LuaFBOs fbos;
-	LuaRBOs rbos;
-	CLuaDisplayLists displayLists;
-	bool synced;
-	CLuaHandle *owner;
-	bool drawingEnabled;
-	int running; //< is currently running? (0: not running; >0: is running)
-};
 
 class CLuaHandle : public CEventClient
 {
@@ -75,296 +52,245 @@ class CLuaHandle : public CEventClient
 		void ResetCallinErrors() { callinErrors = 0; }
 
 	public:
-#define GET_CONTEXT_DATA(v) ((L ? L : GetActiveState())->lcd->v)
-#define GET_ACTIVE_CONTEXT_DATA(v) (GetActiveState()->lcd->v)
-#define GET_HANDLE_CONTEXT_DATA(v) (L->lcd->v)
-#define SET_ACTIVE_CONTEXT_DATA(v) if(all) { D_Sim.v = _##v; D_Draw.v = _##v; } else GET_ACTIVE_CONTEXT_DATA(v) = _##v
-#define SET_HANDLE_CONTEXT_DATA(v) GET_HANDLE_CONTEXT_DATA(v) = _##v
+	#define PERMISSIONS_FUNCS(Name, type, dataArg, OVERRIDE) \
+		void Set ## Name(type _ ## dataArg) { GetLuaContextData(L)->dataArg = _ ## dataArg; } \
+		type Get ## Name() const OVERRIDE { return GetLuaContextData(L)->dataArg; } \
+		static void SetHandle ## Name(const lua_State* L, type _ ## dataArg) { GetLuaContextData(L)->dataArg = _ ## dataArg;; } \
+		static type GetHandle ## Name(const lua_State* L) { return GetLuaContextData(L)->dataArg; }
 
-		void SetFullRead(bool _fullRead, bool all = false) { SET_ACTIVE_CONTEXT_DATA(fullRead); }
-		bool GetFullRead() const { return GET_ACTIVE_CONTEXT_DATA(fullRead); } // virtual function in CEventClient
-		static void SetHandleFullRead(const lua_State* L, bool _fullRead) { SET_HANDLE_CONTEXT_DATA(fullRead); }
-		static bool GetHandleFullRead(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(fullRead); }
+		PERMISSIONS_FUNCS(FullRead,     bool, fullRead, override); // virtual function in CEventClient
+		PERMISSIONS_FUNCS(FullCtrl,     bool, fullCtrl, );
+		PERMISSIONS_FUNCS(CtrlTeam,     int,  ctrlTeam, );
+		PERMISSIONS_FUNCS(ReadTeam,     int,  readTeam, );
+		PERMISSIONS_FUNCS(ReadAllyTeam, int,  readAllyTeam, override); // virtual function in CEventClient
+		PERMISSIONS_FUNCS(SelectTeam,   int,  selectTeam, );
 
-		void SetFullCtrl(bool _fullCtrl, bool all = false) { SET_ACTIVE_CONTEXT_DATA(fullCtrl); }
-		bool GetFullCtrl() const { return GET_ACTIVE_CONTEXT_DATA(fullCtrl); }
-		static void SetHandleFullCtrl(const lua_State* L, bool _fullCtrl) { SET_HANDLE_CONTEXT_DATA(fullCtrl); }
-		static bool GetHandleFullCtrl(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(fullCtrl); }
+	#undef PERMISSIONS_FUNCS
 
-		void SetCtrlTeam(int _ctrlTeam, bool all = false) { SET_ACTIVE_CONTEXT_DATA(ctrlTeam); }
-		int GetCtrlTeam() const { return GET_ACTIVE_CONTEXT_DATA(ctrlTeam); }
-		static void SetHandleCtrlTeam(const lua_State* L, int _ctrlTeam) { SET_HANDLE_CONTEXT_DATA(ctrlTeam); }
-		static int GetHandleCtrlTeam(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(ctrlTeam); }
+		static bool GetHandleSynced(const lua_State* L) { return GetLuaContextData(L)->synced; }
 
-		void SetReadTeam(int _readTeam, bool all = false) { SET_ACTIVE_CONTEXT_DATA(readTeam); }
-		int GetReadTeam() const { return GET_ACTIVE_CONTEXT_DATA(readTeam); }
-		static void SetHandleReadTeam(const lua_State* L, int _readTeam) { SET_HANDLE_CONTEXT_DATA(readTeam); }
-		static int GetHandleReadTeam(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(readTeam); }
-
-		void SetReadAllyTeam(int _readAllyTeam, bool all = false) { SET_ACTIVE_CONTEXT_DATA(readAllyTeam); }
-		int GetReadAllyTeam() const { return GET_ACTIVE_CONTEXT_DATA(readAllyTeam); } // virtual function in CEventClient
-		static void SetHandleReadAllyTeam(const lua_State* L, int _readAllyTeam) { SET_HANDLE_CONTEXT_DATA(readAllyTeam); }
-		static int GetHandleReadAllyTeam(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(readAllyTeam); }
-
-		void SetSelectTeam(int _selectTeam, bool all = false) { SET_ACTIVE_CONTEXT_DATA(selectTeam); }
-		int GetSelectTeam() const { return GET_ACTIVE_CONTEXT_DATA(selectTeam); }
-		static void SetHandleSelectTeam(const lua_State* L, int _selectTeam) { SET_HANDLE_CONTEXT_DATA(selectTeam); }
-		static int GetHandleSelectTeam(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(selectTeam); }
-
-		void SetSynced(bool _synced, bool all = false) { SET_ACTIVE_CONTEXT_DATA(synced); }
-		bool GetSynced() const { return GET_ACTIVE_CONTEXT_DATA(synced); }
-		static void SetHandleSynced(const lua_State* L, bool _synced) { SET_HANDLE_CONTEXT_DATA(synced); }
-		static bool GetHandleSynced(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(synced); }
-
-		static CLuaHandle* GetHandle(lua_State* L) { return GET_HANDLE_CONTEXT_DATA(owner); }
-
-		static bool GetHandleUserMode(const lua_State* L) { return GET_HANDLE_CONTEXT_DATA(owner->GetUserMode()); }
 		bool GetUserMode() const { return userMode; }
-
-		static bool CheckModUICtrl(lua_State* L) { return GetModUICtrl() || GetHandleUserMode(L); }
 		bool CheckModUICtrl() const { return GetModUICtrl() || GetUserMode(); }
 
-		void SetRunning(lua_State* L, const bool _running) { GET_HANDLE_CONTEXT_DATA(running) += (_running) ? +1 : -1; assert( GET_HANDLE_CONTEXT_DATA(running) >= 0); }
-		bool IsRunning() const { return (GET_ACTIVE_CONTEXT_DATA(running) > 0); }
+		static bool GetHandleUserMode(lua_State* L) { return (GetHandle(L))->GetUserMode(); }
+		static bool CheckModUICtrl(lua_State* L) { return GetModUICtrl() || GetHandleUserMode(L); }
 
-//FIXME		LuaArrays& GetArrays(const lua_State* L = NULL) { return GET_CONTEXT_DATA(arrays); }
-		LuaShaders& GetShaders(const lua_State* L = NULL) { return GET_CONTEXT_DATA(shaders); }
-		LuaTextures& GetTextures(const lua_State* L = NULL) { return GET_CONTEXT_DATA(textures); }
-//FIXME		LuaVBOs& GetVBOs(const lua_State* L = NULL) { return GET_CONTEXT_DATA(vbos); }
-		LuaFBOs& GetFBOs(const lua_State* L = NULL) { return GET_CONTEXT_DATA(fbos); }
-		LuaRBOs& GetRBOs(const lua_State* L = NULL) { return GET_CONTEXT_DATA(rbos); }
-		CLuaDisplayLists& GetDisplayLists(const lua_State* L = NULL) { return GET_CONTEXT_DATA(displayLists); }
+		static int GetHandleAllowChanges(const lua_State* L) { return GetLuaContextData(L)->allowChanges; }
+
+		static CLuaHandle* GetHandle(lua_State* L) { return (GetLuaContextData(L)->owner); }
+
+		static void SetHandleRunning(lua_State* L, const bool _running) {
+			GetLuaContextData(L)->running += (_running) ? +1 : -1;
+			assert(GetLuaContextData(L)->running >= 0);
+		}
+		static bool IsHandleRunning(lua_State* L) { return (GetLuaContextData(L)->running > 0); }
+
+		bool IsRunning() const { return IsHandleRunning(L); }
+		bool IsValid() const { return (L != nullptr); }
+
+		//FIXME needed by LuaSyncedTable (can be solved cleaner?)
+		lua_State* GetLuaState() const { return L; }
+
+		LuaShaders& GetShaders(const lua_State* L = NULL) { return GetLuaContextData(L)->shaders; }
+		LuaTextures& GetTextures(const lua_State* L = NULL) { return GetLuaContextData(L)->textures; }
+		LuaFBOs& GetFBOs(const lua_State* L = NULL) { return GetLuaContextData(L)->fbos; }
+		LuaRBOs& GetRBOs(const lua_State* L = NULL) { return GetLuaContextData(L)->rbos; }
+		CLuaDisplayLists& GetDisplayLists(const lua_State* L = NULL) { return GetLuaContextData(L)->displayLists; }
 
 	public: // call-ins
-		bool WantsEvent(const string& name)  {
-			BEGIN_ITERATE_LUA_STATES();
-			{
-				GML_DRCMUTEX_LOCK(lua); // WantsEvent
+		bool WantsEvent(const string& name) override { return HasCallIn(L, name); }
+		virtual bool HasCallIn(lua_State* L, const string& name);
+		virtual bool UpdateCallIn(lua_State* L, const string& name);
 
-				if (HasCallIn(L, name))
-					return true;
-			}
-			END_ITERATE_LUA_STATES();
-			return false;
-		}
+		void Load(IArchive* archive) override;
 
-		virtual bool HasCallIn(lua_State* L, const string& name) { return false; } // FIXME
-		virtual bool SyncedUpdateCallIn(lua_State* L, const string& name) { return false; }
-		virtual bool UnsyncedUpdateCallIn(lua_State* L, const string& name) { return false; }
+		void GamePreload() override;
+		void GameStart() override;
+		void GameOver(const std::vector<unsigned char>& winningAllyTeams) override;
+		void GamePaused(int playerID, bool paused) override;
+		void GameFrame(int frameNum) override;
+		void GameID(const unsigned char* gameID, unsigned int numBytes) override;
 
-		void Shutdown();
+		void TeamDied(int teamID) override;
+		void TeamChanged(int teamID) override;
+		void PlayerChanged(int playerID) override;
+		void PlayerAdded(int playerID) override;
+		void PlayerRemoved(int playerID, int reason) override;
 
-		void Load(IArchive* archive);
+		void UnitCreated(const CUnit* unit, const CUnit* builder) override;
+		void UnitFinished(const CUnit* unit) override;
+		void UnitFromFactory(const CUnit* unit, const CUnit* factory, bool userOrders) override;
+		void UnitReverseBuilt(const CUnit* unit) override;
+		void UnitDestroyed(const CUnit* unit, const CUnit* attacker) override;
+		void UnitTaken(const CUnit* unit, int oldTeam, int newTeam) override;
+		void UnitGiven(const CUnit* unit, int oldTeam, int newTeam) override;
 
-		void GamePreload();
-		void GameStart();
-		void GameOver(const std::vector<unsigned char>& winningAllyTeams);
-		void GamePaused(int playerID, bool paused);
-		void GameFrame(int frameNum);
-		void GameID(const unsigned char* gameID, unsigned int numBytes);
-
-		void TeamDied(int teamID);
-		void TeamChanged(int teamID);
-		void PlayerChanged(int playerID);
-		void PlayerAdded(int playerID);
-		void PlayerRemoved(int playerID, int reason);
-
-		void UnitCreated(const CUnit* unit, const CUnit* builder);
-		void UnitFinished(const CUnit* unit);
-		void UnitFromFactory(const CUnit* unit, const CUnit* factory,
-		                     bool userOrders);
-		void UnitDestroyed(const CUnit* unit, const CUnit* attacker);
-		void UnitTaken(const CUnit* unit, int oldTeam, int newTeam);
-		void UnitGiven(const CUnit* unit, int oldTeam, int newTeam);
-
-		void UnitIdle(const CUnit* unit);
-		void UnitCommand(const CUnit* unit, const Command& command);
-		void UnitCmdDone(const CUnit* unit, int cmdID, int cmdTag);
-		void UnitDamaged(const CUnit* unit, const CUnit* attacker,
-		                 float damage, int weaponID, bool paralyzer);
-		void UnitExperience(const CUnit* unit, float oldExperience);
+		void UnitIdle(const CUnit* unit) override;
+		void UnitCommand(const CUnit* unit, const Command& command) override;
+		void UnitCmdDone(const CUnit* unit, const Command& command) override;
+		void UnitDamaged(
+			const CUnit* unit,
+			const CUnit* attacker,
+			float damage,
+			int weaponDefID,
+			int projectileID,
+			bool paralyzer) override;
+		void UnitStunned(const CUnit* unit, bool stunned) override;
+		void UnitExperience(const CUnit* unit, float oldExperience) override;
+		void UnitHarvestStorageFull(const CUnit* unit) override;
 
 		void UnitSeismicPing(const CUnit* unit, int allyTeam,
-		                     const float3& pos, float strength);
-		void UnitEnteredRadar(const CUnit* unit, int allyTeam);
-		void UnitEnteredLos(const CUnit* unit, int allyTeam);
-		void UnitLeftRadar(const CUnit* unit, int allyTeam);
-		void UnitLeftLos(const CUnit* unit, int allyTeam);
+		                     const float3& pos, float strength) override;
+		void UnitEnteredRadar(const CUnit* unit, int allyTeam) override;
+		void UnitEnteredLos(const CUnit* unit, int allyTeam) override;
+		void UnitLeftRadar(const CUnit* unit, int allyTeam) override;
+		void UnitLeftLos(const CUnit* unit, int allyTeam) override;
 
-		void UnitEnteredWater(const CUnit* unit);
-		void UnitEnteredAir(const CUnit* unit);
-		void UnitLeftWater(const CUnit* unit);
-		void UnitLeftAir(const CUnit* unit);
+		void UnitEnteredWater(const CUnit* unit) override;
+		void UnitEnteredAir(const CUnit* unit) override;
+		void UnitLeftWater(const CUnit* unit) override;
+		void UnitLeftAir(const CUnit* unit) override;
 
-		void UnitLoaded(const CUnit* unit, const CUnit* transport);
-		void UnitUnloaded(const CUnit* unit, const CUnit* transport);
+		void UnitLoaded(const CUnit* unit, const CUnit* transport) override;
+		void UnitUnloaded(const CUnit* unit, const CUnit* transport) override;
 
-		void UnitCloaked(const CUnit* unit);
-		void UnitDecloaked(const CUnit* unit);
+		void UnitCloaked(const CUnit* unit) override;
+		void UnitDecloaked(const CUnit* unit) override;
 
-		void UnitUnitCollision(const CUnit* collider, const CUnit* collidee);
-		void UnitFeatureCollision(const CUnit* collider, const CFeature* collidee);
-		void UnitMoveFailed(const CUnit* unit);
+		void UnitUnitCollision(const CUnit* collider, const CUnit* collidee) override;
+		void UnitFeatureCollision(const CUnit* collider, const CFeature* collidee) override;
+		void UnitMoveFailed(const CUnit* unit) override;
 
-		void FeatureCreated(const CFeature* feature);
-		void FeatureDestroyed(const CFeature* feature);
+		void RenderUnitDestroyed(const CUnit* unit) override;
 
-		void ProjectileCreated(const CProjectile* p);
-		void ProjectileDestroyed(const CProjectile* p);
+		void FeatureCreated(const CFeature* feature) override;
+		void FeatureDestroyed(const CFeature* feature) override;
+		void FeatureDamaged(
+			const CFeature* feature,
+			const CUnit* attacker,
+			float damage,
+			int weaponDefID,
+			int projectileID) override;
 
-		bool Explosion(int weaponID, const float3& pos, const CUnit* owner);
+		void ProjectileCreated(const CProjectile* p) override;
+		void ProjectileDestroyed(const CProjectile* p) override;
+
+		bool Explosion(int weaponID, int projectileID, const float3& pos, const CUnit* owner) override;
 
 		void StockpileChanged(const CUnit* owner,
-		                      const CWeapon* weapon, int oldCount);
+		                      const CWeapon* weapon, int oldCount) override;
 
-		// LuaHandleSynced wraps this to set allowChanges
-		virtual bool RecvLuaMsg(const string& msg, int playerID);
+		void Save(zipFile archive) override;
 
-		void Save(zipFile archive);
+		void UnsyncedHeightMapUpdate(const SRectangle& rect) override;
+		void Update() override;
 
-		void UnsyncedHeightMapUpdate(const SRectangle& rect);
-		void Update();
+		bool KeyPress(int key, bool isRepeat) override;
+		bool KeyRelease(int key) override;
+		bool TextInput(const std::string& utf8) override;
+		bool MouseMove(int x, int y, int dx, int dy, int button) override;
+		bool MousePress(int x, int y, int button) override;
+		void MouseRelease(int x, int y, int button) override;
+		bool MouseWheel(bool up, float value) override;
+		bool JoystickEvent(const std::string& event, int val1, int val2) override;
+		bool IsAbove(int x, int y) override;
+		string GetTooltip(int x, int y) override;
 
-		bool KeyPress(unsigned short key, bool isRepeat);
-		bool KeyRelease(unsigned short key);
-		bool MouseMove(int x, int y, int dx, int dy, int button);
-		bool MousePress(int x, int y, int button);
-		int  MouseRelease(int x, int y, int button); // return a cmd index, or -1
-		bool MouseWheel(bool up, float value);
-		bool JoystickEvent(const std::string& event, int val1, int val2);
-		bool IsAbove(int x, int y);
-		string GetTooltip(int x, int y);
+		bool DefaultCommand(const CUnit* unit, const CFeature* feature, int& cmd) override;
 
-		bool DefaultCommand(const CUnit* unit, const CFeature* feature, int& cmd);
+		bool CommandNotify(const Command& cmd) override;
 
-		bool ConfigCommand(const string& command);
+		bool AddConsoleLine(const string& msg, const string& section, int level) override;
 
-		bool CommandNotify(const Command& cmd);
-
-		bool AddConsoleLine(const string& msg, const string& section, int level);
-
-		bool GroupChanged(int groupID);
+		bool GroupChanged(int groupID) override;
 
 		bool GameSetup(const string& state, bool& ready,
-		               const map<int, string>& playerStates);
+		               const map<int, string>& playerStates) override;
 
 		const char* RecvSkirmishAIMessage(int aiID, const char* data, int inSize);
 
 		string WorldTooltip(const CUnit* unit,
 		                    const CFeature* feature,
-		                    const float3* groundPos);
+		                    const float3* groundPos) override;
 
 		bool MapDrawCmd(int playerID, int type,
 		                const float3* pos0,
 		                const float3* pos1,
-		                const string* labe);
+		                const string* labe) override;
 
-		void ViewResize();
+		void ViewResize() override;
 
-		void DrawGenesis();
-		void DrawWorld();
-		void DrawWorldPreUnit();
-		void DrawWorldShadow();
-		void DrawWorldReflection();
-		void DrawWorldRefraction();
-		void DrawScreenEffects();
-		void DrawScreen();
-		void DrawInMiniMap();
+		void DrawGenesis() override;
+		void DrawWorld() override;
+		void DrawWorldPreUnit() override;
+		void DrawWorldShadow() override;
+		void DrawWorldReflection() override;
+		void DrawWorldRefraction() override;
+		void DrawGroundPreForward() override;
+		void DrawGroundPreDeferred() override;
+		void DrawGroundPostDeferred() override;
+		void DrawUnitsPostDeferred() override;
+		void DrawFeaturesPostDeferred() override;
+		void DrawScreenEffects() override;
+		void DrawScreen() override;
+		void DrawInMiniMap() override;
+		void DrawInMiniMapBackground() override;
 
-		void GameProgress(int frameNum);
+		void GameProgress(int frameNum) override;
+		//FIXME void MetalMapChanged(const int x, const int z);
+
+		void CollectGarbage() override;
+
+		void DownloadQueued(int ID, const string& archiveName, const string& archiveType) override;
+		void DownloadStarted(int ID) override;
+		void DownloadFinished(int ID) override;
+		void DownloadFailed(int ID, int errorID) override;
+		void DownloadProgress(int ID, long downloaded, long total) override;
+
+	public: // Non-eventhandler call-ins
+		void Shutdown();
+		bool GotChatMsg(const string& msg, int playerID);
+		bool RecvLuaMsg(const string& msg, int playerID);
 
 	public: // custom call-in  (inter-script calls)
-		virtual bool HasSyncedXCall(const string& funcName) { return false; }
-		virtual bool HasUnsyncedXCall(lua_State* srcState, const string& funcName) { return false; }
-		virtual int SyncedXCall(lua_State* srcState, const string& funcName) {
-			return 0;
-		}
-		virtual int UnsyncedXCall(lua_State* srcState, const string& funcName) {
-			return 0;
-		}
-
-		struct DelayDataDump {
-			std::vector<LuaUtils::ShallowDataDump> data;
-			std::vector<LuaUtils::DataDump> dump;
-			bool xcall;
-		};
-
-		/// @return true if any calls were processed, false otherwise
-		bool ExecuteCallsFromSynced(bool forced = true);
-		virtual void RecvFromSynced(lua_State* srcState, int args);
-		void RecvFromSim(int args);
-		void DelayRecvFromSynced(lua_State* srcState, int args);
-		std::vector<DelayDataDump> delayedCallsFromSynced;
-		static int SendToUnsynced(lua_State* L);
-
-		void UpdateThreading();
+		bool HasXCall(const string& funcName) { return HasCallIn(L, funcName); }
+		int XCall(lua_State* srcState, const string& funcName);
 
 	protected:
-		CLuaHandle(const string& name, int order, bool userMode);
+		CLuaHandle(const string& name, int order, bool userMode, bool synced);
 		virtual ~CLuaHandle();
 
-		void KillLua();
+		void KillLua(bool inFreeHandler = false);
+
+		static void PushTracebackFuncToRegistry(lua_State* L);
 
 		bool AddBasicCalls(lua_State* L);
 		bool LoadCode(lua_State* L, const string& code, const string& debug);
-		bool AddEntriesToTable(lua_State* L, const char* name, bool (*entriesFunc)(lua_State*));
+		static bool AddEntriesToTable(lua_State* L, const char* name, bool (*entriesFunc)(lua_State*));
 
-		/// returns stack index of traceback function
-		int SetupTraceback(lua_State* L);
 		/// returns error code and sets traceback on error
-		int  RunCallInTraceback(int inArgs, int outArgs, int errfuncIndex, std::string& traceback);
+		int  RunCallInTraceback(lua_State* L, const LuaHashString* hs, int inArgs, int outArgs, int errFuncIndex, std::string& tracebackMsg, bool popErrFunc);
 		/// returns false and prints message to log on error
-		bool RunCallInTraceback(const LuaHashString& hs, int inArgs, int outArgs, int errfuncIndex);
-		/// returns error code and sets errormessage on error
-		int  RunCallIn(int inArgs, int outArgs, std::string& errormessage);
+		bool RunCallInTraceback(lua_State* L, const LuaHashString& hs, int inArgs, int outArgs, int errFuncIndex, bool popErrFunc = true);
+		/// returns false and and sets errormessage on error
+		bool RunCallIn(lua_State* L, int inArgs, int outArgs, std::string& errormessage);
 		/// returns false and prints message to log on error
-		bool RunCallIn(const LuaHashString& hs, int inArgs, int outArgs);
-		bool RunCallInUnsynced(const LuaHashString& hs, int inArgs, int outArgs);
+		bool RunCallIn(lua_State* L, const LuaHashString& hs, int inArgs, int outArgs);
 
 		void LosCallIn(const LuaHashString& hs, const CUnit* unit, int allyTeam);
 		void UnitCallIn(const LuaHashString& hs, const CUnit* unit);
-		bool PushUnsyncedCallIn(lua_State* L, const LuaHashString& hs);
 
-	protected:
-		// MT stuff
-
-		bool singleState;
-		// LUA_MT_OPT inserted below mainly so that compiler can optimize code
-		bool SingleState() const { return !(LUA_MT_OPT & LUA_STATE) || singleState; } // Is this handle using a single Lua state?
-		bool copyExportTable;
-		bool CopyExportTable() const { return (LUA_MT_OPT & LUA_STATE) && copyExportTable; } // Copy the table _G.EXPORT --> SYNCED.EXPORT between dual states?
-		static bool useDualStates;
-		static bool UseDualStates() { return (LUA_MT_OPT & LUA_STATE) && useDualStates; } // Is Lua handle splitting enabled (globally)?
-		bool useEventBatch;
-		bool UseEventBatch() const { return (LUA_MT_OPT & LUA_BATCH) && useEventBatch; } // Use event batch to forward "synced" luaui events into draw thread?
-		bool purgeCallsFromSyncedBatch;
-		bool PurgeCallsFromSyncedBatch() const { return (LUA_MT_OPT & LUA_STATE) && purgeCallsFromSyncedBatch; } // Automatically clean deleted objects/IDs from the SendToUnsynced/XCall batch
-
-		lua_State* ForceUnsyncedState() { lua_State* L_Prev = L_Sim; if (!SingleState() && Threading::IsSimThread()) L_Sim = L_Draw; return L_Prev; }
-		void RestoreState(lua_State* L_Prev) { if (!SingleState() && Threading::IsSimThread()) L_Sim = L_Prev; }
-
-		lua_State* GetActiveState() {
-			return (SingleState() || Threading::IsSimThread()) ? L_Sim : L_Draw;
-		}
-		const lua_State* GetActiveState() const {
-			return (SingleState() || Threading::IsSimThread()) ? L_Sim : L_Draw;
-		}
-
-		bool IsValid() const { return (L_Sim != NULL) && (L_Draw != NULL); }
+		void RunDrawCallIn(const LuaHashString& hs);
 
 	protected:
 		bool userMode;
-		
-		lua_State* L_Sim;
-		lua_State* L_Draw;
+		bool killMe; // set for handles that fail to RunCallIn
 
-		luaContextData D_Sim;
-		luaContextData D_Draw;
+		lua_State* L;
+		lua_State* L_GC;
+		luaContextData D;
 
-		bool killMe;
 		string killMsg;
-
-		bool printTracebacks;
 
 		vector<bool> watchUnitDefs;
 		vector<bool> watchFeatureDefs;
@@ -372,7 +298,7 @@ class CLuaHandle : public CEventClient
 
 		int callinErrors;
 
-	protected: // call-outs
+	private: // call-outs
 		static int KillActiveHandle(lua_State* L);
 		static int CallOutGetName(lua_State* L);
 		static int CallOutGetSynced(lua_State* L);
@@ -385,17 +311,15 @@ class CLuaHandle : public CEventClient
 		static int CallOutGetGlobal(lua_State* L);
 		static int CallOutGetRegistry(lua_State* L);
 		static int CallOutGetCallInList(lua_State* L);
-		static int CallOutSyncedUpdateCallIn(lua_State* L);
-		static int CallOutUnsyncedUpdateCallIn(lua_State* L);
+		static int CallOutUpdateCallIn(lua_State* L);
+		static int CallOutIsEngineMinVersion(lua_State* L);
 
 	public: // static
-//FIXME		static LuaArrays& GetActiveArrays(lua_State* L)   { return GET_HANDLE_CONTEXT_DATA(arrays); }
-		static inline LuaShaders& GetActiveShaders(lua_State* L)  { return GET_HANDLE_CONTEXT_DATA(shaders); }
-		static inline LuaTextures& GetActiveTextures(lua_State* L) { return GET_HANDLE_CONTEXT_DATA(textures); }
-//FIXME		static LuaVBOs& GetActiveVBOs(lua_State* L)     { return GET_HANDLE_CONTEXT_DATA(vbos); }
-		static inline LuaFBOs& GetActiveFBOs(lua_State* L) { return GET_HANDLE_CONTEXT_DATA(fbos); }
-		static inline LuaRBOs& GetActiveRBOs(lua_State* L)     { return GET_HANDLE_CONTEXT_DATA(rbos); }
-		static inline CLuaDisplayLists& GetActiveDisplayLists(lua_State* L) { return GET_HANDLE_CONTEXT_DATA(displayLists); }
+		static inline LuaShaders& GetActiveShaders(lua_State* L) { return GetLuaContextData(L)->shaders; }
+		static inline LuaTextures& GetActiveTextures(lua_State* L) { return GetLuaContextData(L)->textures; }
+		static inline LuaFBOs& GetActiveFBOs(lua_State* L) { return GetLuaContextData(L)->fbos; }
+		static inline LuaRBOs& GetActiveRBOs(lua_State* L) { return GetLuaContextData(L)->rbos; }
+		static inline CLuaDisplayLists& GetActiveDisplayLists(lua_State* L) { return GetLuaContextData(L)->displayLists; }
 
 		static void SetDevMode(bool value) { devMode = value; }
 		static bool GetDevMode() { return devMode; }
@@ -403,48 +327,30 @@ class CLuaHandle : public CEventClient
 		static void SetModUICtrl(bool value) { modUICtrl = value; }
 		static bool GetModUICtrl() { return modUICtrl; }
 
-		static void HandleLuaMsg(int playerID, int script, int mode,
-			const std::vector<boost::uint8_t>& msg);
-		static bool IsDrawCallIn() {
-			return (LUA_MT_OPT & LUA_MUTEX) && !Threading::IsSimThread();
-		}
-		void ExecuteUnitEventBatch();
-		void ExecuteFeatEventBatch();
-		void ExecuteObjEventBatch();
-		void ExecuteProjEventBatch();
-		void ExecuteFrameEventBatch();
-		void ExecuteLogEventBatch();
+		static void HandleLuaMsg(int playerID, int script, int mode, const std::vector<boost::uint8_t>& msg);
 
 	protected: // static
 		static bool devMode; // allows real file access
 		static bool modUICtrl; // allows non-user scripts to use UI controls
 
-		std::vector<LuaUnitEvent> luaUnitEventBatch;
-		std::vector<LuaFeatEvent> luaFeatEventBatch;
-		std::vector<LuaObjEvent> luaObjEventBatch;
-		std::vector<LuaProjEvent> luaProjEventBatch;
-		std::vector<int> luaFrameEventBatch;
-		std::vector<LuaLogEvent> luaLogEventBatch;
-
 		// FIXME: because CLuaUnitScript needs to access RunCallIn
 		friend class CLuaUnitScript;
+
+		// FIXME needs access to L & RunCallIn
+		friend class CLuaRules;
 };
 
 
-inline bool CLuaHandle::RunCallIn(const LuaHashString& hs, int inArgs, int outArgs)
+inline bool CLuaHandle::RunCallIn(lua_State* L, const LuaHashString& hs, int inArgs, int outArgs)
 {
-	return RunCallInTraceback(hs, inArgs, outArgs, 0);
+	return RunCallInTraceback(L, hs, inArgs, outArgs, 0, false);
 }
 
 
-inline bool CLuaHandle::RunCallInUnsynced(const LuaHashString& hs, int inArgs, int outArgs)
+inline bool CLuaHandle::RunCallIn(lua_State* L, int inArgs, int outArgs, std::string& errorMsg)
 {
-	SetSynced(false);
-	const bool retval = RunCallIn(hs, inArgs, outArgs);
-	SetSynced(!userMode);
-	return retval;
+	return RunCallInTraceback(L, NULL, inArgs, outArgs, 0, errorMsg, false);
 }
-
 
 
 /******************************************************************************/

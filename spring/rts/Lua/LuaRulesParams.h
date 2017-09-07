@@ -4,8 +4,7 @@
 #define LUA_RULESPARAMS_H
 
 #include <string>
-#include <vector>
-#include <map>
+#include <unordered_map>
 #include "System/creg/creg_cond.h"
 
 namespace LuaRulesParams
@@ -26,16 +25,16 @@ namespace LuaRulesParams
 	};
 
 	struct Param {
-		CR_DECLARE(Param);
+		CR_DECLARE_STRUCT(Param)
 
-		Param() : value(0.0f),los(RULESPARAMLOS_PRIVATE) {};
+		Param() : los(RULESPARAMLOS_PRIVATE),valueInt(0.0f) {};
 
-		float value;
 		int   los;
+		float valueInt;
+		std::string valueString;
 	};
 
-	typedef std::vector<Param>         Params;
-	typedef std::map<std::string, int> HashMap;
+	typedef std::unordered_map<std::string, Param> Params;
 }
 
 #endif // LUA_RULESPARAMS_H

@@ -7,25 +7,20 @@
 
 #include <string>
 #include <vector>
-#include <list>
 
-#include "System/Object.h"
 #include "Rendering/Models/3DModel.h"
+#include "System/creg/creg_cond.h"
 
 
 class CUnit;
 class CPlasmaRepulser;
 
-
-class CUnitScript : public CObject
+class CUnitScript
 {
+	CR_DECLARE(CUnitScript)
+	CR_DECLARE_SUB(AnimInfo)
 public:
 	enum AnimType {ANone = -1, ATurn = 0, ASpin = 1, AMove = 2};
-
-	struct IAnimListener {
-		virtual ~IAnimListener() {}
-		virtual void AnimFinished(AnimType type, int piece, int axis) = 0;
-	};
 
 public:
 	static const int UNIT_VAR_COUNT   = 8;
@@ -43,96 +38,80 @@ public:
 	static const int ALLY_VAR_END   = ALLY_VAR_START   + ALLY_VAR_COUNT   - 1;
 	static const int GLOBAL_VAR_END = GLOBAL_VAR_START + GLOBAL_VAR_COUNT - 1;
 
-	static void InitVars(int numTeams, int numAllyTeams);
-
-public:
-	static const int* GetTeamVars(int team) { return &teamVars[team][0]; }
-	static const int* GetAllyVars(int ally) { return &allyVars[ally][0]; }
-	static const int* GetGlobalVars()       { return globalVars; }
-
-	const int* GetUnitVars() const { return unitVars; };
-protected:
-	static std::vector< std::vector<int> > teamVars;
-	static std::vector< std::vector<int> > allyVars;
-	static int globalVars[GLOBAL_VAR_COUNT];
-
-	int unitVars[UNIT_VAR_COUNT];
-
 protected:
 	CUnit* unit;
-	bool yardOpen;
 	bool busy;
 
 	struct AnimInfo {
-		AnimType type;
+		CR_DECLARE_STRUCT(AnimInfo)
 		int axis;
 		int piece;
 		float speed;
 		float dest;     // means final position when turning or moving, final speed when spinning
 		float accel;    // used for spinning, can be negative
 		bool done;
-		std::list<IAnimListener*> listeners;
+		bool hasWaiting;
 	};
 
-	std::list<AnimInfo*> anims[AMove + 1];
+	typedef std::vector<AnimInfo> AnimContainerType;
+	typedef AnimContainerType::iterator AnimContainerTypeIt;
+
+	AnimContainerType anims[AMove + 1];
 
 	bool hasSetSFXOccupy;
 	bool hasRockUnit;
 	bool hasStartBuilding;
 
-	void UnblockAll(AnimInfo* anim);
+	bool MoveToward(float& cur, float dest, float speed);
+	bool TurnToward(float& cur, float dest, float speed);
+	bool DoSpin(float& cur, float dest, float& speed, float accel, int divisor);
 
-	bool MoveToward(float &cur, float dest, float speed);
-	bool TurnToward(float &cur, float dest, float speed);
-	bool DoSpin(float &cur, float dest, float &speed, float accel, int divisor);
-
-	std::list<AnimInfo*>::iterator FindAnim(AnimType anim, int piece, int axis);
-	void RemoveAnim(AnimType type, const std::list<AnimInfo*>::iterator& animInfoIt);
+	AnimContainerTypeIt FindAnim(AnimType type, int piece, int axis);
+	void RemoveAnim(AnimType type, const AnimContainerTypeIt& animInfoIt);
 	void AddAnim(AnimType type, int piece, int axis, float speed, float dest, float accel);
 
 	virtual void ShowScriptError(const std::string& msg) = 0;
 
+	void ShowUnitScriptError(const std::string& msg);
+
 public:
 	// subclass is responsible for populating this with script pieces
-	const std::vector<LocalModelPiece*>& pieces;
+	std::vector<LocalModelPiece*> pieces;
 
-	LocalModelPiece* GetLocalModelPiece(int scriptnum) const {
-		if (scriptnum >= 0 && (size_t)scriptnum < pieces.size()) {
-			return pieces[scriptnum];
-		}else{
-			return NULL;
-		}
-	};
+	bool PieceExists(unsigned int scriptPieceNum) const {
+		// NOTE: there can be NULL pieces present from the remapping in CobInstance
+		return ((scriptPieceNum < pieces.size()) && (pieces[scriptPieceNum] != NULL));
+	}
 
-	int ScriptToModel(int scriptnum) const;
+	LocalModelPiece* GetScriptLocalModelPiece(unsigned int scriptPieceNum) const {
+		assert(PieceExists(scriptPieceNum));
+		return pieces[scriptPieceNum];
+	}
 
-	bool PieceExists(int scriptnum) const {
-		return GetLocalModelPiece(scriptnum) != NULL;
-	};
+	int ScriptToModel(int scriptPieceNum) const;
+	int ModelToScript(int lmodelPieceNum) const;
 
-#define SCRIPT_TO_LOCALPIECE_FUNC(x,y,z,w) \
-	x y(int scriptnum) const { \
-		LocalModelPiece* p = GetLocalModelPiece(scriptnum); \
-		if (p != NULL) return p->z(); \
-		return w; \
-	};
+#define SCRIPT_TO_LOCALPIECE_FUNC(x, y, z, w)                          \
+	x y(int scriptPieceNum) const {                                    \
+		if (!PieceExists(scriptPieceNum))                              \
+			return w;                                                  \
+		LocalModelPiece* p = GetScriptLocalModelPiece(scriptPieceNum); \
+		return (p->z());                                               \
+	}
 
-	SCRIPT_TO_LOCALPIECE_FUNC(float3,     GetPiecePos,       GetAbsolutePos, float3(0.0f,0.0f,0.0f))
-	SCRIPT_TO_LOCALPIECE_FUNC(CMatrix44f, GetPieceMatrix,    GetMatrix,      CMatrix44f())
-	SCRIPT_TO_LOCALPIECE_FUNC(float3,     GetPieceDirection, GetDirection,   float3(1.0f,1.0f,1.0f))
-	//SCRIPT_TO_LOCALPIECE_FUNC(int,        GetPieceVertCount, GetVertCount, 0)
+	SCRIPT_TO_LOCALPIECE_FUNC(float3,     GetPiecePos,       GetAbsolutePos,      float3(0.0f,0.0f,0.0f))
+	SCRIPT_TO_LOCALPIECE_FUNC(CMatrix44f, GetPieceMatrix,    GetModelSpaceMatrix,           CMatrix44f())
 
-	bool GetEmitDirPos(int scriptnum, float3 &pos, float3 &dir) const {
-		LocalModelPiece* p = GetLocalModelPiece(scriptnum);
-		if (p != NULL) {
-			return p->GetEmitDirPos(pos, dir);
-		} else {
+	bool GetEmitDirPos(int scriptPieceNum, float3& pos, float3& dir) const {
+		if (!PieceExists(scriptPieceNum))
 			return true;
-		}
-	};
+
+		LocalModelPiece* p = GetScriptLocalModelPiece(scriptPieceNum);
+		return (p->GetEmitDirPos(pos, dir));
+	}
 
 public:
-	CUnitScript(CUnit* unit, const std::vector<LocalModelPiece*>& pieces);
+	CUnitScript(CUnit* unit);
 	virtual ~CUnitScript();
 
 	bool IsBusy() const { return busy; }
@@ -141,7 +120,7 @@ public:
 	const CUnit* GetUnit() const { return unit; }
 
 	bool Tick(int deltaTime);
-	void TickAnims(int deltaTime, AnimType type, std::list< std::list<AnimInfo*>::iterator >& doneAnims);
+	void TickAnims(int deltaTime, AnimType type, std::vector<AnimInfo>& doneAnims);
 
 	// animation, used by CCobThread
 	void Spin(int piece, int axis, float speed, float accel);
@@ -151,7 +130,7 @@ public:
 	void MoveNow(int piece, int axis, float destination);
 	void TurnNow(int piece, int axis, float destination);
 
-	bool AddAnimListener(AnimType type, int piece, int axis, IAnimListener* listener);
+	bool NeedsWait(AnimType type, int piece, int axis);
 
 	// misc, used by CCobThread and callouts for Lua unitscripts
 	void SetVisibility(int piece, bool visible);
@@ -175,6 +154,7 @@ public:
 	bool HasSetSFXOccupy () const { return hasSetSFXOccupy; }
 	bool HasRockUnit     () const { return hasRockUnit; }
 	bool HasStartBuilding() const { return hasStartBuilding; }
+
 	virtual bool HasBlockShot   (int weaponNum) const { return false; }
 	virtual bool HasTargetWeight(int weaponNum) const { return false; }
 
@@ -185,8 +165,10 @@ public:
 	virtual void Killed() = 0;
 	virtual void WindChanged(float heading, float speed) = 0;
 	virtual void ExtractionRateChanged(float speed) = 0;
+	virtual void WorldRockUnit(const float3& rockDir) = 0;
 	virtual void RockUnit(const float3& rockDir) = 0;
-	virtual void HitByWeapon(const float3& hitDir, int weaponDefId, float& inout_damage) = 0;
+	virtual void WorldHitByWeapon(const float3& hitDir, int weaponDefId, float& inoutDamage) = 0;
+	virtual void HitByWeapon(const float3& hitDir, int weaponDefId, float& inoutDamage) = 0;
 	virtual void SetSFXOccupy(int curTerrainType) = 0;
 	// doubles as QueryLandingPadCount and QueryLandingPad
 	// in COB, the first one determines the number of arguments to the second one
@@ -201,7 +183,7 @@ public:
 	virtual int  QueryBuildInfo() = 0; // returns piece
 
 	virtual void Destroy() = 0;
-	virtual void StartMoving() = 0;
+	virtual void StartMoving(bool reversing) = 0;
 	virtual void StopMoving() = 0;
 	virtual void StartUnload() = 0;
 	virtual void EndTransport() = 0;
@@ -223,10 +205,7 @@ public:
 	virtual void  Shot(int weaponNum) = 0;
 	virtual bool  BlockShot(int weaponNum, const CUnit* targetUnit, bool userTarget) = 0; // returns whether shot should be blocked
 	virtual float TargetWeight(int weaponNum, const CUnit* targetUnit) = 0; // returns target weight
-
-	// not necessary for normal operation, useful to measure callin speed
-	static void BenchmarkScript(CUnitScript* script);
-	static void BenchmarkScript(const std::string& unitname);
+	virtual void AnimFinished(AnimType type, int piece, int axis) = 0;
 };
 
 #endif // UNIT_SCRIPT_H

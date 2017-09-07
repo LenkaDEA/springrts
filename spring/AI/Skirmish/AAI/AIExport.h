@@ -18,8 +18,8 @@
 	@author Robin Vobruba <hoijui.quaero@gmail.com>
 */
 
-#ifndef _AIEXPORT_H
-#define _AIEXPORT_H
+#ifndef AAI_AIEXPORT_H
+#define AAI_AIEXPORT_H
 
 // check if the correct defines are set by the build system
 #if !defined BUILDING_SKIRMISH_AI
@@ -45,11 +45,11 @@ struct SSkirmishAICallback;
 // see struct SSkirmishAILibrary in "ExternalAI/Interface/SSkirmishAILibrary.h"
 
 // static AI library methods (optional to implement)
-EXPORT(enum LevelOfSupport) getLevelOfSupportFor(
+/*EXPORT(enum LevelOfSupport) getLevelOfSupportFor(
 		const char* aiShortName, const char* aiVersion,
 		const char* engineVersionString, int engineVersionNumber,
 		const char* aiInterfaceShortName, const char* aiInterfaceVersion);
-
+*/
 // instance functions
 EXPORT(int) init(int skirmishAIId, const struct SSkirmishAICallback* callback);
 EXPORT(int) release(int skirmishAIId);
@@ -59,3 +59,4 @@ EXPORT(int) handleEvent(int skirmishAIId, int topic, const void* data);
 const char* aiexport_getVersion();
 
 #endif // _AIEXPORT_H
+

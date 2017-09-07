@@ -10,22 +10,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 SET(ENGINE_SRC_ROOT_DIR "${CMAKE_SOURCE_DIR}/rts")
 
 
-### Assemble defines
-SET(USE_MMGR FALSE CACHE BOOL "Use memory manager?")
-if (USE_MMGR)
-	ADD_DEFINITIONS(-DUSE_MMGR)
-endif (USE_MMGR)
-
-SET(TRACE_SYNC FALSE CACHE BOOL "Enable sync tracker")
+option(TRACE_SYNC "Enable sync tracker" FALSE)
 if (TRACE_SYNC)
 	ADD_DEFINITIONS(-DTRACE_SYNC)
 endif (TRACE_SYNC)
 
-SET(SYNCDEBUG FALSE CACHE BOOL "Enable sync debugger (needs SYNCCHECK=true)")
+option(SYNCDEBUG "Enable sync debugger (needs SYNCCHECK=true)" FALSE)
 if (SYNCDEBUG)
 	ADD_DEFINITIONS(-DSYNCDEBUG)
-	If     (NOT "${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG2" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG3")
-		Message(FATAL_ERROR "You need CMAKE_BUILD_TYPE set to either DEBUG2 or DEBUG3 for a SYNCDEBUG build")
+	If     (NOT "${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
+		Message(WARNING "It is recommended to set CMAKE_BUILD_TYPE to DEBUG for a SYNCDEBUG build")
 	EndIf  ()
 	If     (NOT SYNCCHECK)
 		Message(FATAL_ERROR "You need SYNCCHECK=TRUE for a SYNCDEBUG build")
@@ -35,17 +29,20 @@ if (SYNCDEBUG)
 	EndIf  ()
 endif (SYNCDEBUG)
 
-# Only used by GML build, but used in builds/GML and lib/gml
-SET(USE_GML_DEBUG FALSE CACHE BOOL "Use GML call debugging?")
+option(DEBUG_GLSTATE "enable GL_STATE_CHECKER" FALSE)
+if(DEBUG_GLSTATE)
+	add_definitions(-DDEBUG_GLSTATE)
+endif()
 
-
+### give error when not found
+FIND_PACKAGE_STATIC(DevIL REQUIRED)
 
 ### Assemble common incude dirs
 INCLUDE_DIRECTORIES(BEFORE lib/lua/include)
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include/AL)
 INCLUDE_DIRECTORIES(${SPRING_MINIZIP_INCLUDE_DIR})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
-INCLUDE_DIRECTORIES(${DEVIL_INCLUDE_DIR})
+INCLUDE_DIRECTORIES(${IL_INCLUDE_DIR})
 
 ### Assemble common libraries
 Add_Subdirectory(System/Sound)
@@ -54,24 +51,65 @@ if    (NO_SOUND)
 endif (NO_SOUND)
 
 ### Find include directories and add platform specific libraries
-LIST(APPEND engineCommonLibraries ${DEVIL_IL_LIBRARY} ${JPEG_LIBRARY} ${TIFF_LIBRARY} ${PNG_LIBRARY})
-LIST(APPEND engineCommonLibraries ${Boost_REGEX_LIBRARY} ${Boost_THREAD_LIBRARY} ${Boost_PROGRAM_OPTIONS_LIBRARY} ${Boost_SYSTEM_LIBRARY} ${Boost_SIGNALS_LIBRARY})
-LIST(APPEND engineCommonLibraries lua luasocket 7zip oscpack ${SPRING_MINIZIP_LIBRARY} streflop lobby assimp)
+IF    (UNIX AND NOT MINGW)
+	IF    (PREFER_STATIC_LIBS)
+		PREFER_STATIC_LIBS()
+		FIND_LIBRARY(C_LIBRARY c)
+		FIND_LIBRARY(MATH_LIBRARY m)
+		#FIND_LIBRARY(PTHREAD_LIBRARY pthread)
+		#FIND_LIBRARY(OMP_LIBRARY gomp) FIXME it's hidden in some subfolders
+		UNPREFER_STATIC_LIBS()
 
-IF    (PREFER_STATIC_LIBS)
-	# dependency of minizip
-	FIND_PACKAGE_STATIC(ZLIB REQUIRED)
-	LIST(APPEND engineCommonLibraries ${ZLIB_LIBRARY})
-ENDIF (PREFER_STATIC_LIBS)
+		LIST(APPEND engineCommonLibraries ${C_LIBRARY} ${MATH_LIBRARY})
+		#LIST(APPEND engineCommonLibraries ${PTHREAD_LIBRARY} ${OMP_LIBRARY})
+	ENDIF (PREFER_STATIC_LIBS)
 
-IF    (UNIX)
 	# Needed for dynamically loading shared libraries (on some OS)
-	LIST(APPEND engineCommonLibraries dl)
-ENDIF (UNIX)
+	LIST(APPEND engineCommonLibraries ${CMAKE_DL_LIBS})
 
-IF (MINGW)
-	LIST(APPEND engineCommonLibraries ${WIN32_LIBRARIES} mingw32)
-ENDIF (MINGW)
+	# Needed for backtrace* on some systems
+	IF(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+		LIST(APPEND engineCommonLibraries execinfo)
+	ENDIF(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+ENDIF (UNIX AND NOT MINGW)
+
+FIND_PACKAGE_STATIC(ZLIB REQUIRED)
+LIST(APPEND engineCommonLibraries ${IL_LIBRARIES} ${JPEG_LIBRARY} ${PNG_LIBRARY} ${TIFF_LIBRARY} ${GIF_LIBRARY})
+LIST(APPEND engineCommonLibraries ${Boost_REGEX_LIBRARY} ${Boost_PROGRAM_OPTIONS_LIBRARY} ${Boost_SIGNALS_LIBRARY})
+LIST(APPEND engineCommonLibraries ${Boost_SYSTEM_LIBRARY} ${Boost_CHRONO_LIBRARY_WITH_RT} ${Boost_FILESYSTEM_LIBRARY})
+LIST(APPEND engineCommonLibraries 7zip ${SPRING_MINIZIP_LIBRARY} ${ZLIB_LIBRARY})
+LIST(APPEND engineCommonLibraries lua luasocket archives streflop assimp)
+include_directories(${ZLIB_INCLUDE_DIR})
+
+IF (WIN32)
+	LIST(APPEND engineCommonLibraries ${WIN32_LIBRARIES})
+ENDIF (WIN32)
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+	#tcmalloc on freebsd is broken, default disable it (#4754)
+	set(USE_TCMALLOC_DEFAULT FALSE)
+else()
+	set(USE_TCMALLOC_DEFAULT TRUE)
+endif()
+
+FIND_PACKAGE_STATIC(TCMalloc)
+option(USE_TCMALLOC "use tcmalloc (part of google's perftools)" ${USE_TCMALLOC_DEFAULT})
+if    (USE_TCMALLOC AND TCMALLOC_LIBRARY)
+	MESSAGE(STATUS "Using tcmalloc")
+	LIST(APPEND engineCommonLibraries ${TCMALLOC_LIBRARY})
+endif (USE_TCMALLOC AND TCMALLOC_LIBRARY)
+
+
+if(UNIX)
+	FIND_PACKAGE_STATIC(Libunwind REQUIRED)
+	LIST(APPEND engineCommonLibraries ${LIBUNWIND_LIBRARIES})
+	if(LIBUNWIND_FOUND)
+		message(STATUS "Found libunwind libraries at ${LIBUNWIND_LIBRARIES}")
+	else()
+		message(FATAL_ERROR "Couldn't find libunwind")
+	endif()
+endif()
+
 
 
 ### Assemble engine sources
@@ -82,24 +120,23 @@ Add_Subdirectory(Rendering)
 Add_Subdirectory(aGui)
 Add_Subdirectory(Menu)
 Add_Subdirectory(Map)
+Add_Subdirectory(Net)
 Add_Subdirectory(Sim)
 #Add_Subdirectory(System) # this is already added in ../
 
-SET(engineSources
+MakeGlobalVar(engineSources
 		${sources_engine_Game}
+		${sources_engine_Net}
 		${sources_engine_Lua}
 		${sources_engine_Map}
 		${sources_engine_Rendering}
-		${sources_engine_aGui}
 		${sources_engine_Menu}
-		${sources_engine_Sim}
 		${sources_engine_System}
 		${sources_engine_ExternalAI}
-		${nedmalloc_obj} # TODO remove? (seems never to be set)
 	)
 
 ### Add headers for generated project files (e.g. Code::Blocks)
-file(GLOB_RECURSE engineHeaders "*.h" "*.hpp")
+file(GLOB_RECURSE engineHeaders "*.h" "*.hpp" "*.inl")
 
 
 Add_Subdirectory(builds)

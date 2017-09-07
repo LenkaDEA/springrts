@@ -5,7 +5,13 @@
 
 #include "System/Exceptions.h"
 #include "System/maindefines.h"
+#include "System/Log/ILog.h"
 #include "System/Platform/errorhandler.h"
+#include "System/Platform/Threading.h"
+#include <boost/thread.hpp>
+
+
+static PFNGLACTIVETEXTUREPROC mainGlActiveTexture = NULL;
 
 
 #ifdef HEADLESS
@@ -22,12 +28,15 @@ void COffscreenGLContext::WorkerThreadFree() {}
 /////////////////////////////////////////////////////////////////////////////////////////////////
 //! WINDOWS
 
-#include <wingdi.h> //! wgl...
+#include <GL/wglew.h>
 
 COffscreenGLContext::COffscreenGLContext()
 {
 	//! this creates a 2nd OpenGL context on the >onscreen< window/HDC
 	//! so don't render to the the default framebuffer (always bind FBOs,DLs,...) !!!
+
+	if (!mainGlActiveTexture)
+		mainGlActiveTexture = (PFNGLACTIVETEXTUREPROC)wglGetProcAddress("glActiveTexture");
 
 	//! get the main (onscreen) GL context
 	HGLRC mainRC = wglGetCurrentContext();
@@ -36,20 +45,30 @@ COffscreenGLContext::COffscreenGLContext()
 		throw opengl_error("Couldn't create an offscreen GL context: wglGetCurrentDC failed!");
 	}
 
-
-	//! create a 2nd GL context
-	offscreenRC = wglCreateContext(hdc);
-	if (!offscreenRC) {
-		throw opengl_error("Couldn't create an offscreen GL context: wglCreateContext failed!");
+	int status = TRUE;
+	offscreenRC = NULL;
+#ifdef WGL_ARB_create_context
+	if (wglCreateContextAttribsARB) {
+		static const int contextAttribs[] = { WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB, 0 };
+		offscreenRC = wglCreateContextAttribsARB(hdc, mainRC, contextAttribs);
+		if (!offscreenRC)
+			LOG_L(L_WARNING, "Couldn't create an offscreen GL context: wglCreateContextAttribsARB failed!");
 	}
+#endif
+	if (!offscreenRC) {
+		//! create a 2nd GL context
+		offscreenRC = wglCreateContext(hdc);
+		if (!offscreenRC) {
+			throw opengl_error("Couldn't create an offscreen GL context: wglCreateContext failed!");
+		}
 
-
-	//! share the GL resources (textures,DLists,shaders,...)
-	if(!wglMakeCurrent(NULL, NULL))
-		throw opengl_error("Could not deactivate rendering context");
-	int status = wglShareLists(mainRC, offscreenRC);
-	if(!wglMakeCurrent(hdc, mainRC))
-		throw opengl_error("Could not activate rendering context");
+		//! share the GL resources (textures,DLists,shaders,...)
+		if (!wglMakeCurrent(NULL, NULL))
+			throw opengl_error("Could not deactivate rendering context");
+		status = wglShareLists(mainRC, offscreenRC);
+		if (!wglMakeCurrent(hdc, mainRC))
+			throw opengl_error("Could not activate rendering context");
+	}
 
 	if (!status) {
 		DWORD err = GetLastError();
@@ -61,22 +80,27 @@ COffscreenGLContext::COffscreenGLContext()
 
 
 COffscreenGLContext::~COffscreenGLContext() {
-	if(!wglDeleteContext(offscreenRC))
-		throw opengl_error("Could not delete off-screen rendering context");
+	wglDeleteContext(offscreenRC);
 }
 
 void COffscreenGLContext::WorkerThreadPost()
 {
 	//! activate the offscreen GL context in the worker thread
-	if(!wglMakeCurrent(hdc, offscreenRC))
+	if (!wglMakeCurrent(hdc, offscreenRC))
 		throw opengl_error("Could not activate worker rendering context");
+
+	const PFNGLACTIVETEXTUREPROC workerGlActiveTexture = (PFNGLACTIVETEXTUREPROC)wglGetProcAddress("glActiveTexture");
+	if (workerGlActiveTexture != mainGlActiveTexture) {
+		WorkerThreadFree();
+		throw opengl_error("Could not activate worker rendering context (uses different function pointers)");
+	}
 }
 
 
 void COffscreenGLContext::WorkerThreadFree()
 {
 	//! must run in the same thread as the offscreen GL context!
-	if(!wglMakeCurrent(NULL, NULL))
+	if (!wglMakeCurrent(NULL, NULL))
 		throw opengl_error("Could not deactivate worker rendering context");
 }
 
@@ -120,13 +144,21 @@ COffscreenGLContext::~COffscreenGLContext() {
 
 void COffscreenGLContext::WorkerThreadPost()
 {
-	CGLSetCurrentContext(cglWorkerCtx);
+	CGLError err = CGLSetCurrentContext(cglWorkerCtx);
+	if (kCGLNoError != err) {
+		LOG_L(L_ERROR, CGLErrorString(err));
+		throw opengl_error("Could not activate worker rendering context");
+	}
 }
 
 
 void COffscreenGLContext::WorkerThreadFree()
 {
-	CGLSetCurrentContext(NULL);
+	CGLError err = CGLSetCurrentContext(NULL);
+	if (kCGLNoError != err) {
+		LOG_L(L_ERROR, CGLErrorString(err));
+		throw opengl_error("Could not deactivate worker rendering context");
+	}
 }
 
 #else
@@ -138,6 +170,9 @@ void COffscreenGLContext::WorkerThreadFree()
 
 COffscreenGLContext::COffscreenGLContext()
 {
+	if (!mainGlActiveTexture)
+		mainGlActiveTexture = (PFNGLACTIVETEXTUREPROC)glXGetProcAddress((const GLubyte*)"glActiveTexture");
+
 	//! Get MainCtx & X11-Display
 	GLXContext mainCtx = glXGetCurrentContext();
 	display = glXGetCurrentDisplay();
@@ -207,13 +242,21 @@ COffscreenGLContext::~COffscreenGLContext() {
 
 void COffscreenGLContext::WorkerThreadPost()
 {
-	glXMakeCurrent(display, pbuf, workerCtx);
+	if (!glXMakeCurrent(display, pbuf, workerCtx))
+		throw opengl_error("Could not activate worker rendering context");
+
+	const PFNGLACTIVETEXTUREPROC workerGlActiveTexture = (PFNGLACTIVETEXTUREPROC)glXGetProcAddress((const GLubyte*)"glActiveTexture");
+	if (workerGlActiveTexture != mainGlActiveTexture) {
+		WorkerThreadFree();
+		throw opengl_error("Could not activate worker rendering context (uses different function pointers)");
+	}
 }
 
 
 void COffscreenGLContext::WorkerThreadFree()
 {
-	glXMakeCurrent(display, None, NULL);
+	if (!glXMakeCurrent(display, None, NULL))
+		throw opengl_error("Could not deactivate worker rendering context");
 }
 
 #endif
@@ -252,13 +295,17 @@ void COffscreenGLThread::Join()
 }
 
 
+__FORCE_ALIGN_STACK__
 void COffscreenGLThread::WrapFunc(boost::function<void()> f)
 {
+	Threading::SetThreadName("OffscreenGLThread");
+
 	glOffscreenCtx.WorkerThreadPost();
 
 #ifdef STREFLOP_H
-	// init streflop to make it available for synced computations, too
-	// redundant? threads copy the FPU state of their parent.
+	// init streflop
+	// not needed for sync'ness (precision flags are per-process)
+	// but fpu exceptions are per-thread
 	streflop::streflop_init<streflop::Simple>();
 #endif
 
@@ -267,7 +314,6 @@ void COffscreenGLThread::WrapFunc(boost::function<void()> f)
 	} catch(boost::thread_interrupted const&) {
 		// do nothing
 	} CATCH_SPRING_ERRORS
-
 
 	glOffscreenCtx.WorkerThreadFree();
 }

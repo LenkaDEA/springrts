@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 #include "WorldObject.h"
+#include "Rendering/Models/3DModel.h"
 
 CR_BIND_DERIVED(CWorldObject, CObject, )
 CR_REG_METADATA(CWorldObject, (
@@ -10,11 +10,23 @@ CR_REG_METADATA(CWorldObject, (
 	CR_MEMBER(height),
 	CR_MEMBER(sqRadius),
 	CR_MEMBER(drawRadius),
-	CR_MEMBER_BEGINFLAG(CM_Config), // the projectile system needs to know that 'pos' is accessible by script
+	// the projectile system needs to know that 'pos' and 'speed' are accessible by script
+	CR_MEMBER_BEGINFLAG(CM_Config),
 		CR_MEMBER(pos),
+		CR_MEMBER(speed),
 		CR_MEMBER(useAirLos),
 		CR_MEMBER(alwaysVisible),
 	CR_MEMBER_ENDFLAG(CM_Config),
-	CR_RESERVED(16))
-);
+	CR_IGNORED(model) //FIXME
+))
+
+
+void CWorldObject::SetRadiusAndHeight(const S3DModel* mdl)
+{
+	// initial values; can be overridden by LSC::Set*RadiusAndHeight
+	SetRadiusAndHeight(mdl->radius, mdl->height);
+
+	// model->radius can be badly configured, set a more reliable DR
+	drawRadius = mdl->GetDrawRadius();
+}
 

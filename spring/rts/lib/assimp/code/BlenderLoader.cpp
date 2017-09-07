@@ -64,7 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 namespace Assimp {
-	template<> const std::string LogFunctions<BlenderImporter>::log_prefix = "BLEND: ";
+	template<> const char* LogFunctions<BlenderImporter>::log_prefix = "BLEND: ";
 }
 
 using namespace Assimp;
@@ -103,6 +103,7 @@ bool BlenderImporter::CanRead( const std::string& pFile, IOSystem* pIOHandler, b
 {
 	const std::string& extension = GetExtension(pFile);
 	if (extension == "blend") {
+		// SPRING: extract version (char[3]) from header at offset 9, check if >= 262
 		return true;
 	}
 

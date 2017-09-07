@@ -2,15 +2,19 @@
 
 #include <string>
 
-#include "System/mmgr.h"
 #include "LoadSaveHandler.h"
 #include "CregLoadSaveHandler.h"
 #include "LuaLoadSaveHandler.h"
+#include "System/Config/ConfigHandler.h"
+#include "System/FileSystem/FileSystem.h"
 
 
-ILoadSaveHandler* ILoadSaveHandler::Create()
+ILoadSaveHandler* ILoadSaveHandler::Create(bool usecreg)
 {
-	return new CLuaLoadSaveHandler();
+	if (usecreg)
+		return new CCregLoadSaveHandler();
+	else
+		return new CLuaLoadSaveHandler();
 }
 
 
@@ -19,15 +23,10 @@ ILoadSaveHandler::~ILoadSaveHandler()
 }
 
 
-std::string ILoadSaveHandler::FindSaveFile(const std::string& name)
+std::string ILoadSaveHandler::FindSaveFile(const std::string& file)
 {
-	std::string name2 = name;
-#ifdef _WIN32
-	if (name2.find(":\\")==std::string::npos)
-		name2 = "Saves\\" + name2;
-#else
-	if (name2.find("/")==std::string::npos)
-		name2 = "Saves/" + name2;
-#endif
-	return name2;
+	if (FileSystem::FileExists(file)) {
+		return file;
+	}
+	return FileSystem::EnsurePathSepAtEnd("Saves") + file;
 }

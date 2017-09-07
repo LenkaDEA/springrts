@@ -3,9 +3,12 @@
 #ifndef OBJ_PARSER_H
 #define OBJ_PARSER_H
 
-#include <map>
+#include "3DModel.h"
 #include "IModelParser.h"
-#include "System/Vec2.h"
+
+#include "System/type2.h"
+
+#include <map>
 
 struct SOBJTriangle {
 	int vIndices[3]; ///< index of 1st/2nd/3rd vertex
@@ -15,35 +18,29 @@ struct SOBJTriangle {
 
 struct SOBJPiece: public S3DModelPiece {
 public:
-	SOBJPiece() {
-		parent      = NULL;
-		dispListID  = 0;
-		isEmpty     = true;
-		type        = MODELTYPE_OBJ;
-		mins        = ZeroVector;
-		maxs        = ZeroVector;
-	}
-
-	void DrawForList() const;
-	void SetMinMaxExtends();
+	void UploadGeometryVBOs() override;
+	void DrawForList() const override;
+	void SetMinMaxExtends(bool globalVertexOffsets);
 	void SetVertexTangents();
 
-	void SetVertexCount(int n) { vertices.resize(n); }
-	void SetNormalCount(int n) { vnormals.resize(n); }
-	void SetTxCoorCount(int n) { texcoors.resize(n); }
+	void SetVertexCount(unsigned int n) { vertices.resize(n); }
+	void SetNormalCount(unsigned int n) { vnormals.resize(n); }
+	void SetTxCoorCount(unsigned int n) { texcoors.resize(n); }
 
 	void AddTriangle(const SOBJTriangle& t) { triangles.push_back(t); }
 	void SetTriangle(int idx, const SOBJTriangle& t) { triangles[idx] = t; }
 	const SOBJTriangle& GetTriangle(int idx) const { return triangles[idx]; }
 
-	int GetTriangleCount() const { return (triangles.size()); }
-	int GetVertexCount() const { return vertices.size(); }
-	int GetNormalCount() const { return vnormals.size(); }
-	int GetTxCoorCount() const { return texcoors.size(); }
+	unsigned int GetTriangleCount() const { return (triangles.size()); }
+	unsigned int GetVertexDrawIndexCount() const override { return indices.size(); }
+	unsigned int GetVertexCount() const override { return vertices.size(); }
+	const std::vector<unsigned>& GetVertexIndices() const override { return indices; }
 
-	const float3& GetVertexPos(const int idx) const { return GetVertex(idx); }
-	const float3& GetVertex(const int idx) const { return vertices[idx]; }
-	const float3& GetNormal(const int idx) const { return vnormals[idx]; }
+	void BindVertexAttribVBOs() const override;
+	void UnbindVertexAttribVBOs() const override;
+
+	const float3& GetVertexPos(const int idx) const override { return vertices[idx]; }
+	const float3& GetNormal(const int idx) const override { return vnormals[idx]; }
 	const float2& GetTxCoor(const int idx) const { return texcoors[idx]; }
 	const float3& GetSTangent(const int idx) const { return sTangents[idx]; }
 	const float3& GetTTangent(const int idx) const { return tTangents[idx]; }
@@ -59,15 +56,24 @@ public:
 	void AddTxCoor(const float2& v) { texcoors.push_back(v); }
 
 private:
+	VBO vboPositions;
+	VBO vboNormals;
+	VBO vboTexcoords;
+	VBO vbosTangents;
+	VBO vbotTangents;
+
+private:
 	std::vector<float3> vertices;
 	std::vector<float3> vnormals;
 	std::vector<float2> texcoors;
 
-	std::vector<SOBJTriangle> triangles;
-
 	std::vector<float3> sTangents;
 	std::vector<float3> tTangents;
+
+	std::vector<SOBJTriangle> triangles;
+	std::vector<unsigned int> indices;
 };
+
 
 class LuaTable;
 class COBJParser: public IModelParser {
@@ -78,22 +84,25 @@ private:
 	typedef std::map<std::string, SOBJPiece*> PieceMap;
 
 	bool ParseModelData(
-			S3DModel* model,
-			const std::string& modelData,
-			const LuaTable& metaData);
+		S3DModel* model,
+		const std::string& modelData,
+		const LuaTable& metaData
+	);
 	bool BuildModelPieceTree(
-			S3DModel* model,
-			const PieceMap& pieceMap,
-			const LuaTable& piecesTable,
-			bool globalVertexOffsets,
-			bool localPieceOffsets);
+		S3DModel* model,
+		const PieceMap& pieceMap,
+		const LuaTable& piecesTable,
+		bool globalVertexOffsets,
+		bool localPieceOffsets
+	);
 	void BuildModelPieceTreeRec(
-			S3DModel* model,
-			SOBJPiece* piece,
-			const PieceMap& pieceMap,
-			const LuaTable& pieceTable,
-			bool globalVertexOffsets,
-			bool localPieceOffsets);
+		S3DModel* model,
+		SOBJPiece* piece,
+		const PieceMap& pieceMap,
+		const LuaTable& pieceTable,
+		bool globalVertexOffsets,
+		bool localPieceOffsets
+	);
 };
 
 #endif // OBJ_PARSER_H

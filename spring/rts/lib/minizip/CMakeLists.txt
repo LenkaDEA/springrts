@@ -16,10 +16,8 @@ Else   (MINIZIP_FOUND)
 			"zip"
 			"ioapi"
 		)
-	IF    (WIN32)
-		LIST(APPEND miniZipSources "iowin32")
-	ENDIF (WIN32)
 
+	add_definitions(-DNOCRYPT -DNOUNCRYPT)
 	FIND_PACKAGE(ZLIB REQUIRED)
 
 	ADD_LIBRARY(minizip STATIC EXCLUDE_FROM_ALL ${miniZipSources})

@@ -1,44 +1,43 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "ScriptMoveType.h"
 
-#include "Lua/LuaRules.h"
 #include "Map/Ground.h"
 #include "Map/MapInfo.h"
 #include "Sim/Misc/Wind.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitTypes/Building.h"
+#include "System/EventHandler.h"
 #include "System/Matrix44f.h"
 #include "System/myMath.h"
 
-CR_BIND_DERIVED(CScriptMoveType, AMoveType, (NULL));
+CR_BIND_DERIVED(CScriptMoveType, AMoveType, (NULL))
 CR_REG_METADATA(CScriptMoveType, (
 	CR_MEMBER(tag),
 	CR_MEMBER(extrapolate),
 	CR_MEMBER(useRelVel),
 	CR_MEMBER(useRotVel),
 	CR_MEMBER(drag),
-	CR_MEMBER(vel),
+	CR_MEMBER(velVec),
 	CR_MEMBER(relVel),
 	CR_MEMBER(rot),
 	CR_MEMBER(rotVel),
+	CR_MEMBER(mins),
+	CR_MEMBER(maxs),
+
 	CR_MEMBER(trackSlope),
 	CR_MEMBER(trackGround),
 	CR_MEMBER(groundOffset),
 	CR_MEMBER(gravityFactor),
 	CR_MEMBER(windFactor),
-	CR_MEMBER(mins),
-	CR_MEMBER(maxs),
-	CR_MEMBER(noBlocking), // copy of CSolidObject::isMarkedOnBlockingMap
+	CR_MEMBER(noBlocking), // copy of CSolidObject::PSTATE_BIT_BLOCKING
 	CR_MEMBER(gndStop),
 	CR_MEMBER(shotStop),
 	CR_MEMBER(slopeStop),
 	CR_MEMBER(collideStop),
-	CR_MEMBER(scriptNotify),
-	CR_RESERVED(64)
-));
+	CR_MEMBER(scriptNotify)
+))
 
 
 CScriptMoveType::CScriptMoveType(CUnit* owner):
@@ -48,17 +47,17 @@ CScriptMoveType::CScriptMoveType(CUnit* owner):
 	useRelVel(false),
 	useRotVel(false),
 	drag(0.0f),
-	vel(ZeroVector),
+	velVec(ZeroVector),
 	relVel(ZeroVector),
 	rot(ZeroVector),
 	rotVel(ZeroVector),
+	mins(-1.0e9f, -1.0e9f, -1.0e9f),
+	maxs(+1.0e9f, +1.0e9f, +1.0e9f),
 	trackSlope(false),
 	trackGround(false),
 	groundOffset(0.0f),
 	gravityFactor(0.0f),
 	windFactor(0.0f),
-	mins(-1.0e9f, -1.0e9f, -1.0e9f),
-	maxs(+1.0e9f, +1.0e9f, +1.0e9f),
 	noBlocking(false),
 	gndStop(false),
 	shotStop(false),
@@ -78,32 +77,14 @@ CScriptMoveType::~CScriptMoveType()
 	// clean up if noBlocking was made true at
 	// some point during this script's lifetime
 	// and not reset
-	owner->Block();
+	owner->UnBlock();
 }
-
-#if defined(USE_GML) && defined(__GNUC__) && (__GNUC__ == 4)
-// This is supposed to fix some GCC crashbug related to threading
-// The MOVAPS SSE instruction is otherwise getting misaligned data
-__attribute__ ((force_align_arg_pointer))
-#endif
-inline void CScriptMoveType::CalcDirections()
-{
-	CMatrix44f matrix;
-	matrix.RotateY(-rot.y);
-	matrix.RotateX(-rot.x);
-	matrix.RotateZ(-rot.z);
-
-	owner->SetDirVectors(matrix);
-	owner->UpdateMidAndAimPos();
-	owner->SetHeadingFromDirection();
-}
-
 
 
 void CScriptMoveType::CheckNotify()
 {
 	if (scriptNotify) {
-		if (luaRules && luaRules->MoveCtrlNotify(owner, scriptNotify)) {
+		if (eventHandler.MoveCtrlNotify(owner, scriptNotify)) {
 			// NOTE: deletes \<this\>
 			owner->DisableScriptMoveType();
 		} else {
@@ -116,8 +97,7 @@ void CScriptMoveType::CheckNotify()
 bool CScriptMoveType::Update()
 {
 	if (useRotVel) {
-		rot += rotVel;
-		CalcDirections();
+		owner->SetDirVectorsEuler(rot += rotVel);
 	}
 
 	if (extrapolate) {
@@ -131,26 +111,26 @@ bool CScriptMoveType::Update()
 			(owner->rightdir * -relVel.x):
 			ZeroVector;
 
-		owner->Move3D(gravVec + vel, true);
-		owner->Move3D(windVec,       true);
-		owner->Move3D(unitVec,       true);
+		owner->Move(gravVec + velVec, true);
+		owner->Move(windVec,          true);
+		owner->Move(unitVec,          true);
 
 		// quadratic drag does not work well here
-		vel += gravVec;
-		vel *= (1.0f - drag);
+		velVec += gravVec;
+		velVec *= (1.0f - drag);
 
-		owner->speed = vel;
+		owner->SetVelocityAndSpeed(velVec);
 	}
 
 	if (trackGround) {
-		const float gndMin = ground->GetHeightReal(owner->pos.x, owner->pos.z) + groundOffset;
+		const float gndMin = CGround::GetHeightReal(owner->pos.x, owner->pos.z) + groundOffset;
 
 		if (owner->pos.y <= gndMin) {
-			owner->Move1D(gndMin, 1, false);
+			owner->Move(UpVector * (gndMin - owner->pos.y), true);
 			owner->speed.y = 0.0f;
 
 			if (gndStop) {
-				vel    = ZeroVector;
+				velVec = ZeroVector;
 				relVel = ZeroVector;
 				rotVel = ZeroVector;
 				scriptNotify = 1;
@@ -196,19 +176,16 @@ void CScriptMoveType::CheckLimits()
 }
 
 
-void CScriptMoveType::SetPhysics(const float3& pos,
-                                 const float3& vel,
-                                 const float3& rot)
+void CScriptMoveType::SetPhysics(const float3& _pos, const float3& _vel, const float3& _rot)
 {
-	owner->pos = pos;
-	owner->speed = vel;
-
-	SetRotation(rot);
+	SetPosition(_pos);
+	SetVelocity(_vel);
+	SetRotation(_rot);
 }
 
 
-void CScriptMoveType::SetPosition(const float3& pos) { owner->pos = pos; }
-void CScriptMoveType::SetVelocity(const float3& _vel) { owner->speed = (vel = _vel); }
+void CScriptMoveType::SetPosition(const float3& _pos) { owner->Move(_pos, false); }
+void CScriptMoveType::SetVelocity(const float3& _vel) { owner->SetVelocityAndSpeed(velVec = _vel); }
 
 
 
@@ -221,14 +198,13 @@ void CScriptMoveType::SetRelativeVelocity(const float3& _relVel)
 
 void CScriptMoveType::SetRotation(const float3& _rot)
 {
-	rot = _rot;
-	CalcDirections();
+	owner->SetDirVectorsEuler(rot = _rot);
 }
 
 
-void CScriptMoveType::SetRotationVelocity(const float3& rvel)
+void CScriptMoveType::SetRotationVelocity(const float3& _rotVel)
 {
-	rotVel = rvel;
+	rotVel = _rotVel;
 	useRotVel = ((rotVel.x != 0.0f) || (rotVel.y != 0.0f) || (rotVel.z != 0.0f));
 }
 

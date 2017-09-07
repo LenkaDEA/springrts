@@ -3,6 +3,7 @@
 #ifndef QTPFS_NODEHEAP_HDR
 #define QTPFS_NODEHEAP_HDR
 
+#include <limits>
 #include <vector>
 #include "PathDefines.hpp"
 
@@ -62,7 +63,7 @@ namespace QTPFS {
 			assert(cur_idx <= max_idx);
 
 			// kill old root
-			nodes[cur_idx]->SetHeapIndex(-1U);
+			nodes[cur_idx]->SetHeapIndex(-1u);
 			nodes[cur_idx] = NULL;
 
 			// move new root (former last node) down if necessary
@@ -81,16 +82,16 @@ namespace QTPFS {
 
 
 		// utility functions
-		bool empty() const { return (cur_idx == 0); }
-		bool full() const { return (size() >= capacity()); }
-		size_t size() const { return cur_idx; }
+		bool empty() const { return (size() == 0); }
+//		bool full() const { return (size() >= capacity()); }
+		size_t size() const { return (cur_idx); }
 		size_t capacity() const { return (max_idx + 1); }
 
 		void clear() {
 			nodes.clear();
 
 			cur_idx =  0;
-			max_idx = -1U;
+			max_idx = -1u;
 		}
 
 		void reserve(size_t size) {
@@ -153,14 +154,7 @@ namespace QTPFS {
 
 			if (valid_idx(idx)) {
 				debug_print(r_child_idx(idx), calls - 1, tabs + "\t");
-
-				const TNode n = nodes[idx];
-				const unsigned int nn = n->GetNodeNumber();
-				const unsigned int hi = n->GetHeapIndex();
-				const float fc = n->GetPathCost(NODE_PATH_COST_F);
-
-				printf("%s%f (idx=%lu :: nn=%u :: hi=%u)\n", tabs.c_str(), fc, idx, nn, hi);
-
+				printf("%shi=%u :: hp=%.2f\n", tabs.c_str(), nodes[idx]->GetHeapIndex(), nodes[idx]->GetHeapPriority());
 				debug_print(l_child_idx(idx), calls - 1, tabs + "\t");
 			}
 		}
@@ -238,7 +232,7 @@ namespace QTPFS {
 		}
 
 		void dec_heap(size_t p_idx) {
-			size_t   c_idx = -1U;
+			size_t   c_idx = -1u;
 			size_t l_c_idx = l_child_idx(p_idx);
 			size_t r_c_idx = r_child_idx(p_idx);
 
@@ -297,7 +291,7 @@ namespace QTPFS {
 		size_t cur_idx; // index of first free (unused) slot
 		size_t max_idx; // index of last free (unused) slot
 	};
-};
+}
 
 #endif
 

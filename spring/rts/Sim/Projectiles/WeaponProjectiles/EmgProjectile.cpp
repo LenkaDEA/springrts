@@ -1,78 +1,68 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "EmgProjectile.h"
 #include "Game/Camera.h"
 #include "Map/Ground.h"
 #include "Rendering/GL/VertexArray.h"
 #include "Rendering/Textures/TextureAtlas.h"
+#include "Sim/Projectiles/ExplosionGenerator.h"
 #include "Sim/Projectiles/ProjectileHandler.h"
 #include "Sim/Weapons/WeaponDef.h"
 #include "System/Sync/SyncTracer.h"
 
-CR_BIND_DERIVED(CEmgProjectile, CWeaponProjectile, (ZeroVector, ZeroVector, NULL, ZeroVector, 0, 0, NULL));
+CR_BIND_DERIVED(CEmgProjectile, CWeaponProjectile, )
 
 CR_REG_METADATA(CEmgProjectile,(
 	CR_SETFLAG(CF_Synced),
-    CR_MEMBER(intensity),
-    CR_MEMBER(color),
-    CR_RESERVED(8)
-    ));
+	CR_MEMBER(intensity),
+	CR_MEMBER(color)
+))
 
-CEmgProjectile::CEmgProjectile(
-	const float3& pos, const float3& speed,
-	CUnit* owner,
-	const float3& color, float intensity,
-	int ttl, const WeaponDef* weaponDef):
 
-	CWeaponProjectile(pos, speed, owner, NULL, ZeroVector, weaponDef, NULL, ttl),
-	intensity(intensity),
-	color(color)
+CEmgProjectile::CEmgProjectile(const ProjectileParams& params): CWeaponProjectile(params)
 {
 	projectileType = WEAPON_EMG_PROJECTILE;
 
-	if (weaponDef) {
+	if (weaponDef != NULL) {
 		SetRadiusAndHeight(weaponDef->collisionSize, 0.0f);
 		drawRadius = weaponDef->size;
+
+		intensity = weaponDef->intensity;
+		color = weaponDef->visuals.color;
+	} else {
+		intensity = 0.0f;
 	}
+
 #ifdef TRACE_SYNC
 	tracefile << "New emg: ";
 	tracefile << pos.x << " " << pos.y << " " << pos.z << " " << speed.x << " " << speed.y << " " << speed.z << "\n";
 #endif
-
-	cegID = gCEG->Load(explGenHandler, (weaponDef != NULL)? weaponDef->cegTag: "");
-}
-
-CEmgProjectile::~CEmgProjectile()
-{
 }
 
 void CEmgProjectile::Update()
 {
+	// disable collisions when ttl reaches 0 since the
+	// projectile will travel far past its range while
+	// fading out
+	checkCol &= (ttl >= 0);
+	deleteMe |= (intensity <= 0.0f);
+
 	if (!luaMoveCtrl) {
 		pos += speed;
 	}
-
-	if (--ttl < 0) {
+	if (ttl <= 0) {
+		// fade out over the next 10 frames at most
 		intensity -= 0.1f;
-		if (intensity <= 0){
-			deleteMe = true;
-			intensity = 0;
-		}
+		intensity = std::max(intensity, 0.0f);
 	} else {
-		gCEG->Explosion(cegID, pos, ttl, intensity, NULL, 0.0f, NULL, speed);
+		explGenHandler->GenExplosion(cegID, pos, speed, ttl, intensity, 0.0f, NULL, NULL);
 	}
+
 	UpdateGroundBounce();
-}
+	UpdateInterception();
 
-void CEmgProjectile::Collision(CUnit* unit)
-{
-	CWeaponProjectile::Collision(unit);
-}
-
-void CEmgProjectile::Collision() {
-	CWeaponProjectile::Collision();
+	--ttl;
 }
 
 void CEmgProjectile::Draw()
@@ -82,23 +72,29 @@ void CEmgProjectile::Draw()
 	col[0] = (unsigned char) (color.x * intensity * 255);
 	col[1] = (unsigned char) (color.y * intensity * 255);
 	col[2] = (unsigned char) (color.z * intensity * 255);
-	col[3] = 5; //intensity*255;
-	va->AddVertexTC(drawPos - camera->right * drawRadius-camera->up * drawRadius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->ystart, col);
-	va->AddVertexTC(drawPos + camera->right * drawRadius-camera->up * drawRadius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->ystart, col);
-	va->AddVertexTC(drawPos + camera->right * drawRadius+camera->up * drawRadius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->yend,   col);
-	va->AddVertexTC(drawPos - camera->right * drawRadius+camera->up * drawRadius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->yend,   col);
+	col[3] = intensity * 255;
+	va->AddVertexTC(drawPos - camera->GetRight() * drawRadius-camera->GetUp() * drawRadius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->ystart, col);
+	va->AddVertexTC(drawPos + camera->GetRight() * drawRadius-camera->GetUp() * drawRadius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->ystart, col);
+	va->AddVertexTC(drawPos + camera->GetRight() * drawRadius+camera->GetUp() * drawRadius, weaponDef->visuals.texture1->xend,   weaponDef->visuals.texture1->yend,   col);
+	va->AddVertexTC(drawPos - camera->GetRight() * drawRadius+camera->GetUp() * drawRadius, weaponDef->visuals.texture1->xstart, weaponDef->visuals.texture1->yend,   col);
 }
 
-int CEmgProjectile::ShieldRepulse(CPlasmaRepulser* shield, float3 shieldPos, float shieldForce, float shieldMaxSpeed)
+int CEmgProjectile::ShieldRepulse(const float3& shieldPos, float shieldForce, float shieldMaxSpeed)
 {
-	if (!luaMoveCtrl) {
-		const float3 rdir = (pos - shieldPos).Normalize();
+	if (luaMoveCtrl)
+		return 0;
 
-		if (rdir.dot(speed) < shieldMaxSpeed) {
-			speed += (rdir * shieldForce);
-			return 2;
-		}
+	const float3 rdir = (pos - shieldPos).Normalize();
+
+	if (rdir.dot(speed) < shieldMaxSpeed) {
+		SetVelocityAndSpeed(speed + (rdir * shieldForce));
+		return 2;
 	}
 
 	return 0;
+}
+
+int CEmgProjectile::GetProjectilesCount() const
+{
+	return 1;
 }

@@ -4,6 +4,7 @@
 #define WEAPONDEFHANDLER_H
 
 #include <string>
+#include <vector>
 #include <map>
 
 #include "Sim/Misc/CommonDefHandler.h"
@@ -11,37 +12,21 @@
 #include "WeaponDef.h"
 #include "System/float3.h"
 
+class LuaParser;
 class LuaTable;
 
 class CWeaponDefHandler : CommonDefHandler
 {
 public:
-	CWeaponDefHandler();
+	CWeaponDefHandler(LuaParser* defsParser);
 	~CWeaponDefHandler();
 
-	const WeaponDef* GetWeapon(const std::string& weaponname);
-	const WeaponDef* GetWeaponById(int weaponDefId);
-
-	void LoadSound(
-		const LuaTable&,
-		const std::string& soundKey,
-		const unsigned int soundIdx,
-		std::vector<GuiSoundSet::Data>&
-	);
-
-	DamageArray DynamicDamages(DamageArray damages, float3 startPos,
-					float3 curPos, float range, float exp,
-					float damageMin, bool inverted);
+	const WeaponDef* GetWeaponDef(std::string weaponname) const;
+	const WeaponDef* GetWeaponDefByID(int weaponDefId) const;
 
 public:
-	WeaponDef *weaponDefs;
+	std::vector<WeaponDef> weaponDefs;
 	std::map<std::string, int> weaponID;
-	int numWeaponDefs;
-
-private:
-	void ParseWeapon(const LuaTable& wdTable, WeaponDef& wd);
-	void ParseWeaponVisuals(const LuaTable& wdTable, WeaponDef& wd);
-	void ParseWeaponSounds(const LuaTable& wdTable, WeaponDef& wd);
 };
 
 

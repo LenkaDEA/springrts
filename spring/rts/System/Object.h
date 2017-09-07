@@ -5,53 +5,21 @@
 
 #include <map>
 #include <set>
+#include <array>
+#include "ObjectDependenceTypes.h"
 #include "System/Platform/Threading.h"
 #include "System/creg/creg_cond.h"
-
 
 class CObject
 {
 public:
-	CR_DECLARE(CObject);
-
-	//FIXME why different depType's (it's not used anywhere currently except as a std::map key?!)
-	enum DependenceType {
-		DEPENDENCE_ATTACKER,
-		DEPENDENCE_BUILD,
-		DEPENDENCE_BUILDER,
-		DEPENDENCE_CAPTURE,
-		DEPENDENCE_COBTHREAD,
-		DEPENDENCE_COMMANDQUE,
-		DEPENDENCE_DECOYTARGET,
-		DEPENDENCE_INCOMING,
-		DEPENDENCE_INTERCEPT,
-		DEPENDENCE_INTERCEPTABLE,
-		DEPENDENCE_INTERCEPTTARGET,
-		DEPENDENCE_LANDINGPAD,
-		DEPENDENCE_LASTCOLWARN,
-		DEPENDENCE_LIGHT,
-		DEPENDENCE_ORDERTARGET,
-		DEPENDENCE_RECLAIM,
-		DEPENDENCE_REPULSE,
-		DEPENDENCE_REPULSED,
-		DEPENDENCE_RESURRECT,
-		DEPENDENCE_SELECTED,
-		DEPENDENCE_SOLIDONTOP,
-		DEPENDENCE_TARGET,
-		DEPENDENCE_TARGETUNIT,
-		DEPENDENCE_TERRAFORM,
-		DEPENDENCE_TRANSPORTEE,
-		DEPENDENCE_TRANSPORTER,
-		DEPENDENCE_WAITCMD,
-		DEPENDENCE_WEAPON,
-		DEPENDENCE_WEAPONTARGET
-	};
+	CR_DECLARE(CObject)
 
 	CObject();
 	virtual ~CObject();
+
 	void Serialize(creg::ISerializer* ser);
 	void PostLoad();
-	virtual void Detach();
 
 	/// Request to not inform this when obj dies
 	virtual void DeleteDeathDependence(CObject* obj, DependenceType dep);
@@ -81,7 +49,7 @@ public:
 					AIRMOVETYPE,
 					TAAIRMOVETYPE,
 			COMMANDAI=(1<<COMMANDAI_BIT),
-				FACTORYCAI,TRANSPORTCAI,MOBILECAI,
+				FACTORYCAI,MOBILECAI,
 			EXPGENSPAWNABLE=(1<<EXPGENSPAWNABLE_BIT),
 				PROJECTILE=(1<<PROJECTILE_BIT)|EXPGENSPAWNABLE,
 					SHIELDPARTPROJECTILE,
@@ -115,16 +83,16 @@ private:
 
 public:
 	typedef std::set<CObject*, syncsafe_compare> TSyncSafeSet;
-	typedef std::map<DependenceType, TSyncSafeSet> TDependenceMap;
+	typedef std::array<TSyncSafeSet*, DEPENDENCE_COUNT> TDependenceMap;
+	bool detached;
 
 protected:
-	const TSyncSafeSet& GetListeners(const DependenceType dep) { return listeners[dep]; }
+	const TSyncSafeSet& GetListeners(const DependenceType dep) { return listeners[dep] ? *listeners[dep] : *(listeners[dep] = new TSyncSafeSet()); }
 	const TDependenceMap& GetAllListeners() const { return listeners; }
-	const TSyncSafeSet& GetListening(const DependenceType dep)  { return listening[dep]; }
+	const TSyncSafeSet& GetListening(const DependenceType dep)  { return listening[dep] ? *listening[dep] : *(listening[dep] = new TSyncSafeSet()); }
 	const TDependenceMap& GetAllListening() const { return listening; }
 
 protected:
-	bool detached;
 	TDependenceMap listeners;
 	TDependenceMap listening;
 };

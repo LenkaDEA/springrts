@@ -5,20 +5,14 @@
 
 #include "Weapon.h"
 
-class CEmgCannon : public CWeapon
+class CEmgCannon: public CWeapon
 {
-	CR_DECLARE(CEmgCannon);
+	CR_DECLARE_DERIVED(CEmgCannon)
 public:
-	CEmgCannon(CUnit* owner);
-	~CEmgCannon();
-
-	void Update();
-	bool TryTarget(const float3& pos, bool userTarget, CUnit* unit);
-
-	void Init();
+	CEmgCannon(CUnit* owner, const WeaponDef* def);
 
 private:
-	virtual void FireImpl();
+	void FireImpl(const bool scriptCall) override final;
 };
 
 #endif // _EMG_CANNON_H

@@ -1,8 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 
-#include "System/mmgr.h"
-
 #include "LuaFonts.h"
 
 #include "LuaInclude.h"
@@ -14,7 +12,7 @@
 #include "LuaOpenGL.h"
 
 #include "Rendering/GL/myGL.h"
-#include "Rendering/glFont.h"
+#include "Rendering/Fonts/glFont.h"
 #include "System/Exceptions.h"
 
 
@@ -103,26 +101,15 @@ inline CglFont* tofont(lua_State* L, int idx)
 }
 
 
-static int ParseFloatArray(lua_State* L, int idx, float* array, int size)
-{
-	for (int i = 0; i < size; i++) {
-		lua_rawgeti(L, idx, (i + 1));
-		if (lua_isnumber(L, -1)) {
-			array[i] = lua_tofloat(L, -1);
-			lua_pop(L, 1);
-		} else {
-			lua_pop(L, 1);
-			return i;
-		}
-	}
-	return size;
-}
-
 /******************************************************************************/
 /******************************************************************************/
 
 int LuaFonts::meta_gc(lua_State* L)
 {
+	if (lua_isnil(L, 1)) {
+		return 0;
+	}
+
 	CglFont** font = (CglFont**)luaL_checkudata(L, 1, "Font");
 	delete *font;
 	*font = NULL;
@@ -177,10 +164,10 @@ int LuaFonts::meta_index(lua_State* L)
 			lua_pushsstring(L, style);
 			return 1;
 		} else if (key == "texturewidth") {
-			lua_pushnumber(L, font->GetTexWidth());
+			lua_pushnumber(L, font->GetTextureWidth());
 			return 1;
 		} else if (key == "textureheight") {
-			lua_pushnumber(L, font->GetTexHeight());
+			lua_pushnumber(L, font->GetTextureHeight());
 			return 1;
 		}
 	}
@@ -256,6 +243,7 @@ int LuaFonts::Print(lua_State* L)
 				case 'O': { options |= FONT_OUTLINE;       break; }
 
 				case 'n': { options ^= FONT_NEAREST;       break; }
+				default: break;
 			}
 	  		c++;
 		}
@@ -349,7 +337,7 @@ int LuaFonts::SetTextColor(lua_State* L)
 
 	if (lua_istable(L, 2)) {
 		color = new float4;
-		const int count = ParseFloatArray(L, 2, *color, 4);
+		const int count = LuaUtils::ParseFloatArray(L, 2, *color, 4);
 		if (count < 3) {
 			luaL_error(L, "Incorrect arguments to font:SetTextColor([\"textColor\"])");
 		}
@@ -385,7 +373,7 @@ int LuaFonts::SetOutlineColor(lua_State* L)
 
 	if (lua_istable(L, 2)) {
 		color = new float4;
-		const int count = ParseFloatArray(L, 2, *color, 4);
+		const int count = LuaUtils::ParseFloatArray(L, 2, *color, 4);
 		if (count < 3) {
 			luaL_error(L, "Incorrect arguments to font:SetOutlineColor([\"outlineColor\"])");
 		}
@@ -398,7 +386,7 @@ int LuaFonts::SetOutlineColor(lua_State* L)
 		color->y = luaL_checkfloat(L, 3);
 		color->z = luaL_checkfloat(L, 4);
 		color->w = luaL_optfloat(L, 5, 1.0f);
-	} else if (!lua_isnil(L, 2)) {
+	} else if (!lua_isnoneornil(L, 2)) {
 		luaL_error(L, "Incorrect arguments to font:SetOutlineColor([\"outlineColor\"])");
 	}
 
@@ -411,14 +399,7 @@ int LuaFonts::SetOutlineColor(lua_State* L)
 int LuaFonts::SetAutoOutlineColor(lua_State* L)
 {
 	CglFont* font = tofont(L, 1);
-
-	const int args = lua_gettop(L); // number of arguments
-	if (args < 2 || !lua_isboolean(L, 2)) {
-		luaL_error(L, "Incorrect arguments to font:SetAutoOutlineColor(enable)");
-	}
-
-	bool enable = lua_toboolean(L, 2);
-
+	bool enable = luaL_checkboolean(L, 2);
 	font->SetAutoOutlineColor(enable);
 	return 0;
 }

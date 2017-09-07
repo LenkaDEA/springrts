@@ -4,21 +4,20 @@
 set -e #abort on error
 
 if [ $# -ne 1 ]; then
-	echo "runs spring as client, waits until  ~/.spring/cache/paths/*.pe[1|2].zip exists"
+	echo "runs spring as client, waits until  ~/.config/spring/cache/paths/*.pe[1|2].zip exists"
 	echo "Usage: $0 /path/to/spring"
 	exit 1
 fi
 
-CACHEDIR=~/.spring/cache/paths
 HEADLESS=$1
-MAXWAIT=60
+MAXWAIT=90
 
 for (( i=0; $i<$MAXWAIT; i++ ));
 do
-	if [ -s $CACHEDIR/*.pe.zip ] && [ -s $CACHEDIR/*.pe2.zip ];
+	if [ -s ~/.config/spring/infolog.txt ] && [ -n "$(grep "finalized P" ~/.config/spring/infolog.txt)" ];
 	then
-		# wait additional seconds to let the other process write the files
-		sleep 3
+		sync
+		sleep 1
 		LOG=$(mktemp)
 		echo "Starting $HEADLESS client"
 		set +e
@@ -35,7 +34,6 @@ do
 	fi
 	# don't use 100% cpu in polling
 	sleep 1
-
 done
 
 echo "cache file didn't show up within MAXWAIT=$MAXWAIT seconds"

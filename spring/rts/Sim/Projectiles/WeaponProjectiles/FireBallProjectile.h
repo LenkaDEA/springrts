@@ -6,36 +6,33 @@
 #include "WeaponProjectile.h"
 #include <deque>
 
-#if defined(USE_GML) && GML_ENABLE_SIM
-#define SPARK_QUEUE gmlCircularQueue<CFireBallProjectile::Spark,32>
-#else
-#define SPARK_QUEUE std::deque<Spark>
-#endif
-
 class CFireBallProjectile : public CWeaponProjectile
 {
-	CR_DECLARE(CFireBallProjectile);
-	CR_DECLARE_SUB(Spark);
+	CR_DECLARE_DERIVED(CFireBallProjectile)
+	CR_DECLARE_SUB(Spark)
 public:
-	CFireBallProjectile(const float3& pos,const float3& speed, CUnit* owner,
-			CUnit *target, const float3 &targetPos, const WeaponDef* weaponDef);
-	~CFireBallProjectile();
+	CFireBallProjectile() { }
+	CFireBallProjectile(const ProjectileParams& params);
 
-	void Draw();
-	void Update();
+	void Draw() override;
+	void Update() override;
 
-	void Collision();
+	virtual int GetProjectilesCount() const override;
+
+	void Collision() override;
 
 	struct Spark {
-		CR_DECLARE_STRUCT(Spark);
+		CR_DECLARE_STRUCT(Spark)
 		float3 pos;
 		float3 speed;
 		float size;
 		int ttl;
 	};
 
+	typedef std::deque<Spark> spark_list_type;
+
 private:
-	SPARK_QUEUE sparks;
+	spark_list_type sparks;
 
 	void EmitSpark();
 };

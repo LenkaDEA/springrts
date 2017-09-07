@@ -7,7 +7,7 @@
 
 class CScriptMoveType : public AMoveType
 {
-	CR_DECLARE(CScriptMoveType);
+	CR_DECLARE(CScriptMoveType)
 
 	public:
 		CScriptMoveType(CUnit* owner);
@@ -25,35 +25,34 @@ class CScriptMoveType : public AMoveType
 		void SetRotationVelocity(const float3& rvel);
 		void SetHeading(short heading);
 		void SetNoBlocking(bool state);
-		
+
 	public: // null'ed virtuals
 		void StartMoving(float3, float goalRadius) {}
 		void StartMoving(float3, float goalRadius, float speed) {}
 		void KeepPointingTo(float3, float distance, bool aggressive) {}
 		void KeepPointingTo(CUnit* unit, float distance, bool aggressive) {}
-		void StopMoving() {}
+		void StopMoving(bool callScript = false, bool hardStop = false) {}
 
-		void SetGoal(float3 pos) {}
+		void SetGoal(const float3& pos, float distance = 0.0f) {}
 		void SetMaxSpeed(float speed) {}
 		void SetWantedMaxSpeed(float speed) {}
 		void LeaveTransport() {}
 
 	protected:
-		void CalcDirections();
 		void CheckLimits();
 		void CheckNotify();
 
 	public:
 		int tag;
-		
+
 		bool extrapolate;
 		bool useRelVel;
 		bool useRotVel;
 
 		float drag;
 
-		/// velocity
-		float3 vel;
+		/// velocity vector
+		float3 velVec;
 		/// relative velocity (to current direction)
 		float3 relVel;
 
@@ -62,15 +61,15 @@ class CScriptMoveType : public AMoveType
 		/// angular velocity
 		float3 rotVel;
 
+		float3 mins;
+		float3 maxs;
+
 		bool trackSlope;
 		bool trackGround;
 		float groundOffset;
 
 		float gravityFactor;
 		float windFactor;
-
-		float3 mins;
-		float3 maxs;
 
 		bool noBlocking;
 

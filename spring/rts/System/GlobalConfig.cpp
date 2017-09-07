@@ -1,11 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "System/Net/UDPConnection.h"
-#include "Rendering/GL/myGL.h"
 #include "Rendering/TeamHighlight.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/GlobalConfig.h"
-#include "Sim/Misc/ModInfo.h"
 #include "Lua/LuaConfig.h"
 
 CONFIG(int, NetworkLossFactor)
@@ -56,13 +54,11 @@ CONFIG(int, TeamHighlight)
 	.minimumValue(CTeamHighlight::HIGHLIGHT_FIRST)
 	.maximumValue(CTeamHighlight::HIGHLIGHT_LAST);
 
-CONFIG(bool, EnableDrawCallIns)
-	.defaultValue(true);
+CONFIG(bool, UseNetMessageSmoothingBuffer).defaultValue(true);
 
-CONFIG(int, MultiThreadLua)
-	.defaultValue(MT_LUA_DEFAULT)
-	.minimumValue(MT_LUA_FIRST)
-	.maximumValue(MT_LUA_LAST);
+CONFIG(bool, LuaWritableConfigFile).defaultValue(true);
+
+CONFIG(bool, EnableDrawCallIns).defaultValue(true);
 
 GlobalConfig* globalConfig = NULL;
 
@@ -75,7 +71,6 @@ GlobalConfig::GlobalConfig()
 	networkTimeout = configHandler->GetInt("NetworkTimeout");
 	reconnectTimeout = configHandler->GetInt("ReconnectTimeout");
 	mtu = configHandler->GetInt("MaximumTransmissionUnit");
-	teamHighlight = configHandler->GetInt("TeamHighlight");
 
 	linkOutgoingBandwidth = configHandler->GetInt("LinkOutgoingBandwidth");
 	linkIncomingSustainedBandwidth = configHandler->GetInt("LinkIncomingSustainedBandwidth");
@@ -90,24 +85,11 @@ GlobalConfig::GlobalConfig()
 	if (linkIncomingMaxPacketRate > 0 && linkIncomingSustainedBandwidth <= 0)
 		linkIncomingSustainedBandwidth = linkIncomingPeakBandwidth = 1024 * 1024;
 
-#if defined(USE_GML) && GML_ENABLE_SIM
-	enableDrawCallIns = configHandler->GetBool("EnableDrawCallIns");
-#endif
-#if (defined(USE_GML) && GML_ENABLE_SIM) || defined(USE_LUA_MT)
-	multiThreadLua = configHandler->GetInt("MultiThreadLua");
-#endif
+	useNetMessageSmoothingBuffer = configHandler->GetBool("UseNetMessageSmoothingBuffer");
+	luaWritableConfigFile = configHandler->GetBool("LuaWritableConfigFile");
+
+	teamHighlight = configHandler->GetInt("TeamHighlight");
 }
-
-
-int GlobalConfig::GetMultiThreadLua()
-{
-#if (defined(USE_GML) && GML_ENABLE_SIM) || defined(USE_LUA_MT)
-	return std::max((int)MT_LUA_FIRSTACTIVE, std::min((multiThreadLua == MT_LUA_DEFAULT) ? modInfo.luaThreadingModel : multiThreadLua, (int)MT_LUA_LAST));
-#else
-	return MT_LUA_NONE;
-#endif
-}
-
 
 void GlobalConfig::Instantiate()
 {

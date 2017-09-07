@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "Building.h"
 #include "Game/GameHelper.h"
@@ -10,53 +9,49 @@
 #include "Sim/Units/UnitLoader.h"
 #include "System/myMath.h"
 
-CR_BIND_DERIVED(CBuilding, CUnit, );
+CR_BIND_DERIVED(CBuilding, CUnit, )
 
-CR_REG_METADATA(CBuilding, (
-	CR_RESERVED(8),
-	CR_POSTLOAD(PostLoad)
-));
+CR_REG_METADATA(CBuilding, )
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CBuilding::CBuilding(): buildingDecal(0)
+CBuilding::CBuilding()
 {
 	immobile = true;
 }
 
 
 
-void CBuilding::PreInit(const UnitDef* def, int team, int facing, const float3& position, bool build)
+void CBuilding::PreInit(const UnitLoadParams& params)
 {
-	if (def->levelGround) {
-		blockHeightChanges = true;
-	}
+	unitDef = params.unitDef;
+	blockHeightChanges = unitDef->levelGround;
 
-	CUnit::PreInit(def, team, facing, position, build);
+	CUnit::PreInit(params);
 }
 
 void CBuilding::PostInit(const CUnit* builder)
 {
 	if (unitDef->cantBeTransported)
 		mass = CSolidObject::DEFAULT_MASS;
-	physicalState = OnGround;
 
 	CUnit::PostInit(builder);
 }
 
 
-void CBuilding::ForcedMove(const float3& newPos, int facing) {
-	buildFacing = facing;
-	speed = ZeroVector;
+void CBuilding::ForcedMove(const float3& newPos) {
+	// heading might have changed if building was dropped from transport
+	// (always needs to be axis-aligned because yardmaps are not rotated)
 	heading = GetHeadingFromFacing(buildFacing);
-	frontdir = GetVectorFromHeading(heading);
 
-	Move3D(helper->Pos2BuildPos(BuildInfo(unitDef, newPos, buildFacing), true), false);
-	UpdateMidAndAimPos();
+	UpdateDirVectors(false);
+	SetVelocity(ZeroVector);
 
-	CUnit::ForcedMove(pos);
+	// update quadfield, etc.
+	CUnit::ForcedMove(CGameHelper::Pos2BuildPos(BuildInfo(unitDef, newPos, buildFacing), true));
 
 	unitLoader->FlattenGround(this);
 }
+

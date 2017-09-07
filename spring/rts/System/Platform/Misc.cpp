@@ -2,12 +2,13 @@
 
 #include "Misc.h"
 
-#ifdef linux
+#ifdef __linux__
 #include <unistd.h>
 #include <dlfcn.h> // for dladdr(), dlopen()
 
 #elif WIN32
 #include <io.h>
+#include <direct.h>
 #include <process.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -23,6 +24,12 @@
 #include <dlfcn.h> // for dladdr(), dlopen()
 #include <climits> // for PATH_MAX
 
+#elif defined __FreeBSD__
+#include <unistd.h>
+#include <dlfcn.h> // for dladdr(), dlopen()
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
 #else
 
 #endif
@@ -31,6 +38,8 @@
 #include <sys/utsname.h> // for uname()
 #include <sys/types.h> // for getpw
 #include <pwd.h> // for getpw
+
+#include <fstream>
 #endif
 
 #include <cstring>
@@ -47,10 +56,8 @@
  * Note: requires at least Windows 2000
  * @return handle to the currently loaded module, or NULL if an error occures
  */
-static HMODULE GetCurrentModule() {
-
-	HMODULE hModule = NULL;
-
+static HMODULE GetCurrentModule()
+{
 	// both solutions use the address of this function
 	// both found at:
 	// http://stackoverflow.com/questions/557081/how-do-i-get-the-hmodule-for-the-currently-executing-code/557774
@@ -58,7 +65,7 @@ static HMODULE GetCurrentModule() {
 	// Win 2000+ solution
 	MEMORY_BASIC_INFORMATION mbi = {0};
 	::VirtualQuery((void*)GetCurrentModule, &mbi, sizeof(mbi));
-	hModule = reinterpret_cast<HMODULE>(mbi.AllocationBase);
+	HMODULE hModule = reinterpret_cast<HMODULE>(mbi.AllocationBase);
 
 	// Win XP+ solution (cleaner)
 	//::GetModuleHandleEx(
@@ -103,6 +110,32 @@ static std::string GetUserDirFromSystemApi()
 
 namespace Platform
 {
+
+static std::string origCWD;
+
+
+std::string GetOrigCWD()
+{
+	return origCWD;
+}
+
+
+void SetOrigCWD()
+{
+	if (!origCWD.empty())
+		return;
+
+	char *buf;
+#ifdef WIN32
+	buf = _getcwd(NULL, 0);
+#else
+	buf = getcwd(NULL, 0);
+#endif
+	origCWD = buf;
+	free(buf);
+	FileSystemAbstraction::EnsurePathSepAtEnd(origCWD);
+}
+
 
 std::string GetUserDir()
 {
@@ -155,7 +188,7 @@ std::string GetProcessExecutableFile()
 	// error will only be used if procExeFilePath stays empty
 	const char* error = NULL;
 
-#ifdef linux
+#ifdef __linux__
 	char file[512];
 	const int ret = readlink("/proc/self/exe", file, sizeof(file)-1);
 	if (ret >= 0) {
@@ -186,6 +219,19 @@ std::string GetProcessExecutableFile()
 	if (err == 0) {
 		procExeFilePath = GetRealPath(path);
 	}
+#elif defined(__FreeBSD__)
+	int mib[4];
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_PROC;
+	mib[2] = KERN_PROC_PATHNAME;
+	mib[3] = -1;
+	const long maxpath = pathconf("/", _PC_PATH_MAX);
+	char buf[maxpath];
+	size_t cb = sizeof(buf);
+	int err = sysctl(mib, 4, buf, &cb, NULL, 0);
+	if (err == 0) {
+		procExeFilePath = buf;
+	}
 #else
 	#error implement this
 #endif
@@ -208,7 +254,7 @@ std::string GetModuleFile(std::string moduleName)
 	// this will only be used if moduleFilePath stays empty
 	const char* error = NULL;
 
-#if defined(linux) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
 #ifdef __APPLE__
 	#define SHARED_LIBRARY_EXTENSION "dylib"
 #else
@@ -226,8 +272,8 @@ std::string GetModuleFile(std::string moduleName)
 		// add extension if it is not in the file name
 		// it could also be "libXZY.so-1.2.3"
 		// -> does not have to be the end, my friend
-		if (moduleName.find("."SHARED_LIBRARY_EXTENSION) == std::string::npos) {
-			moduleName = moduleName + "."SHARED_LIBRARY_EXTENSION;
+		if (moduleName.find("." SHARED_LIBRARY_EXTENSION) == std::string::npos) {
+			moduleName = moduleName + "." SHARED_LIBRARY_EXTENSION;
 		}
 
 		// will not not try to load, but return the libs address
@@ -292,7 +338,7 @@ std::string GetModuleFile(std::string moduleName)
 		LOG_L(L_WARNING, "Failed to get file path of the module \"%s\", reason: %s", moduleName.c_str(), error);
 	}
 
-	return moduleFilePath;
+	return UnQuote(moduleFilePath);
 }
 std::string GetModulePath(const std::string& moduleName)
 {
@@ -356,51 +402,119 @@ bool Is32BitEmulation()
 	return bIsWow64;
 }
 #else
-// simply assume other OS doesn't need 32bit emulation
+// simply assume other OS don't need 32bit emulation
 bool Is32BitEmulation()
 {
 	return false;
 }
 #endif
 
-std::string ExecuteProcess(const std::string& file, std::vector<std::string> args)
-{
-	std::string execError = "";
+bool IsRunningInGDB() {
+	#ifndef _WIN32
+	char buf[1024];
 
+	std::string fname = "/proc/" + IntToString(getppid(), "%d") + "/cmdline";
+	std::ifstream f(fname.c_str());
+
+	if (!f.good())
+		return false;
+
+	f.read(buf, sizeof(buf));
+	f.close();
+
+	return (strstr(buf, "gdb") != NULL);
+	#else
+	return IsDebuggerPresent();
+	#endif
+}
+
+std::string GetShortFileName(const std::string& file) {
+#ifdef WIN32
+	std::vector<TCHAR> shortPathC(file.size() + 1, 0);
+
+	// FIXME: stackoverflow.com/questions/843843/getshortpathname-unpredictable-results
+	const int length = GetShortPathName(file.c_str(), &shortPathC[0], file.size() + 1);
+
+	if (length > 0 && length <= (file.size() + 1)) {
+		return (std::string(reinterpret_cast<const char*>(&shortPathC[0])));
+	}
+#endif
+
+	return file;
+}
+
+std::string ExecuteProcess(const std::string& file, std::vector<std::string> args, bool asSubprocess)
+{
 	// "The first argument, by convention, should point to
 	// the filename associated with the file being executed."
-	args.insert(args.begin(), Quote(file));
+	// NOTE:
+	//   spaces in the first argument or quoted file paths
+	//   are not supported on Windows, so translate <file>
+	//   to a short path there
+	args.insert(args.begin(), GetShortFileName(file));
 
-	char** processArgs = new char*[args.size() + 1];
+	std::string execError;
 
-	for (size_t a = 0; a < args.size(); ++a) {
-		const std::string& arg = args.at(a);
-		const size_t arg_size = arg.length() + 1;
-		processArgs[a] = new char[arg_size];
-		STRCPY_T(processArgs[a], arg_size, arg.c_str());
+	if (asSubprocess) {
+		#ifdef WIN32
+		    STARTUPINFO si;
+			PROCESS_INFORMATION pi;
+
+			ZeroMemory( &si, sizeof(si) );
+			si.cb = sizeof(si);
+			ZeroMemory( &pi, sizeof(pi) );
+
+			std::string argsStr;
+			for (size_t a = 0; a < args.size(); ++a) {
+				argsStr += args[a] + ' ';
+			}
+			char *argsCStr = new char[argsStr.size() + 1];
+			std::copy(argsStr.begin(), argsStr.end(), argsCStr);
+			argsCStr[argsStr.size()] = '\0';
+
+			LOG("[%s] Windows start process arguments: %s", __FUNCTION__, argsCStr);
+			if (!CreateProcess(NULL, argsCStr, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+				delete[] argsCStr;
+				LOG("[%s] Error creating subprocess (%lu)", __FUNCTION__, GetLastError());
+				return execError;
+			}
+			delete[] argsCStr;
+
+			return execError;
+		#else
+			int pid;
+			if ((pid = fork()) < 0) {
+				LOG("[%s] Error forking process", __FUNCTION__);
+			} else if (pid != 0) {
+				// TODO: Maybe useful to return the subprocess ID (pid)?
+				return execError;
+			}
+		#endif
 	}
 
 	// "The array of pointers must be terminated by a NULL pointer."
-	processArgs[args.size()] = NULL;
+	// --> include one extra argument string and leave it NULL
+	std::vector<char*> processArgs(args.size() + 1, NULL);
+	for (size_t a = 0; a < args.size(); ++a) {
+		const std::string& arg = args[a];
+		const size_t argSize = arg.length() + 1;
 
-	{
-		// Execute
-#ifdef WIN32
-	#define EXECVP _execvp
-#else
-	#define EXECVP execvp
-#endif
-		const int ret = EXECVP(file.c_str(), processArgs);
-
-		if (ret == -1) {
-			execError = strerror(errno);
-		}
+		STRCPY_T(processArgs[a] = new char[argSize], argSize, arg.c_str());
 	}
+
+	#ifdef WIN32
+		#define EXECVP _execvp
+	#else
+		#define EXECVP execvp
+	#endif
+	if (EXECVP(args[0].c_str(), &processArgs[0]) == -1) {
+		LOG("[%s] error: \"%s\" %s (%d)", __FUNCTION__, args[0].c_str(), (execError = strerror(errno)).c_str(), errno);
+	}
+	#undef EXECVP
 
 	for (size_t a = 0; a < args.size(); ++a) {
 		delete[] processArgs[a];
 	}
-	delete[] processArgs;
 
 	return execError;
 }

@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "LuaBitOps.h"
 
@@ -9,6 +8,8 @@
 #include "LuaUtils.h"
 
 
+// spring's lua uses FLOATS as its number type which can only represent
+// integer values up to 1<<24 exactly
 const int mask = 0x00FFFFFF; // 2^24
 
 

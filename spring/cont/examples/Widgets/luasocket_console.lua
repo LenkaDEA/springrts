@@ -1,5 +1,5 @@
 
-if not Spring.GetConfigInt("LuaSocketEnabled", 0) == 1 then
+if not (Spring.GetConfigInt("LuaSocketEnabled", 0) == 1) then
 	Spring.Echo("LuaSocketEnabled is disabled")
 	return false
 end
@@ -106,7 +106,7 @@ function widget:AddConsoleLine(line)
 	end
 end
 
-function widget:DrawScreen(n)
+function widget:Update()
 	if set==nil or #set<=0 then
 		return
 	end

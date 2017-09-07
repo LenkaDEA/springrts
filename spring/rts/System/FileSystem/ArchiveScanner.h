@@ -5,6 +5,7 @@
 
 #include <string>
 #include <vector>
+#include <list>
 #include <map>
 #include "System/Info.h"
 
@@ -29,7 +30,7 @@ namespace modtype
 	static const int primary = 1;
 	static const int hidden = 0;
 	static const int map = 3;
-};
+}
 
 class CArchiveScanner
 {
@@ -47,7 +48,8 @@ public:
 		 * code, which could provoke runtime bugs when edited wrong.
 		 * There may well be other info-times supplied by the archive.
 		 */
-		std::string GetName() const { return GetInfoValueString("name"); }               /// ex:  Original Total Annihilation v2.3
+		std::string GetName() const { return GetInfoValueString("name_pure"); }          /// ex:  Original Total Annihilation
+		std::string GetNameVersioned() const { return GetInfoValueString("name"); }      /// ex:  Original Total Annihilation v2.3
 		std::string GetShortName() const { return GetInfoValueString("shortName"); }     /// ex:  OTA
 		std::string GetVersion() const { return GetInfoValueString("version"); }         /// ex:  v2.3
 		std::string GetMutator() const { return GetInfoValueString("mutator"); }         /// ex:  deployment
@@ -72,6 +74,7 @@ public:
 		void SetInfoItemValueBool(const std::string& key, bool value);
 
 		bool IsValid(std::string& error) const;
+		bool IsEmpty() const { return info.empty(); }
 
 		static bool IsReservedKey(const std::string& keyLower);
 		static std::string GetKeyDescription(const std::string& keyLower);
@@ -89,7 +92,7 @@ public:
 		InfoItem& EnsureInfoItem(const std::string& key);
 
 		std::map<std::string, InfoItem> info;
-		
+
 		std::vector<std::string> dependencies; /// Archives we depend on
 		std::vector<std::string> replaces;     /// This archive obsoletes these archives
 	};
@@ -97,27 +100,25 @@ public:
 	CArchiveScanner();
 	~CArchiveScanner();
 
-	const std::string& GetFilename() const;
+public:
+	const std::string& GetFilepath() const;
 
+	std::vector<std::string> GetMaps() const;
 	std::vector<ArchiveData> GetPrimaryMods() const;
 	std::vector<ArchiveData> GetAllMods() const;
-	std::vector<std::string> GetArchives(const std::string& root) const {
-		return GetArchives(root, 0);
-	}
-private:
-	std::vector<std::string> GetArchives(const std::string& root, int depth) const;
-public:
-	/**
-	 * Returns the (human-readable) map names.
-	 */
-	std::vector<std::string> GetMaps() const;
+	std::vector<ArchiveData> GetAllArchives() const;
 
+	std::vector<std::string> GetAllArchivesUsedBy(const std::string& root, int depth = 0) const;
+
+public:
 	/// checksum of the given archive (without dependencies)
-	unsigned int GetSingleArchiveChecksum(const std::string& name) const;
+	unsigned int GetSingleArchiveChecksum(const std::string& name);
 	/// Calculate checksum of the given archive and all its dependencies
-	unsigned int GetArchiveCompleteChecksum(const std::string& name) const;
+	unsigned int GetArchiveCompleteChecksum(const std::string& name);
 	/// like GetArchiveCompleteChecksum, throws exception if mismatch
-	void CheckArchive(const std::string& name, unsigned checksum) const;
+	void CheckArchive(const std::string& name, unsigned checksum);
+	void ScanArchive(const std::string& fullName, bool checksum = false);
+	void ScanAllDirs();
 
 	std::string ArchiveFromName(const std::string& s) const;
 	std::string NameFromArchive(const std::string& s) const;
@@ -126,25 +127,6 @@ public:
 	ArchiveData GetArchiveData(const std::string& name) const;
 	ArchiveData GetArchiveDataByArchive(const std::string& archive) const;
 
-	/**
-	 * Returns a value > 0 if the file is rated as a meta-file.
-	 * First class means, it is essential for the archive, and will be read by
-	 * pretty much every software that scanns through archives.
-	 * Second class means, it is not essential for the archive, but it may be
-	 * read by certain tools that generate spezialized indices while scanning
-	 * through archives.
-	 * Examples:
-	 * "objects3d/ddm.s3o" -> 0
-	 * "ModInfo.lua" -> 1
-	 * "maps/dsd.smf" -> 1
-	 * "LuaAI.lua" -> 2
-	 * "sides/arm.bmp" -> 2
-	 * @param filePath file path, relative to archive-root
-	 * @return 0 if the file is not a meta-file,
-	 *         1 if the file is a first class meta-file,
-	 *         2 if the file is a second class meta-file
-	 */
-	static unsigned char GetMetaFileClass(const std::string& filePath);
 
 private:
 	struct ArchiveInfo
@@ -156,11 +138,11 @@ private:
 			{}
 		std::string path;
 		std::string origName;     ///< Could be useful to have the non-lowercased name around
-		unsigned int modified;
+		std::string replaced;     ///< If not empty, use that archive instead
 		ArchiveData archiveData;
+		unsigned int modified;
 		unsigned int checksum;
 		bool updated;
-		std::string replaced;     ///< If not empty, use that archive instead
 	};
 	struct BrokenArchive
 	{
@@ -176,11 +158,17 @@ private:
 
 private:
 	void ScanDirs(const std::vector<std::string>& dirs, bool checksum = false);
-	void Scan(const std::string& curPath, bool doChecksum);
+	void ScanDir(const std::string& curPath, std::list<std::string>* foundArchives);
 
-	void ScanArchive(const std::string& fullName, bool checksum = false);
 	/// scan mapinfo / modinfo lua files
 	bool ScanArchiveLua(IArchive* ar, const std::string& fileName, ArchiveInfo& ai, std::string& err);
+
+	/**
+	 * scan archive for map file
+	 * @return file name if found, empty string if not
+	 */
+	std::string SearchMapFile(const IArchive* ar, std::string& error);
+
 
 	void ReadCacheData(const std::string& filename);
 	void WriteCacheData(const std::string& filename);
@@ -192,6 +180,30 @@ private:
 	 * Returns 0 if file could not be opened.
 	 */
 	unsigned int GetCRC(const std::string& filename);
+	void ComputeChecksumForArchive(const std::string& filePath);
+
+	bool CheckCachedData(const std::string& fullName, unsigned* modified, bool doChecksum);
+
+	/**
+	 * Returns a value > 0 if the file is rated as a meta-file.
+	 * First class means, it is essential for the archive, and will be read by
+	 * pretty much every software that scans through archives.
+	 * Second class means, it is not essential for the archive, but it may be
+	 * read by certain tools that generate spezialized indices while scanning
+	 * through archives.
+	 * Examples:
+	 * "objects3d/ddm.s3o" -> 0
+	 * "ModInfo.lua" -> 1
+	 * "maps/dsd.smf" -> 1
+	 * "LuaAI.lua" -> 2
+	 * "sides/arm.bmp" -> 2
+	 * @param filePath file path, relative to archive-root
+	 * @return 0 if the file is not a meta-file,
+	 *         1 if the file is a first class meta-file,
+	 *         2 if the file is a second class meta-file
+	 */
+	static unsigned char GetMetaFileClass(const std::string& filePath);
+	static bool CheckCompression(const IArchive* ar,const std::string& fullName, std::string& error);
 
 private:
 	std::map<std::string, ArchiveInfo> archiveInfos;

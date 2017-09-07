@@ -1,82 +1,79 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "UnitLoader.h"
 #include "Unit.h"
 #include "UnitDef.h"
 #include "UnitDefHandler.h"
+#include "UnitHandler.h"
 
 #include "Scripts/UnitScript.h"
 
 #include "UnitTypes/Builder.h"
 #include "UnitTypes/ExtractorBuilding.h"
 #include "UnitTypes/Factory.h"
-#include "UnitTypes/TransportUnit.h"
 
 #include "CommandAI/AirCAI.h"
 #include "CommandAI/BuilderCAI.h"
 #include "CommandAI/CommandAI.h"
 #include "CommandAI/FactoryCAI.h"
 #include "CommandAI/MobileCAI.h"
-#include "CommandAI/TransportCAI.h"
 
 #include "Game/GameHelper.h"
 #include "Map/Ground.h"
 #include "Map/MapDamage.h"
 #include "Map/ReadMap.h"
 
+#include "Sim/Features/FeatureDef.h"
+#include "Sim/Features/FeatureDefHandler.h"
 #include "Sim/Features/FeatureHandler.h"
 #include "Sim/Misc/TeamHandler.h"
-#include "Sim/Units/UnitHandler.h"
 
-#include "System/EventBatchHandler.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
 #include "System/Platform/Watchdog.h"
-#include "System/TimeProfiler.h"
 
 CUnitLoader* CUnitLoader::GetInstance()
 {
+	// NOTE: UnitLoader has no internal state, so this is fine wrt. reloading
 	static CUnitLoader instance;
 	return &instance;
 }
 
 
 
-CUnit* CUnitLoader::LoadUnit(const std::string& name, const float3& pos, int team,
-                             bool build, int facing, const CUnit* builder)
+CUnit* CUnitLoader::LoadUnit(const std::string& name, const UnitLoadParams& params)
 {
-	const UnitDef* ud = unitDefHandler->GetUnitDefByName(name);
+	const_cast<UnitLoadParams&>(params).unitDef = unitDefHandler->GetUnitDefByName(name);
 
-	if (ud == NULL) {
+	if (params.unitDef == NULL)
 		throw content_error("Couldn't find unittype " +  name);
-	}
 
-	return LoadUnit(ud, pos, team, build, facing, builder);
+	return (LoadUnit(params));
 }
 
 
-CUnit* CUnitLoader::LoadUnit(const UnitDef* ud, const float3& pos, int team,
-                             bool build, int facing, const CUnit* builder)
+CUnit* CUnitLoader::LoadUnit(const UnitLoadParams& cparams)
 {
 	CUnit* unit = NULL;
-
-	SCOPED_TIMER("UnitLoader::LoadUnit");
+	UnitLoadParams& params = const_cast<UnitLoadParams&>(cparams);
 
 	{
-		GML_RECMUTEX_LOCK(sel); // LoadUnit - for anti deadlock purposes.
-		GML_RECMUTEX_LOCK(quad); // LoadUnit - make sure other threads cannot access an incomplete unit
+		const UnitDef* ud = params.unitDef;
 
-		if (team < 0) {
-			team = teamHandler->GaiaTeamID(); // FIXME use gs->gaiaTeamID ?  (once it is always enabled)
-			if (team < 0)
+		if (ud == NULL)
+			return unit;
+		// need to check this BEFORE creating the instance
+		if (!unitHandler->CanAddUnit(cparams.unitID))
+			return unit;
+
+		if (params.teamID < 0) {
+			// FIXME use gs->gaiaTeamID ?  (once it is always enabled)
+			if ((params.teamID = teamHandler->GaiaTeamID()) < 0)
 				throw content_error("Invalid team and no gaia team to put unit in");
 		}
 
-		if (ud->IsTransportUnit()) {
-			unit = new CTransportUnit();
-		} else if (ud->IsFactoryUnit()) {
+		if (ud->IsFactoryUnit()) {
 			// special static builder structures that can always be given
 			// move orders (which are passed on to all mobile buildees)
 			unit = new CFactory();
@@ -97,29 +94,30 @@ CUnit* CUnitLoader::LoadUnit(const UnitDef* ud, const float3& pos, int team,
 			unit = new CUnit();
 		}
 
-		unit->PreInit(ud, team, facing, pos, build);
+		unit->PreInit(params);
 
-		if (ud->IsTransportUnit()) {
-			new CTransportCAI(unit);
-		} else if (ud->IsFactoryUnit()) {
+		if (ud->IsFactoryUnit()) {
 			new CFactoryCAI(unit);
 		} else if (ud->IsMobileBuilderUnit() || ud->IsStaticBuilderUnit()) {
 			new CBuilderCAI(unit);
-		} else if (ud->IsNonHoveringAirUnit()) {
+		} else if (ud->IsStrafingAirUnit()) {
 			// non-hovering fighter or bomber aircraft; coupled to StrafeAirMoveType
 			new CAirCAI(unit);
 		} else if (ud->IsAirUnit()) {
 			// all other aircraft; coupled to HoverAirMoveType
 			new CMobileCAI(unit);
-		} else if (ud->IsGroundUnit()) {
+		} else if (ud->IsGroundUnit() || ud->IsTransportUnit()) {
 			new CMobileCAI(unit);
 		} else {
 			new CCommandAI(unit);
 		}
 	}
 
-	unit->PostInit(builder);
-	(eventBatchHandler->GetUnitCreatedDestroyedBatch()).enqueue(EventBatchHandler::UD(unit, unit->isCloaked));
+	unit->PostInit(params.builder);
+
+	if (params.flattenGround) {
+		FlattenGround(unit);
+	}
 
 	return unit;
 }
@@ -196,31 +194,39 @@ void CUnitLoader::GiveUnits(const std::string& objectName, float3 pos, int amoun
 		unsigned int currentNumUnits = receivingTeam->units.size();
 
 		// make sure team unit-limit is not exceeded
-		if ((currentNumUnits + numRequestedUnits) > receivingTeam->maxUnits) {
-			numRequestedUnits = receivingTeam->maxUnits - currentNumUnits;
+		if ((currentNumUnits + numRequestedUnits) > receivingTeam->GetMaxUnits()) {
+			numRequestedUnits = receivingTeam->GetMaxUnits() - currentNumUnits;
 		}
 
 		// make sure square is entirely on the map
 		const int sqSize = math::ceil(math::sqrt((float) numRequestedUnits));
 		const float sqHalfMapSize = sqSize / 2 * 10 * SQUARE_SIZE;
 
-		pos.x = std::max(sqHalfMapSize, std::min(pos.x, float3::maxxpos - sqHalfMapSize - 1));
-		pos.z = std::max(sqHalfMapSize, std::min(pos.z, float3::maxzpos - sqHalfMapSize - 1));
+		pos.x = Clamp(pos.x, sqHalfMapSize, float3::maxxpos - sqHalfMapSize - 1);
+		pos.z = Clamp(pos.z, sqHalfMapSize, float3::maxzpos - sqHalfMapSize - 1);
 
 		for (int a = 1; a <= numRequestedUnits; ++a) {
 			Watchdog::ClearPrimaryTimers(); // the other thread may be waiting for a mutex held by this one, triggering hang detection
 			const float px = pos.x + (a % sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
 			const float pz = pos.z + (a / sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
-			const float3 unitPos = float3(px, ground->GetHeightReal(px, pz), pz);
-			const UnitDef* unitDef = unitDefHandler->GetUnitDefByID(a);
+			const UnitDef* ud = unitDefHandler->GetUnitDefByID(a);
 
-			if (unitDef != NULL) {
-				const CUnit* unit = LoadUnit(unitDef, unitPos, team, false, 0, NULL);
+			const UnitLoadParams unitParams = {
+				ud,
+				NULL,
 
-				if (unit != NULL) {
-					FlattenGround(unit);
-				}
-			}
+				float3(px, CGround::GetHeightReal(px, pz), pz),
+				ZeroVector,
+
+				-1,
+				team,
+				FACING_SOUTH,
+
+				false,
+				true,
+			};
+
+			LoadUnit(unitParams);
 		}
 	} else {
 		unsigned int numRequestedUnits = amount;
@@ -229,18 +235,18 @@ void CUnitLoader::GiveUnits(const std::string& objectName, float3 pos, int amoun
 		if (receivingTeam->AtUnitLimit()) {
 			LOG_L(L_WARNING,
 				"[%s] unable to give more units to team %d (current: %u, team limit: %u, global limit: %u)",
-				__FUNCTION__, team, currentNumUnits, receivingTeam->maxUnits, uh->MaxUnits()
+				__FUNCTION__, team, currentNumUnits, receivingTeam->GetMaxUnits(), unitHandler->MaxUnits()
 			);
 			return;
 		}
 
 		// make sure team unit-limit is not exceeded
-		if ((currentNumUnits + numRequestedUnits) > receivingTeam->maxUnits) {
-			numRequestedUnits = receivingTeam->maxUnits - currentNumUnits;
+		if ((currentNumUnits + numRequestedUnits) > receivingTeam->GetMaxUnits()) {
+			numRequestedUnits = receivingTeam->GetMaxUnits() - currentNumUnits;
 		}
 
 		const UnitDef* unitDef = unitDefHandler->GetUnitDefByName(objectName);
-		const FeatureDef* featureDef = featureHandler->GetFeatureDef(objectName, false);
+		const FeatureDef* featureDef = featureDefHandler->GetFeatureDef(objectName, false);
 
 		if (unitDef == NULL && featureDef == NULL) {
 			LOG_L(L_WARNING, "[%s] %s is not a valid object-name", __FUNCTION__, objectName.c_str());
@@ -257,22 +263,31 @@ void CUnitLoader::GiveUnits(const std::string& objectName, float3 pos, int amoun
 				pos.z - (((squareSize - 1) * zsize * SQUARE_SIZE) / 2)
 			);
 
-			int total = numRequestedUnits;
+			int unitsLoaded = numRequestedUnits;
 
 			for (int z = 0; z < squareSize; ++z) {
-				for (int x = 0; x < squareSize && total > 0; ++x) {
+				for (int x = 0; x < squareSize && (unitsLoaded-- > 0); ++x) {
 					const float px = squarePos.x + x * xsize * SQUARE_SIZE;
 					const float pz = squarePos.z + z * zsize * SQUARE_SIZE;
 
-					const float3 unitPos = float3(px, ground->GetHeightReal(px, pz), pz);
 					Watchdog::ClearPrimaryTimers();
-					const CUnit* unit = LoadUnit(unitDef, unitPos, team, false, 0, NULL);
 
-					if (unit != NULL) {
-						FlattenGround(unit);
-					}
+					const UnitLoadParams unitParams = {
+						unitDef,
+						NULL,
 
-					--total;
+						float3(px, CGround::GetHeightReal(px, pz), pz),
+						ZeroVector,
+
+						-1,
+						team,
+						FACING_SOUTH,
+
+						false,
+						true,
+					};
+
+					LoadUnit(unitParams);
 				}
 			}
 
@@ -300,12 +315,26 @@ void CUnitLoader::GiveUnits(const std::string& objectName, float3 pos, int amoun
 				for (int x = 0; x < squareSize && total > 0; ++x) {
 					const float px = squarePos.x + x * xsize * SQUARE_SIZE;
 					const float pz = squarePos.z + z * zsize * SQUARE_SIZE;
-					const float3 featurePos = float3(px, ground->GetHeightReal(px, pz), pz);
+					const float3 featurePos = float3(px, CGround::GetHeightReal(px, pz), pz);
 
 					Watchdog::ClearPrimaryTimers();
-					CFeature* feature = new CFeature();
-					// Initialize() adds the feature to the FeatureHandler -> no memory-leak
-					feature->Initialize(featurePos, featureDef, 0, 0, team, featureAllyTeam, NULL);
+					FeatureLoadParams params = {
+						featureDef,
+						NULL,
+
+						featurePos,
+						ZeroVector,
+
+						team,
+						featureAllyTeam,
+
+						0, // rotation
+						FACING_SOUTH,
+
+						0, // smokeTime
+					};
+
+					featureHandler->LoadFeature(params);
 
 					--total;
 				}
@@ -323,27 +352,28 @@ void CUnitLoader::GiveUnits(const std::string& objectName, float3 pos, int amoun
 void CUnitLoader::FlattenGround(const CUnit* unit)
 {
 	const UnitDef* unitDef = unit->unitDef;
-	const float groundheight = ground->GetHeightReal(unit->pos.x, unit->pos.z);
+	const float groundheight = CGround::GetHeightReal(unit->pos.x, unit->pos.z);
 
 	if (mapDamage->disabled) return;
 	if (!unitDef->levelGround) return;
+	if (unitDef->IsAirUnit()) return;
 	if (!unitDef->IsImmobileUnit()) return;
 	if (unitDef->floatOnWater && groundheight <= 0.0f) return;
 
 	// if we are float-capable, only flatten
 	// if the terrain here is above sea level
 	BuildInfo bi(unitDef, unit->pos, unit->buildFacing);
-	bi.pos = helper->Pos2BuildPos(bi, true);
+	bi.pos = CGameHelper::Pos2BuildPos(bi, true);
 
 	const float hss = 0.5f * SQUARE_SIZE;
 	const int tx1 = (int) std::max(0.0f ,(bi.pos.x - (bi.GetXSize() * hss)) / SQUARE_SIZE);
 	const int tz1 = (int) std::max(0.0f ,(bi.pos.z - (bi.GetZSize() * hss)) / SQUARE_SIZE);
-	const int tx2 = std::min(gs->mapx, tx1 + bi.GetXSize());
-	const int tz2 = std::min(gs->mapy, tz1 + bi.GetZSize());
+	const int tx2 = std::min(mapDims.mapx, tx1 + bi.GetXSize());
+	const int tz2 = std::min(mapDims.mapy, tz1 + bi.GetZSize());
 
 	for (int z = tz1; z <= tz2; z++) {
 		for (int x = tx1; x <= tx2; x++) {
-			readmap->SetHeight(z * gs->mapxp1 + x, bi.pos.y);
+			readMap->SetHeight(z * mapDims.mapxp1 + x, bi.pos.y);
 		}
 	}
 
@@ -353,29 +383,30 @@ void CUnitLoader::FlattenGround(const CUnit* unit)
 void CUnitLoader::RestoreGround(const CUnit* unit)
 {
 	const UnitDef* unitDef = unit->unitDef;
-	const float groundheight = ground->GetHeightReal(unit->pos.x, unit->pos.z);
+	const float groundheight = CGround::GetHeightReal(unit->pos.x, unit->pos.z);
 
 	if (mapDamage->disabled) return;
 	if (!unitDef->levelGround) return;
+	if (unitDef->IsAirUnit()) return;
 	if (!unitDef->IsImmobileUnit()) return;
 	if (unitDef->floatOnWater && groundheight <= 0.0f) return;
 
 	BuildInfo bi(unitDef, unit->pos, unit->buildFacing);
-	bi.pos = helper->Pos2BuildPos(bi, true);
+	bi.pos = CGameHelper::Pos2BuildPos(bi, true);
 	const float hss = 0.5f * SQUARE_SIZE;
 	const int tx1 = (int) std::max(0.0f ,(bi.pos.x - (bi.GetXSize() * hss)) / SQUARE_SIZE);
 	const int tz1 = (int) std::max(0.0f ,(bi.pos.z - (bi.GetZSize() * hss)) / SQUARE_SIZE);
-	const int tx2 = std::min(gs->mapx, tx1 + bi.GetXSize());
-	const int tz2 = std::min(gs->mapy, tz1 + bi.GetZSize());
+	const int tx2 = std::min(mapDims.mapx, tx1 + bi.GetXSize());
+	const int tz2 = std::min(mapDims.mapy, tz1 + bi.GetZSize());
 
 
-	const float* heightmap = readmap->GetCornerHeightMapSynced();
+	const float* heightmap = readMap->GetCornerHeightMapSynced();
 	int num = 0;
 	float heightdiff = 0.0f;
 	for (int z = tz1; z <= tz2; z++) {
 		for (int x = tx1; x <= tx2; x++) {
-			int index = z * gs->mapxp1 + x;
-			heightdiff += heightmap[index] - readmap->GetOriginalHeightMapSynced()[index];
+			int index = z * mapDims.mapxp1 + x;
+			heightdiff += heightmap[index] - readMap->GetOriginalHeightMapSynced()[index];
 			++num;
 		}
 	}
@@ -384,16 +415,16 @@ void CUnitLoader::RestoreGround(const CUnit* unit)
 	heightdiff += unit->pos.y - bi.pos.y;
 	for (int z = tz1; z <= tz2; z++) {
 		for (int x = tx1; x <= tx2; x++) {
-			int index = z * gs->mapxp1 + x;
-			readmap->SetHeight(index, heightdiff + readmap->GetOriginalHeightMapSynced()[index]);
+			int index = z * mapDims.mapxp1 + x;
+			readMap->SetHeight(index, heightdiff + readMap->GetOriginalHeightMapSynced()[index]);
 		}
 	}
 	// but without affecting the build height
-	heightdiff = bi.pos.y - helper->Pos2BuildPos(bi, true).y;
+	heightdiff = bi.pos.y - CGameHelper::Pos2BuildPos(bi, true).y;
 	for (int z = tz1; z <= tz2; z++) {
 		for (int x = tx1; x <= tx2; x++) {
-			int index = z * gs->mapxp1 + x;
-			readmap->SetHeight(index, heightdiff + heightmap[index]);
+			int index = z * mapDims.mapxp1 + x;
+			readMap->SetHeight(index, heightdiff + heightmap[index]);
 		}
 	}
 

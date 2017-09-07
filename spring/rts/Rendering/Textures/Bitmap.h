@@ -4,6 +4,7 @@
 #define _BITMAP_H
 
 #include <string>
+#include <vector>
 #ifndef BITMAP_NO_OPENGL
 	#include "nv_dds.h"
 #endif // !BITMAP_NO_OPENGL
@@ -17,31 +18,37 @@ struct SDL_Surface;
 class CBitmap
 {
 public:
-	CBitmap(const unsigned char* data,int xsize,int ysize);
+	CBitmap(const unsigned char* data, int xsize, int ysize, int channels = 4);
 	CBitmap();
 	CBitmap(const CBitmap& old);
 	CBitmap& operator=(const CBitmap& bm);
+	CBitmap(CBitmap&& bm);
+	CBitmap& operator=(CBitmap&& bm);
 
 	virtual ~CBitmap();
 
+	void Alloc(int w, int h, int c);
 	void Alloc(int w, int h);
+	void AllocDummy(const SColor fill = SColor(255,0,0,255));
 
 	/// Load data from a file on the VFS
 	bool Load(std::string const& filename, unsigned char defaultAlpha = 255);
 	/// Load data from a gray-scale file on the VFS
 	bool LoadGrayscale(std::string const& filename);
 	bool Save(std::string const& filename, bool opaque = true) const;
+	bool SaveFloat(std::string const& filename) const;
 
-	const unsigned int CreateTexture(bool mipmaps = false) const;
-	const unsigned int CreateDDSTexture(unsigned int texID = 0, bool mipmaps = false) const;
+	unsigned int CreateTexture(float aniso = 0.0f, bool mipmaps = false) const;
+	unsigned int CreateMipMapTexture(float aniso = 0.0f) const { return (CreateTexture(aniso, true)); }
+	unsigned int CreateAnisoTexture(float aniso = 0.0f) const { return (CreateTexture(aniso, false)); }
+	unsigned int CreateDDSTexture(unsigned int texID = 0, float aniso = 0.0f, bool mipmaps = false) const;
 
 	void CreateAlpha(unsigned char red, unsigned char green, unsigned char blue);
-	void SetTransparent(const SColor& c, const SColor& trans = SColor(0,0,0,0));
+	void SetTransparent(const SColor& c, const SColor trans = SColor(0,0,0,0));
 
 	void Renormalize(float3 newCol);
 	void Blur(int iterations = 1, float weight = 1.0f);
 
-	CBitmap GetRegion(int startx, int starty, int width, int height) const;
 	void CopySubImage(const CBitmap& src, int x, int y);
 
 	/**
@@ -57,21 +64,13 @@ public:
 	 * - You have to free the surface with SDL_FreeSurface(surface)
 	 *   if you do not need it anymore!
 	 */
-	SDL_Surface* CreateSDLSurface(bool newPixelData = false) const;
+	SDL_Surface* CreateSDLSurface() const;
 
-	unsigned char* mem;
+	std::vector<unsigned char> mem;
 	int xsize;
 	int ysize;
 	int channels;
-
-	enum BitmapType
-	{
-		BitmapTypeStandardRGBA,
-		BitmapTypeStandardAlpha,
-		BitmapTypeDDS
-	};
-
-	BitmapType type;
+	bool compressed;
 
 #ifndef BITMAP_NO_OPENGL
 	int textype; //! GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP, ...
@@ -79,17 +78,13 @@ public:
 #endif // !BITMAP_NO_OPENGL
 
 public:
+	CBitmap CanvasResize(const int newx, const int newy, const bool center = true) const;
 	CBitmap CreateRescaled(int newx, int newy) const;
 	void ReverseYAxis();
 	void InvertColors();
 	void InvertAlpha();
 	void GrayScale();
 	void Tint(const float tint[3]);
-private:
-	/**
-	 * Allocates a red 1x1, 4-channel bitmap
-	 */
-	void AllocDummy();
 };
 
 #endif // _BITMAP_H

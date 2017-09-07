@@ -12,8 +12,9 @@ class LuaUnsyncedRead {
 	public:
 		static bool PushEntries(lua_State* L);
 
-	private:
+	public:
 		static int IsReplay(lua_State* L);
+		static int GetReplayLength(lua_State* L);
 		static int GetModUICtrl(lua_State* L);
 
 		static int GetDrawFrame(lua_State* L);
@@ -42,12 +43,14 @@ class LuaUnsyncedRead {
 		static int GetUnitNoMinimap(lua_State* L);
 		static int GetUnitNoSelect(lua_State* L);
 		static int GetFeatureLuaDraw(lua_State* L);
+		static int GetFeatureNoDraw(lua_State* L);
 
 		static int GetUnitTransformMatrix(lua_State* L);
 		static int GetUnitViewPosition(lua_State* L);
 
 		static int GetVisibleUnits(lua_State* L);
 		static int GetVisibleFeatures(lua_State* L);
+		static int GetVisibleProjectiles(lua_State* L);
 
 		static int GetTeamColor(lua_State* L);
 		static int GetTeamOrigColor(lua_State* L);
@@ -69,6 +72,8 @@ class LuaUnsyncedRead {
 		static int GetMapDrawMode(lua_State* L);
 		static int GetMapSquareTexture(lua_State* L);
 
+		static int GetLosViewColors(lua_State* L);
+
 		static int GetCameraNames(lua_State* L);
 		static int GetCameraState(lua_State* L);
 		static int GetCameraPosition(lua_State* L);
@@ -77,15 +82,17 @@ class LuaUnsyncedRead {
 		static int GetCameraVectors(lua_State* L);
 		static int WorldToScreenCoords(lua_State* L);
 		static int TraceScreenRay(lua_State* L);
+		static int GetPixelDir(lua_State* L);
 
 		static int GetTimer(lua_State* L);
+		static int GetFrameTimer(lua_State* L);
 		static int DiffTimers(lua_State* L);
 
 		static int GetSoundStreamTime(lua_State* L);
 		static int GetSoundEffectParams(lua_State* L);
-	
-		// moved from LuaUI
+
 		static int GetFPS(lua_State* L);
+		static int GetGameSpeed(lua_State* L);
 
 		static int GetMouseState(lua_State* L);
 		static int GetMouseCursor(lua_State* L);
@@ -95,6 +102,8 @@ class LuaUnsyncedRead {
 		static int GetModKeyState(lua_State* L);
 		static int GetPressedKeys(lua_State* L);
 		static int GetInvertQueueKey(lua_State* L);
+
+		static int GetClipboard(lua_State* L);
 
 		static int GetActiveCommand(lua_State* L);
 		static int GetDefaultCommand(lua_State* L);
@@ -122,10 +131,6 @@ class LuaUnsyncedRead {
 		static int GetGroupList(lua_State* L);
 		static int GetSelectedGroup(lua_State* L);
 
-		static int GetMyAllyTeamID(lua_State* L);
-		static int GetMyTeamID(lua_State* L);
-		static int GetMyPlayerID(lua_State* L);
-
 		static int GetUnitGroup(lua_State* L);
 
 		static int GetGroupUnits(lua_State* L);
@@ -138,6 +143,19 @@ class LuaUnsyncedRead {
 		static int GetPlayerStatistics(lua_State* L);
 
 		static int GetDrawSelectionInfo(lua_State* L);
+
+		static int GetConfigParams(lua_State* L);
+
+		static int GetLogSections(lua_State* L);
+
+		static int GetAllDecals(lua_State* L);
+		static int GetDecalPos(lua_State* L);
+		static int GetDecalSize(lua_State* L);
+		static int GetDecalRotation(lua_State* L);
+		static int GetDecalTexture(lua_State* L);
+		static int GetDecalAlpha(lua_State* L);
+		static int GetDecalType(lua_State* L);
+		static int GetDecalOwner(lua_State* L);
 };
 
 

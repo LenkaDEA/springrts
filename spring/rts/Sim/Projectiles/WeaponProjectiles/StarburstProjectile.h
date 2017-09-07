@@ -6,67 +6,65 @@
 #include "WeaponProjectile.h"
 #include <vector>
 
-#if defined(USE_GML) && GML_ENABLE_SIM
-#define AGEMOD_VECTOR gmlCircularQueue<float, 64>
-#else
-#define AGEMOD_VECTOR std::vector<float>
-#endif
 
 class CSmokeTrailProjectile;
 
 class CStarburstProjectile : public CWeaponProjectile
 {
-	CR_DECLARE(CStarburstProjectile);
-	void creg_Serialize(creg::ISerializer& s);
-public:
-	CStarburstProjectile(const float3& pos, const float3& speed, CUnit* owner,
-			float3 targetPos, float areaOfEffect, float maxSpeed,float tracking,
-			int uptime, CUnit* target, const WeaponDef* weaponDef,
-			CWeaponProjectile* interceptTarget, float maxRange,
-			float3 aimError);
-	~CStarburstProjectile();
-	virtual void Detach();
-	void Collision(CUnit* unit);
-	void Collision();
-	void Update();
-	void Draw();
+	CR_DECLARE_DERIVED(CStarburstProjectile)
+	CR_DECLARE_SUB(TracerPart)
 
-	int ShieldRepulse(CPlasmaRepulser* shield, float3 shieldPos,
-			float shieldForce, float shieldMaxSpeed);
+public:
+	CStarburstProjectile() { }
+	CStarburstProjectile(const ProjectileParams& params);
+
+	void Collision(CUnit* unit) override;
+	void Collision(CFeature* feature) override;
+	void Collision() override;
+	void Update() override;
+	void Draw() override;
+
+	virtual int GetProjectilesCount() const override;
+
+	int ShieldRepulse(const float3& shieldPos, float shieldForce, float shieldMaxSpeed) override;
+
+	void SetIgnoreError(bool b) { ignoreError = b; }
+private:
+	void UpdateTrajectory();
 
 private:
-	void DrawCallback();
-
+	float3 aimError;
 	float tracking;
+	bool ignoreError;
+	bool doturn;
 	float maxGoodDif;
 	float maxSpeed;
-	float curSpeed;
 	float acceleration;
-	int uptime;
-	float areaOfEffect;
-	int age;
-	float3 oldSmoke;
-	float3 oldSmokeDir;
-	float3 aimError;
-	bool drawTrail;
-	int numParts;
-	bool doturn;
-	CSmokeTrailProjectile* curCallback;
-	int missileAge;
 	float distanceToTravel;
 
-	static const int NUM_TRACER_PARTS = 5;
-	/// the smokes life-time in frames
-	static const float SMOKE_TIME;
+	int uptime;
+	int age;
+
+	float3 oldSmoke;
+	float3 oldSmokeDir;
+	CSmokeTrailProjectile* smokeTrail;
+
+	int numParts;
+	int missileAge;
+	unsigned int curTracerPart;
 
 	struct TracerPart {
+		CR_DECLARE_STRUCT(TracerPart)
+
 		float3 pos;
 		float3 dir;
 		float speedf;
-		AGEMOD_VECTOR ageMods;
+		std::vector<float> ageMods;
+		unsigned int numAgeMods;
 	};
-	TracerPart *tracerParts[NUM_TRACER_PARTS];
-	TracerPart tracerPartMem[NUM_TRACER_PARTS];
+
+	static const unsigned int NUM_TRACER_PARTS = 5;
+	TracerPart tracerParts[NUM_TRACER_PARTS];
 };
 
 #endif /* STARBURST_PROJECTILE_H */

@@ -5,9 +5,9 @@
 
 #include "creg_cond.h"
 
-#ifdef USING_CREG
-
 #include <list>
+
+#ifdef USING_CREG
 
 namespace creg {
 
@@ -28,6 +28,7 @@ namespace creg {
 					elemType->Serialize(s, &*it);
 				}
 			} else {
+				ct.clear();
 				int size;
 				s->SerializeInt(&size, sizeof(int));
 				ct.resize(size);
@@ -37,7 +38,8 @@ namespace creg {
 				}
 			}
 		}
-		std::string GetName() { return "list<" + elemType->GetName() + ">"; }
+		std::string GetName() const { return "list<" + elemType->GetName() + ">"; }
+		size_t GetSize() const { return sizeof(T); }
 
 		boost::shared_ptr<IType> elemType;
 	};
@@ -46,12 +48,11 @@ namespace creg {
 	// List type
 	template<typename T>
 	struct DeduceType< std::list<T> > {
-		boost::shared_ptr<IType> Get() {
-			DeduceType<T> elemtype;
-			return boost::shared_ptr<IType>(new ListType< std::list<T> >(elemtype.Get()));
+		static boost::shared_ptr<IType> Get() {
+			return boost::shared_ptr<IType>(new ListType< std::list<T> >(DeduceType<T>::Get()));
 		}
 	};
-};
+}
 
 #endif // USING_CREG
 

@@ -235,30 +235,20 @@ springLegacyAI::UnitDef::UnitDef()
 , nanoColor(ZeroVector)
 , maxFuel(0.0f)
 , refuelTime(0.0f)
-, minAirBasePower(0.0f)
 , pieceTrailCEGRange(-1)
 , maxThisUnit(0)
-, realMetalCost(0.0f)
-, realEnergyCost(0.0f)
-, realMetalUpkeep(0.0f)
-, realEnergyUpkeep(0.0f)
-, realBuildTime(0.0f)
+//, realMetalCost(0.0f)
+//, realEnergyCost(0.0f)
+//, realMetalUpkeep(0.0f)
+//, realEnergyUpkeep(0.0f)
+//, realBuildTime(0.0f)
 {
-	yardmaps[0] = NULL;
-	yardmaps[1] = NULL;
-	yardmaps[2] = NULL;
-	yardmaps[3] = NULL;
 }
 
 
 springLegacyAI::UnitDef::~UnitDef()
 {
 	delete movedata; movedata = NULL;
-
-	delete[] yardmaps[0]; yardmaps[0] = NULL;
-	delete[] yardmaps[1]; yardmaps[1] = NULL;
-	delete[] yardmaps[2]; yardmaps[2] = NULL;
-	delete[] yardmaps[3]; yardmaps[3] = NULL;
 }
 
 

@@ -1,183 +1,103 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
-
 #include "LightningCannon.h"
-#include "WeaponDefHandler.h"
+#include "PlasmaRepulser.h"
+#include "WeaponDef.h"
 #include "Game/GameHelper.h"
 #include "Game/TraceRay.h"
-#include "Map/Ground.h"
-#include "PlasmaRepulser.h"
-#include "Rendering/Models/3DModel.h"
-#include "Sim/Features/FeatureHandler.h"
-#include "Sim/Misc/InterceptHandler.h"
-#include "Sim/Projectiles/WeaponProjectiles/LightningProjectile.h"
+#include "Sim/Misc/CollisionHandler.h"
+#include "Sim/Misc/GlobalSynced.h"
+#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectileFactory.h"
 #include "Sim/Units/Unit.h"
 
+#include <vector>
 
-CR_BIND_DERIVED(CLightningCannon, CWeapon, (NULL));
+CR_BIND_DERIVED(CLightningCannon, CWeapon, (NULL, NULL))
 
 CR_REG_METADATA(CLightningCannon,(
-	CR_MEMBER(color),
-	CR_RESERVED(8)
-	));
+	CR_MEMBER(color)
+))
 
-CLightningCannon::CLightningCannon(CUnit* owner)
-: CWeapon(owner)
+CLightningCannon::CLightningCannon(CUnit* owner, const WeaponDef* def)
+	: CWeapon(owner, def)
 {
+	//happens when loading
+	if (def != nullptr)
+		color = def->visuals.color;
 }
 
-CLightningCannon::~CLightningCannon(void)
+float CLightningCannon::GetPredictedImpactTime(float3 p) const
 {
+	return 0;
 }
 
-void CLightningCannon::Update(void)
-{
-	if (targetType != Target_None) {
-		weaponPos = owner->pos +
-			owner->frontdir * relWeaponPos.z +
-			owner->updir    * relWeaponPos.y +
-			owner->rightdir * relWeaponPos.x;
-		weaponMuzzlePos = owner->pos +
-			owner->frontdir * relWeaponMuzzlePos.z +
-			owner->updir    * relWeaponMuzzlePos.y +
-			owner->rightdir * relWeaponMuzzlePos.x;
-
-		if (!onlyForward) {
-			wantedDir = (targetPos - weaponPos).Normalize();
-		}
-	}
-
-	CWeapon::Update();
-}
-
-bool CLightningCannon::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
-{
-	if (!CWeapon::TryTarget(pos, userTarget, unit))
-		return false;
-
-	if (!weaponDef->waterweapon && TargetUnitOrPositionInWater(pos, unit))
-		return false;
-
-	float3 dir = pos - weaponMuzzlePos;
-	float length = dir.Length();
-	if (length == 0)
-		return true;
-
-	dir /= length;
-
-	if (!HaveFreeLineOfFire(weaponMuzzlePos, dir, length, unit)) {
-		return false;
-	}
-
-	if (avoidFeature && TraceRay::LineFeatureCol(weaponMuzzlePos, dir, length)) {
-		return false;
-	}
-	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, dir, length, (accuracy + sprayAngle), owner->allyteam, true, false, false, owner)) {
-		return false;
-	}
-	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, dir, length, (accuracy + sprayAngle), owner->allyteam, false, true, false, owner)) {
-		return false;
-	}
-
-	return true;
-}
-
-void CLightningCannon::Init(void)
-{
-	CWeapon::Init();
-}
-
-void CLightningCannon::FireImpl()
+void CLightningCannon::FireImpl(const bool scriptCall)
 {
 	float3 curPos = weaponMuzzlePos;
-	float3 hitPos;
-	float3 curDir = (targetPos - curPos).Normalize();
-	float3 newDir = curDir;
+	float3 curDir = (currentTargetPos - weaponMuzzlePos).SafeNormalize();
 
 	curDir +=
-		(gs->randVector() * sprayAngle + salvoError) *
-		(1.0f - owner->limExperience * weaponDef->ownerExpAccWeight);
+		(gs->randVector() * SprayAngleExperience() + SalvoErrorExperience());
 	curDir.Normalize();
 
 	CUnit* hitUnit = NULL;
 	CFeature* hitFeature = NULL;
-	CPlasmaRepulser* hitShield = NULL;
+	CollisionQuery hitColQuery;
 
-	float boltLength = TraceRay::TraceRay(curPos, curDir, range, collisionFlags, owner, hitUnit, hitFeature);
+	float boltLength = TraceRay::TraceRay(curPos, curDir, range, collisionFlags, owner, hitUnit, hitFeature, &hitColQuery);
 
 	if (!weaponDef->waterweapon) {
 		// terminate bolt at water surface if necessary
 		if ((curDir.y < 0.0f) && ((curPos.y + curDir.y * boltLength) <= 0.0f)) {
 			boltLength = curPos.y / -curDir.y;
+			hitUnit = NULL;
+			hitFeature = NULL;
 		}
 	}
 
-	const float shieldLength = interceptHandler.AddShieldInterceptableBeam(this, curPos, curDir, range, newDir, hitShield);
-
-	if (shieldLength < boltLength) {
-		boltLength = shieldLength;
-		hitShield->BeamIntercepted(this);
+	static std::vector<TraceRay::SShieldDist> hitShields;
+	hitShields.clear();
+	TraceRay::TraceRayShields(this, curPos, curDir, range, hitShields);
+	for (const TraceRay::SShieldDist& sd: hitShields) {
+		if(sd.dist < boltLength && sd.rep->IncomingBeam(this, curPos)) {
+			boltLength = sd.dist;
+			hitUnit = NULL;
+			hitFeature = NULL;
+			break;
+		}
 	}
-
-	hitPos = curPos + curDir * boltLength;
-	// NOTE: we still need the old position and direction for the projectile
-	// curPos = hitPos;
-	// curDir = newDir;
 
 	if (hitUnit != NULL) {
-		hitUnit->SetLastAttackedPiece(hitUnit->localmodel->GetRoot(), gs->frameNum);
+		hitUnit->SetLastHitPiece(hitColQuery.GetHitPiece(), gs->frameNum);
 	}
 
-
-	const DamageArray& damageArray = (weaponDef->dynDamageExp <= 0.0f)?
-		weaponDef->damages:
-		weaponDefHandler->DynamicDamages(
-			weaponDef->damages,
-			weaponMuzzlePos,
-			targetPos,
-			(weaponDef->dynDamageRange > 0.0f)?
-				weaponDef->dynDamageRange:
-				weaponDef->range,
-			weaponDef->dynDamageExp,
-			weaponDef->dynDamageMin,
-			weaponDef->dynDamageInverted
-		);
-
-	const CGameHelper::ExplosionParams params = {
-		hitPos,
+	const DamageArray& damageArray = damages->GetDynamicDamages(weaponMuzzlePos, currentTargetPos);
+	const CExplosionParams params = {
+		curPos + curDir * boltLength,                     // hitPos (same as hitColQuery.GetHitPos() if no water or shield in way)
 		curDir,
 		damageArray,
 		weaponDef,
 		owner,
 		hitUnit,
 		hitFeature,
-		craterAreaOfEffect,
-		damageAreaOfEffect,
-		weaponDef->edgeEffectiveness,
-		weaponDef->explosionSpeed,
+		damages->craterAreaOfEffect,
+		damages->damageAreaOfEffect,
+		damages->edgeEffectiveness,
+		damages->explosionSpeed,
 		0.5f,                                             // gfxMod
 		weaponDef->impactOnly,
 		weaponDef->noExplode || weaponDef->noSelfDamage,  // ignoreOwner
-		false                                             // damageGround
+		false,                                            // damageGround
+		-1u                                               // projectileID
 	};
 
 	helper->Explosion(params);
 
-	new CLightningProjectile(
-		curPos,
-		curPos + curDir * (boltLength + 10.0f),
-		owner,
-		color,
-		weaponDef,
-		10,
-		this
-	);
+	ProjectileParams pparams = GetProjectileParams();
+	pparams.pos = curPos;
+	pparams.end = curPos + curDir * (boltLength + 10.0f);
+	pparams.ttl = weaponDef->beamLaserTTL;
+
+	WeaponProjectileFactory::LoadProjectile(pparams);
 }
 
-
-
-void CLightningCannon::SlowUpdate(void)
-{
-	CWeapon::SlowUpdate();
-}

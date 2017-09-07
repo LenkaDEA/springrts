@@ -5,6 +5,7 @@
 
 #include <string>
 
+#include "Sim/Misc/NanoPieceCache.h"
 #include "Sim/Units/Unit.h"
 #include "System/float3.h"
 
@@ -16,7 +17,7 @@ class CSolidObject;
 class CBuilder : public CUnit
 {
 private:
-	void PreInit(const UnitDef* def, int team, int facing, const float3& position, bool build);
+	void PreInit(const UnitLoadParams& params);
 
 public:
 	inline float f3Dist(const float3& a, const float3& b) const {
@@ -31,25 +32,24 @@ public:
 	inline float f3SqLen(const float3& a) const {
 		return range3D ? a.SqLength() : a.SqLength2D();
 	}
-	
+
 public:
-	CR_DECLARE(CBuilder);
+	CR_DECLARE(CBuilder)
 
 	CBuilder();
 	virtual ~CBuilder();
-	void PostLoad();
 
 	void Update();
 	void SlowUpdate();
 	void DependentDied(CObject* o);
 
-	bool StartBuild(BuildInfo& buildInfo, CFeature*& feature, bool& waitstance);
+	bool StartBuild(BuildInfo& buildInfo, CFeature*& feature, bool& waitStance);
 	float CalculateBuildTerraformCost(BuildInfo& buildInfo);
 	void StopBuild(bool callScript = true);
 	void SetRepairTarget(CUnit* target);
 	void SetReclaimTarget(CSolidObject* object);
 	void StartRestore(float3 centerPos, float radius);
-	void SetBuildStanceToward(float3 pos);
+	bool ScriptStartBuilding(float3 pos, bool silent);
 
 	void HelpTerraform(CBuilder* unit);
 	void CreateNanoParticle(const float3& goal, float radius, bool inverse, bool highPriority = false);
@@ -58,6 +58,9 @@ public:
 
 	bool CanAssistUnit(const CUnit* u, const UnitDef* def = NULL) const;
 	bool CanRepairUnit(const CUnit* u) const;
+
+	const NanoPieceCache& GetNanoPieceCache() const { return nanoPieceCache; }
+	      NanoPieceCache& GetNanoPieceCache()       { return nanoPieceCache; }
 
 public:
 	bool range3D; ///< spheres instead of infinite cylinders for range tests
@@ -81,13 +84,16 @@ public:
 	bool terraforming;
 	float terraformHelp;
 	float myTerraformLeft;
-	enum {
+	enum TerraformType {
 		Terraform_Building,
 		Terraform_Restore
 	} terraformType;
 	int tx1,tx2,tz1,tz2;
 	float3 terraformCenter;
 	float terraformRadius;
+
+private:
+	NanoPieceCache nanoPieceCache;
 };
 
 #endif // _BUILDER_H

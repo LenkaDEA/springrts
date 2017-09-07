@@ -6,13 +6,14 @@
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
 #include "Game/TraceRay.h"
+#include "Map/Ground.h"
 #include "Sim/Features/Feature.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/Scripts/CobInstance.h"
 #include "Sim/Weapons/Weapon.h"
 #include "System/myMath.h"
-#include "System/NetProtocol.h"
+#include "Net/Protocol/NetProtocol.h"
 
 #include <SDL_mouse.h>
 
@@ -21,8 +22,8 @@ FPSUnitController::FPSUnitController()
 	: targetUnit(NULL)
 	, controllee(NULL)
 	, controller(NULL)
-	, viewDir(float3(0.0f, 0.0f, 1.0f))
-	, targetPos(float3(0.0f, 0.0f, 1.0f))
+	, viewDir(FwdVector)
+	, targetPos(FwdVector)
 	, targetDist(1000.0f)
 	, forward(false)
 	, back(false)
@@ -42,11 +43,7 @@ FPSUnitController::FPSUnitController()
 void FPSUnitController::Update() {
 	const int piece = controllee->script->AimFromWeapon(0);
 	const float3 relPos = controllee->script->GetPiecePos(piece);
-	const float3 pos = controllee->pos +
-		controllee->frontdir * relPos.z +
-		controllee->updir    * relPos.y +
-		controllee->rightdir * relPos.x +
-		UpVector             * 7.0f;
+	const float3 pos = controllee->GetObjectSpacePos(relPos) + (UpVector * 7.0f);
 
 	oldDCpos = pos;
 
@@ -54,9 +51,9 @@ void FPSUnitController::Update() {
 	CFeature* hitFeature;
 
 	// SYNCED, do NOT use GuiTraceRay which also checks gu->spectatingFullView
-	float hitDist = TraceRay::TraceRay(pos, viewDir, controllee->maxRange, 0, controllee, hitUnit, hitFeature);
+	float hitDist = TraceRay::TraceRay(pos, viewDir, controllee->maxRange, Collision::NOCLOAKED, controllee, hitUnit, hitFeature);
 
-	if (hitUnit) {
+	if (hitUnit != NULL) {
 		targetUnit = hitUnit;
 		targetDist = hitDist;
 		targetPos  = hitUnit->pos;
@@ -76,7 +73,7 @@ void FPSUnitController::Update() {
 			// projectiles can gain extra flighttime and travel further
 			//
 			// NOTE: CWeapon::AttackGround checks range via TryTarget
-			if ((targetPos.y - ground->GetHeightReal(targetPos.x, targetPos.z)) <= SQUARE_SIZE) {
+			if ((targetPos.y - CGround::GetHeightReal(targetPos.x, targetPos.z)) <= SQUARE_SIZE) {
 				controllee->AttackGround(targetPos, true, true, true);
 			}
 		}
@@ -106,25 +103,28 @@ void FPSUnitController::RecvStateUpdate(const unsigned char* buf) {
 	viewDir = GetVectorFromHAndPExact(h, p);
 }
 
-void FPSUnitController::SendStateUpdate(const bool* camMove) {
-	if (!gu->fpsMode) { return; }
+void FPSUnitController::SendStateUpdate() {
+	if (!gu->fpsMode)
+		return;
+
+	const bool* camMoveState = camera->GetMovState();
+	const CMouseHandler::ButtonPressEvt* mouseButtons = mouse->buttons;
 
 	unsigned char state = 0;
+	state |= ((camMoveState[CCamera::MOVE_STATE_FWD]) * (1 << 0));
+	state |= ((camMoveState[CCamera::MOVE_STATE_BCK]) * (1 << 1));
+	state |= ((camMoveState[CCamera::MOVE_STATE_LFT]) * (1 << 2));
+	state |= ((camMoveState[CCamera::MOVE_STATE_RGT]) * (1 << 3));
+	state |= ((mouseButtons[SDL_BUTTON_LEFT ].pressed) * (1 << 4));
+	state |= ((mouseButtons[SDL_BUTTON_RIGHT].pressed) * (1 << 5));
 
-	if (camMove[0]) { state |= (1 << 0); }
-	if (camMove[1]) { state |= (1 << 1); }
-	if (camMove[2]) { state |= (1 << 2); }
-	if (camMove[3]) { state |= (1 << 3); }
-	if (mouse->buttons[SDL_BUTTON_LEFT].pressed)  { state |= (1 << 4); }
-	if (mouse->buttons[SDL_BUTTON_RIGHT].pressed) { state |= (1 << 5); }
-
-	shortint2 hp = GetHAndPFromVector(camera->forward);
+	shortint2 hp = GetHAndPFromVector(camera->GetDir());
 
 	if (hp.x != oldHeading || hp.y != oldPitch || state != oldState) {
 		oldHeading = hp.x;
 		oldPitch   = hp.y;
 		oldState   = state;
 
-		net->Send(CBaseNetProtocol::Get().SendDirectControlUpdate(gu->myPlayerNum, state, hp.x, hp.y));
+		clientNet->Send(CBaseNetProtocol::Get().SendDirectControlUpdate(gu->myPlayerNum, state, hp.x, hp.y));
 	}
 }

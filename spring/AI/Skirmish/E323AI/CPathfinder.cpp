@@ -9,6 +9,7 @@
 #include "CUnit.h"
 #include "CUnitTable.h"
 #include "CThreatMap.h"
+#include "MathUtil.h"
 #include "Util.hpp"
 #include "CScopedTimer.h"
 

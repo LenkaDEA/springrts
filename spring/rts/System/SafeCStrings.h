@@ -3,6 +3,8 @@
 #ifndef SAFE_C_STRINGS_H
 #define SAFE_C_STRINGS_H
 
+#include <stddef.h>
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -26,7 +28,7 @@ int safe_strcat(char* destination, size_t destinationSize, const char* source);
 ///@}
 
 #ifdef	__cplusplus
-} // extern "C"
+} /* extern "C" */
 #endif
 
-#endif // SAFE_C_STRINGS_H
+#endif /* SAFE_C_STRINGS_H */

@@ -1,108 +1,72 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "Game/TraceRay.h"
+#include "TorpedoLauncher.h"
+#include "WeaponDef.h"
 #include "Map/Ground.h"
-#include "Sim/Projectiles/WeaponProjectiles/TorpedoProjectile.h"
+#include "Sim/Projectiles/WeaponProjectiles/WeaponProjectileFactory.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/Unit.h"
-#include "TorpedoLauncher.h"
-#include "WeaponDefHandler.h"
-#include "System/mmgr.h"
 
-CR_BIND_DERIVED(CTorpedoLauncher, CWeapon, (NULL));
+CR_BIND_DERIVED(CTorpedoLauncher, CWeapon, (NULL, NULL))
 
 CR_REG_METADATA(CTorpedoLauncher,(
-		CR_MEMBER(tracking),
-		CR_RESERVED(8)
-		));
+	CR_MEMBER(tracking)
+))
 
-CTorpedoLauncher::CTorpedoLauncher(CUnit* owner)
-: CWeapon(owner),
-	tracking(0)
+CTorpedoLauncher::CTorpedoLauncher(CUnit* owner, const WeaponDef* def): CWeapon(owner, def)
 {
-	if (owner) owner->hasUWWeapons=true;
-}
-
-CTorpedoLauncher::~CTorpedoLauncher(void)
-{
+	//happens when loading
+	if (def != nullptr)
+		tracking = weaponDef->turnrate * def->tracks;
 }
 
 
-void CTorpedoLauncher::Update(void)
+bool CTorpedoLauncher::TestTarget(const float3 pos, const SWeaponTarget& trg) const
 {
-	if (targetType != Target_None) {
-		weaponPos = owner->pos +
-			owner->frontdir * relWeaponPos.z +
-			owner->updir    * relWeaponPos.y +
-			owner->rightdir * relWeaponPos.x;
-		weaponMuzzlePos = owner->pos +
-			owner->frontdir * relWeaponMuzzlePos.z +
-			owner->updir    * relWeaponMuzzlePos.y +
-			owner->rightdir * relWeaponMuzzlePos.x;
-
-		wantedDir = targetPos - weaponPos;
-		const float dist = wantedDir.Length();
-		predict = dist / projectileSpeed;
-		wantedDir /= dist;
-	}
-
-	CWeapon::Update();
-}
-
-void CTorpedoLauncher::FireImpl()
-{
-	float3 dir;
-	dir=targetPos-weaponMuzzlePos;
-	dir.Normalize();
-	if(weaponDef->trajectoryHeight>0){
-		dir.y+=weaponDef->trajectoryHeight;
-		dir.Normalize();
-	}
-
-	float3 startSpeed;
-	if (!weaponDef->fixedLauncher) {
-		startSpeed = dir * weaponDef->startvelocity;
-	}
-	else {
-		startSpeed = weaponDir * weaponDef->startvelocity;
-	}
-
-	new CTorpedoProjectile(weaponMuzzlePos, startSpeed, owner, damageAreaOfEffect, projectileSpeed,
-		tracking, weaponDef->flighttime == 0? (int) (range / projectileSpeed + 25): weaponDef->flighttime,
-		targetUnit, weaponDef);
-}
-
-bool CTorpedoLauncher::TryTarget(const float3& pos, bool userTarget, CUnit* unit)
-{
-	if (!CWeapon::TryTarget(pos, userTarget, unit))
+	// by default we are a waterweapon, therefore:
+	//   if muzzle is above water, target position is only allowed to be IN water
+	//   if muzzle is below water, target position being valid depends on submissile
+	//
+	// NOTE:
+	//   generally a TorpedoLauncher has its muzzle UNDER water and can *only* fire at
+	//   targets IN water but depth-charge weapons break first part of this assumption
+	//   (as do aircraft-based launchers)
+	//
+	//   this check used to be in the base-class but is really out of place there: any
+	//   "normal" weapon with fireSubmersed = true should be able to fire out of water
+	//   (regardless of submissile which applies only to TorpedoLaunchers) but was not
+	//   able to, see #3951
+	//
+	// land- or air-based launchers cannot target anything not in water
+	if (weaponMuzzlePos.y >  0.0f &&                           !TargetInWater(pos, trg))
+		return false;
+	// water-based launchers cannot target anything not in water unless submissile
+	if (weaponMuzzlePos.y <= 0.0f && !weaponDef->submissile && !TargetInWater(pos, trg))
 		return false;
 
-	if (unit) {
-		// if we cannot leave water and target unit is not in water, bail
-		if (!weaponDef->submissile && !unit->inWater)
-			return false;
+	return (CWeapon::TestTarget(pos, trg));
+}
+
+void CTorpedoLauncher::FireImpl(const bool scriptCall)
+{
+	float3 dir = currentTargetPos - weaponMuzzlePos;
+	float3 vel;
+
+	const float dist = dir.LengthNormalize();
+
+	if (weaponDef->fixedLauncher) {
+		vel = weaponDir * weaponDef->startvelocity;
 	} else {
-		// if we cannot leave water and target position is not in water, bail
-		if (!weaponDef->submissile && ground->GetHeightReal(pos.x, pos.z) > 0.0f)
-			return false;
+		dir += (UpVector * std::max(0.0f, weaponDef->trajectoryHeight));
+		vel = dir.Normalize() * weaponDef->startvelocity;
 	}
 
-	float3 targetVec = pos - weaponMuzzlePos;
-	float targetDist = targetVec.Length();
+	ProjectileParams params = GetProjectileParams();
+	params.speed = vel;
+	params.pos = weaponMuzzlePos;
+	params.end = currentTargetPos;
+	params.ttl = (weaponDef->flighttime == 0)? std::ceil(std::max(dist, range) / projectileSpeed + 25): weaponDef->flighttime;
+	params.tracking = tracking;
 
-	if (targetDist == 0.0f)
-		return true;
-
-	targetVec /= targetDist;
-	// +0.05f since torpedoes have an unfortunate tendency to hit own ships due to movement
-	float spread = (accuracy + sprayAngle) + 0.05f;
-
-	if (avoidFriendly && TraceRay::TestCone(weaponMuzzlePos, targetVec, targetDist, spread, owner->allyteam, true, false, false, owner)) {
-		return false;
-	}
-	if (avoidNeutral && TraceRay::TestCone(weaponMuzzlePos, targetVec, targetDist, spread, owner->allyteam, false, true, false, owner)) {
-		return false;
-	}
-
-	return true;
+	WeaponProjectileFactory::LoadProjectile(params);
 }

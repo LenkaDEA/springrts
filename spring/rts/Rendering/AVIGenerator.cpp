@@ -14,7 +14,6 @@
 
 #include <boost/bind.hpp>
 #include <cassert>
-#include "System/mmgr.h"
 
 #if defined(_WIN32) && !defined(__MINGW32__)
 #pragma message("Adding library: vfw32.lib")
@@ -403,6 +402,7 @@ bool CAVIGenerator::readOpenglPixelDataThreaded() {
 }
 
 
+__FORCE_ALIGN_STACK__
 void CAVIGenerator::AVIGeneratorThreadProc() {
 
 	Threading::SetThreadName("avi-recorder");

@@ -2,15 +2,24 @@
 
 #undef GL_GLEXT_LEGACY
 #define GL_GLEXT_PROTOTYPES
+#ifdef _WIN32
+# define _GDI32_
+# ifdef _DLL
+#  undef _DLL
+# endif
+# include <windows.h>
+#endif
 #include <GL/glu.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// #include <stdio.h>
+#ifdef GLAPI
+# undef GLAPI
+#endif
+#define GLAPI
 
-GLAPI void APIENTRY gluPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar) {}
 
 GLAPI GLUquadric* APIENTRY gluNewQuadric() {
    return 0;
@@ -26,12 +35,9 @@ GLAPI GLint APIENTRY gluBuild2DMipmaps (GLenum target, GLint internalFormat, GLs
    return 0;
 }
 
+GLAPI void APIENTRY gluPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar) {}
 GLAPI void APIENTRY gluOrtho2D(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top) {}
 
-GLAPI GLint APIENTRY gluProject (GLdouble objX, GLdouble objY, GLdouble objZ, const GLdouble *model, const GLdouble *proj, const GLint *view, GLdouble* winX, GLdouble* winY, GLdouble* winZ) {
-   //printf("gluProject\n");
-   return 0;
-}
 
 #ifdef __cplusplus
 } // extern "C"

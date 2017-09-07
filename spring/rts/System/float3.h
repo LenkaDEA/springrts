@@ -9,8 +9,8 @@
 #include "lib/streflop/streflop_cond.h"
 #include "System/creg/creg_cond.h"
 #include "System/FastMath.h"
-#ifndef BUILDING_AI
-#include "System/Platform/Threading.h"
+#ifdef _MSC_VER
+#include "System/Platform/Win/win32.h"
 #endif
 
 
@@ -24,27 +24,8 @@
 class float3
 {
 public:
-	CR_DECLARE_STRUCT(float3);
-/*	void* operator new(size_t size) { return mempool.Alloc(size); }
-	void* operator new(size_t n, void* p) { return p; } // cp visual
-	void operator delete(void* p, size_t size) { mempool.Free(p, size); }
-*/
+	CR_DECLARE_STRUCT(float3)
 
-#ifdef _MSC_VER
-	static const float CMP_EPS;
-	static const float NORMALIZE_EPS;
-#else
-	static const float CMP_EPS = 1e-4f;
-	static const float NORMALIZE_EPS = 1e-12f;
-#endif
-
-
-	/**
-	 * @brief Constructor
-	 *
-	 * With no parameters, x/y/z are just initialized to 0.
-	 */
-	float3() : x(0.0f), y(0.0f), z(0.0f) {}
 
 	/**
 	 * @brief Constructor
@@ -54,7 +35,7 @@ public:
 	 *
 	 * With parameters, initializes x/y/z to the given floats.
 	 */
-	float3(const float x,const float y,const float z)
+	float3(const float x = 0.0f, const float y = 0.0f, const float z = 0.0f)
 			: x(x), y(y), z(z) {}
 
 	/**
@@ -87,7 +68,6 @@ public:
 	 * Sets the float[3] to this float3.
 	 */
 	void copyInto(float f[3]) const {
-
 		f[0] = x;
 		f[1] = y;
 		f[2] = z;
@@ -176,7 +156,6 @@ public:
 	 * the new float3 inside this one.
 	 */
 	void operator-= (const float3& f) {
-
 		x -= f.x;
 		y -= f.y;
 		z -= f.z;
@@ -254,9 +233,8 @@ public:
 	 * each x/y/z component by that float.
 	 */
 	float3 operator/ (const float f) const {
-
-		const float inv = (float) 1.0f / f;
-		return *this * inv;
+		const float inv = 1.0f / f;
+		return (*this) * inv;
 	}
 
 	/**
@@ -267,7 +245,6 @@ public:
 	 * the new values inside this float3.
 	 */
 	void operator/= (const float3& f) {
-
 		x /= f.x;
 		y /= f.y;
 		z /= f.z;
@@ -281,15 +258,14 @@ public:
 	 * the new values inside this float3.
 	 */
 	void operator/= (const float f) {
-
-		const float inv = (float) 1.f / f;
-		*this *= inv;
+		const float inv = 1.0f / f;
+		(*this) *= inv;
 	}
 
 	/**
 	 * @brief operator ==
 	 * @param f float3 to test
-	 * @return whether float3s are equal under default CMP_EPS tolerance in x/y/z
+	 * @return whether float3s are equal under default cmp_eps tolerance in x/y/z
 	 *
 	 * Tests if this float3 is equal to another, by
 	 * checking each x/y/z component individually.
@@ -337,10 +313,17 @@ public:
 	/**
 	 * @see operator==
 	 */
-	bool equals(const float3& f, const float3& eps = float3(CMP_EPS, CMP_EPS, CMP_EPS)) const {
-		return math::fabs(x - f.x) <= math::fabs(eps.x * x)
-			&& math::fabs(y - f.y) <= math::fabs(eps.y * y)
-			&& math::fabs(z - f.z) <= math::fabs(eps.z * z);
+	bool equals(const float3& f, const float3& eps = float3(cmp_eps(), cmp_eps(), cmp_eps())) const;
+
+
+	/**
+	 * @brief binary float3 equality
+	 * @param f float3 to compare to
+	 * @return const whether the two float3 are binary same
+	 *
+	 */
+	bool same(const float3& f) const {
+		return x == f.x && y == f.y && z == f.z;
 	}
 
 	/**
@@ -395,11 +378,10 @@ public:
 	 * x/y/z component, square root for pythagorean theorem)
 	 */
 	float distance(const float3& f) const {
-
 		const float dx = x - f.x;
 		const float dy = y - f.y;
 		const float dz = z - f.z;
-		return (float) math::sqrt(dx*dx + dy*dy + dz*dz);
+		return math::sqrt(dx*dx + dy*dy + dz*dz);
 	}
 
 	/**
@@ -414,10 +396,9 @@ public:
 	 * root for pythagorean theorem
 	 */
 	float distance2D(const float3& f) const {
-
 		const float dx = x - f.x;
 		const float dz = z - f.z;
-		return (float) math::sqrt(dx*dx + dz*dz);
+		return math::sqrt(dx*dx + dz*dz);
 	}
 
 	/**
@@ -430,7 +411,7 @@ public:
 	 */
 	float Length() const {
 		//assert(x!=0.f || y!=0.f || z!=0.f);
-		return (float) math::sqrt(SqLength());
+		return math::sqrt(SqLength());
 	}
 
 	/**
@@ -443,8 +424,28 @@ public:
 	 */
 	float Length2D() const {
 		//assert(x!=0.f || y!=0.f || z!=0.f);
-		return (float) math::sqrt(SqLength2D());
+		return math::sqrt(SqLength2D());
 	}
+
+	/**
+	 * normalize vector in-place, return its old length
+	 */
+	float LengthNormalize() {
+		const float len = Length();
+		if (likely(len > nrm_eps())) {
+			(*this) *= (1.0f / len);
+		}
+		return len;
+	}
+
+	float LengthNormalize2D() {
+		const float len = Length2D();
+		if (likely(len > nrm_eps())) {
+			y = 0.0f; (*this) *= (1.0f / len);
+		}
+		return len;
+	}
+
 
 	/**
 	 * @brief normalizes the vector using one of Normalize implementations
@@ -455,16 +456,20 @@ public:
 	 */
 	float3& Normalize() {
 #if defined(__SUPPORT_SNAN__)
-#if defined(USE_GML) && !defined(BUILDING_AI)
-		if (!Threading::IsSimThread())
-			return SafeNormalize();
+#ifndef BUILDING_AI
+		return SafeNormalize();
 #endif
-		assert(SqLength() > NORMALIZE_EPS);
+		assert(SqLength() > nrm_eps());
 		return UnsafeNormalize();
 #else
 		return SafeNormalize();
 #endif
 	}
+
+	float3& Normalize2D() {
+		y = 0.0f; return Normalize();
+	}
+
 
 	/**
 	 * @brief normalizes the vector without checking for zero vector
@@ -474,8 +479,12 @@ public:
 	 * x/y/z component by the vector's length.
 	 */
 	float3& UnsafeNormalize() {
-		*this *= math::isqrt(SqLength());
+		(*this) *= math::isqrt(SqLength());
 		return *this;
+	}
+
+	float3& UnsafeNormalize2D() {
+		y = 0.0f; return UnsafeNormalize();
 	}
 
 
@@ -487,13 +496,16 @@ public:
 	 * x/y/z component by the vector's length.
 	 */
 	float3& SafeNormalize() {
-
 		const float sql = SqLength();
-		if (likely(sql > NORMALIZE_EPS)) {
-			*this *= math::isqrt(sql);
+		if (likely(sql > nrm_eps())) {
+			(*this) *= math::isqrt(sql);
 		}
 
 		return *this;
+	}
+
+	float3& SafeNormalize2D() {
+		y = 0.0f; return SafeNormalize();
 	}
 
 
@@ -506,15 +518,18 @@ public:
 	 */
 	float3& ANormalize() {
 #if defined(__SUPPORT_SNAN__)
-#if defined(USE_GML) && !defined(BUILDING_AI)
-		if (!Threading::IsSimThread())
-			return SafeANormalize();
+#ifndef BUILDING_AI
+		return SafeANormalize();
 #endif
-		assert(SqLength() > NORMALIZE_EPS);
+		assert(SqLength() > nrm_eps());
 		return UnsafeANormalize();
 #else
 		return SafeANormalize();
 #endif
+	}
+
+	float3& ANormalize2D() {
+		y = 0.0f; return ANormalize();
 	}
 
 
@@ -527,8 +542,12 @@ public:
 	 * the vector's approx. length.
 	 */
 	float3& UnsafeANormalize() {
-		*this *= fastmath::isqrt(SqLength());
+		(*this) *= math::isqrt(SqLength());
 		return *this;
+	}
+
+	float3& UnsafeANormalize2D() {
+		y = 0.0f; return UnsafeANormalize();
 	}
 
 
@@ -541,13 +560,16 @@ public:
 	 * else do nothing.
 	 */
 	float3& SafeANormalize() {
-
 		const float sql = SqLength();
-		if (likely(sql > NORMALIZE_EPS)) {
-			*this *= fastmath::isqrt(sql);
+		if (likely(sql > nrm_eps())) {
+			(*this) *= math::isqrt(sql);
 		}
 
 		return *this;
+	}
+
+	float3& SafeANormalize2D() {
+		y = 0.0f; return SafeANormalize();
 	}
 
 
@@ -581,11 +603,10 @@ public:
 	 * Returns the squared distance of 2 float3s
 	 */
 	float SqDistance(const float3& f) const {
-
 		const float dx = x - f.x;
 		const float dy = y - f.y;
 		const float dz = z - f.z;
-		return (float)(dx*dx + dy*dy + dz*dz);
+		return (dx*dx + dy*dy + dz*dz);
 	}
 
 
@@ -597,17 +618,21 @@ public:
 	 * Returns the squared 2d-distance of 2 float3s
 	 */
 	float SqDistance2D(const float3& f) const {
-
 		const float dx = x - f.x;
 		const float dz = z - f.z;
-		return (float)(dx*dx + dz*dz);
+		return (dx*dx + dz*dz);
 	}
 
+	void AssertNaNs() const {
+		assert(!math::isnan(x) && !math::isinf(x));
+		assert(!math::isnan(y) && !math::isinf(y));
+		assert(!math::isnan(z) && !math::isinf(z));
+	}
 
 	/**
 	 * @brief max x pos
 	 *
-	 * Static value containing the maximum x position (:= gs->mapx-1)
+	 * Static value containing the maximum x position (:= mapDims.mapx-1)
 	 * @note maxxpos is set after loading the map.
 	 */
 	static float maxxpos;
@@ -615,7 +640,7 @@ public:
 	/**
 	 * @brief max z pos
 	 *
-	 * Static value containing the maximum z position (:= gs->mapy-1)
+	 * Static value containing the maximum z position (:= mapDims.mapy-1)
 	 * @note maxzpos is set after loading the map.
 	 */
 	static float maxzpos;
@@ -623,16 +648,23 @@ public:
 	/**
 	 * @brief Check against FaceHeightmap bounds
 	 *
-	 * Check if this vector is in bounds [0 .. gs->mapxy-1]
+	 * Check if this vector is in bounds [0 .. mapDims.mapxy-1]
 	 * @note THIS IS THE WRONG SPACE! _ALL_ WORLD SPACE POSITIONS SHOULD BE IN VertexHeightmap RESOLUTION!
 	 * @see #IsInMap
 	 */
 	bool IsInBounds() const;
+	/**
+	 * @brief Check against FaceHeightmap bounds
+	 *
+	 * Check if this vector is in map [0 .. mapDims.mapxy]
+	 * @note USE THIS!
+	 */
+	bool IsInMap() const;
 
 	/**
 	 * @brief Clamps to FaceHeightmap
 	 *
-	 * Clamps to the `face heightmap` resolution [0 .. gs->mapxy-1]
+	 * Clamps to the `face heightmap` resolution [0 .. mapDims.mapxy-1] * SQUARE_SIZE
 	 * @note THIS IS THE WRONG SPACE! _ALL_ WORLD SPACE POSITIONS SHOULD BE IN VertexHeightmap RESOLUTION!
 	 * @deprecated  use ClampInMap instead, but see the note!
 	 * @see #ClampInMap
@@ -640,26 +672,37 @@ public:
 	void ClampInBounds();
 
 	/**
-	 * @brief Check against FaceHeightmap bounds
-	 *
-	 * Check if this vector is in map [0 .. gs->mapxy]
-	 * @note USE THIS!
-	 */
-	bool IsInMap() const;
-
-	/**
 	 * @brief Clamps to VertexHeightmap
 	 *
-	 * Clamps to the `vertex heightmap`/`opengl space` resolution [0 .. gs->mapxy]
+	 * Clamps to the `vertex heightmap`/`opengl space` resolution [0 .. mapDims.mapxy] * SQUARE_SIZE
 	 * @note USE THIS!
 	 */
 	void ClampInMap();
+
+	float3 cClampInBounds() const { float3 f = *this; f.ClampInBounds(); return f; }
 	float3 cClampInMap() const { float3 f = *this; f.ClampInMap(); return f; }
 
+	static float3 min(const float3 v1, const float3 v2);
+	static float3 max(const float3 v1, const float3 v2);
+	static float3 fabs(const float3 v);
+
+	#if (__cplusplus <= 199711L) && !defined(__GXX_EXPERIMENTAL_CXX0X__) && (!defined(__GNUC__) || defined (__clang__)) && !(_MSC_VER >= 1900)
+	static float cmp_eps() { return 1e-04f; }
+	static float nrm_eps() { return 1e-12f; }
+	#else
+	static constexpr float cmp_eps() { return 1e-04f; }
+	static constexpr float nrm_eps() { return 1e-12f; }
+	#endif
+
 public:
-	float x; ///< x component
-	float y; ///< y component
-	float z; ///< z component
+	union {
+		struct { float x,y,z; };
+		struct { float r,g,b; };
+		struct { float x1,y1,x2; };
+		struct { float s,t,p; };
+		struct { float xstart, ystart, xend; };
+		struct { float xyz[3]; };
+	};
 };
 
 /**
@@ -668,7 +711,9 @@ public:
  * Defines constant upwards vector
  * (0, 1, 0)
  */
-const float3 UpVector(0.0f, 1.0f, 0.0f);
+static const float3  UpVector(0.0f, 1.0f, 0.0f);
+static const float3 FwdVector(0.0f, 0.0f, 1.0f);
+static const float3 RgtVector(1.0f, 0.0f, 0.0f);
 
 /**
  * @brief zero vector
@@ -676,7 +721,12 @@ const float3 UpVector(0.0f, 1.0f, 0.0f);
  * Defines constant zero vector
  * (0, 0, 0)
  */
-const float3 ZeroVector(0.0f, 0.0f, 0.0f);
+static const float3 ZeroVector(0.0f, 0.0f, 0.0f);
+static const float3 OnesVector(1.0f, 1.0f, 1.0f);
 
+static const float3 XYVector(1.0f, 1.0f, 0.0f);
+static const float3 XZVector(1.0f, 0.0f, 1.0f);
+static const float3 YZVector(0.0f, 1.0f, 1.0f);
 
 #endif /* FLOAT3_H */
+

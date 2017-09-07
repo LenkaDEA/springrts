@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "CAI.h"
+#include "MathUtil.h"
 
 #include "headers/HEngine.h"
 

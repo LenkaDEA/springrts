@@ -2,7 +2,6 @@
 
 #ifndef _GLOBAL_CONFIG_H
 #define _GLOBAL_CONFIG_H
-#include "lib/gml/gmlcnf.h"
 
 
 class GlobalConfig {
@@ -16,7 +15,7 @@ public:
 	/**
 	 * @brief network loss factor
 	 *
-	 * Network loss factor, a higher factor will reconfigure the protocol 
+	 * Network loss factor, a higher factor will reconfigure the protocol
 	 * to resend data more frequently, i.e. waste bandwidth to reduce lag
 	 */
 	int networkLossFactor;
@@ -49,14 +48,6 @@ public:
 	 * Maximum size of network packets to send
 	 */
 	unsigned mtu;
-
-	/**
-	 * @brief teamHighlight
-	 *
-	 * Team highlighting for teams that are uncontrolled or have connection
-	 * problems.
-	 */
-	int teamHighlight;
 
 	/**
 	 * @brief linkBandwidth
@@ -93,18 +84,29 @@ public:
 	 */
 	int linkIncomingMaxWaitingPackets;
 
-#if (defined(USE_GML) && GML_ENABLE_SIM) || defined(USE_LUA_MT)
 	/**
-	 * @brief multiThreadLua
+	 * @brief useNetMessageSmoothingBuffer
 	 *
-	 * LuaHandle threading mode for Spring MT:
-	 * 
-	 * See LuaConfig.h and ModInfo::luaThreadingModel
+	 * Whether client should try to keep a small buffer of unconsumed
+	 * messages for smoothing network jitter at the cost of increased
+	 * latency (running further behind the server)
 	 */
-	int multiThreadLua;
-	bool enableDrawCallIns;
-#endif
-	int GetMultiThreadLua();
+	bool useNetMessageSmoothingBuffer;
+
+	/**
+	 * @brief luaWritableConfigFile
+	 *
+	 * Allows Lua to write to springsettings/springrc file
+	 */
+	bool luaWritableConfigFile;
+
+	/**
+	 * @brief teamHighlight
+	 *
+	 * Team highlighting for teams that are uncontrolled or have connection
+	 * problems.
+	 */
+	int teamHighlight;
 };
 
 extern GlobalConfig* globalConfig;

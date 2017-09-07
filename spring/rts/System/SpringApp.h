@@ -5,9 +5,12 @@
 
 #include <string>
 #include <boost/cstdint.hpp>
+#include <boost/shared_ptr.hpp>
 
 class CmdLineParams;
+class ClientSetup;
 class CGameController;
+
 union SDL_Event;
 
 /**
@@ -18,26 +21,30 @@ union SDL_Event;
 class SpringApp
 {
 public:
-	SpringApp();
+	SpringApp(int argc, char** argv);
 	~SpringApp();
 
-	int Run(int argc, char *argv[]);                //!< Run game loop
-	static void Shutdown();                         //!< Shuts down application
+	int Run();                                      //!< Run game loop
+	void Reload(const std::string& script);
 
-protected:
+	static void ShutDown();                         //!< Shuts down application
+
+private:
 	bool Initialize();                              //!< Initialize app
-	void ParseCmdLine();                            //!< Parse command line
+	void ParseCmdLine(const std::string&);          //!< Parse command line
 	void Startup();                                 //!< Parses startup data (script etc.) and starts SelectMenu or PreGame
+	void StartScript(const std::string& inputFile); //!< Starts game from specified script.txt
+	void LoadSpringMenu();                          //!< Load menu (old or luaified depending on start parameters)
 	bool InitWindow(const char* title);             //!< Initializes window
+
+	int Update();                                   //!< Run simulation and draw
+
 	static void InitOpenGL();                       //!< Initializes OpenGL
 	static void LoadFonts();                        //!< Initialize glFonts (font & smallFont)
-	static bool SetSDLVideoMode();                  //!< Sets SDL video mode
-	int Update();                                   //!< Run simulation and draw
-	bool UpdateSim(CGameController *ac);
+	static bool CreateSDLWindow(const char* title); //!< Creates a SDL window
 
-	static bool GetDisplayGeometry();
+	static void GetDisplayGeometry();
 	static void SetupViewportGeometry();
-	static void RestoreWindowPosition();
 	static void SaveWindowPosition();
 
 	/**
@@ -45,13 +52,17 @@ protected:
 	 *
 	 * Pointer to instance of commandline parser
 	 */
-	CmdLineParams* cmdline;
+	boost::shared_ptr<CmdLineParams> cmdline;
+
+	// this gets passed along to PreGame (or SelectMenu then PreGame),
+	// and from thereon to GameServer if this client is also the host
+	boost::shared_ptr<ClientSetup> clientSetup;
 
 private:
 	bool MainEventHandler(const SDL_Event& ev);
 
-private:
-	std::string binaryName;
+	CGameController* RunScript(const std::string& buf);
+	CGameController* LoadSaveFile(const std::string& saveName); //!< Starts game from a specified save
 };
 
 /**

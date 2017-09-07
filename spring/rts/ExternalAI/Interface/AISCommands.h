@@ -155,7 +155,7 @@ const int NUM_CMD_TOPICS = 97;
  *
  */
 enum UnitCommandOptions {
-	UNIT_COMMAND_OPTION_DONT_REPEAT       = (1 << 3), //   8
+	UNIT_COMMAND_OPTION_INTERNAL_ORDER    = (1 << 3), //   8
 	UNIT_COMMAND_OPTION_RIGHT_MOUSE_KEY   = (1 << 4), //  16
 	UNIT_COMMAND_OPTION_SHIFT_KEY         = (1 << 5), //  32
 	UNIT_COMMAND_OPTION_CONTROL_KEY       = (1 << 6), //  64
@@ -377,8 +377,7 @@ struct SInitPathCommand {
 
 /**
  * Returns the approximate path cost between two points.
- * - for pathType {Ground_Move=0, Hover_Move=1, Ship_Move=2},
- *   @see UnitDef_MoveData_getMoveType()
+ * - for pathType @see UnitDef_MoveData_getPathType()
  * - goalRadius defines a goal area within which any square could be accepted as
  *   path target. If a singular goal position is wanted, use 0.0f.
  *   default: 8.0f
@@ -392,7 +391,7 @@ struct SGetApproximateLengthPathCommand {
 	int pathType;
 	/// default: 8.0f
 	float goalRadius;
-	int ret_approximatePathLength;
+	float ret_approximatePathLength;
 }; //$ COMMAND_PATH_GET_APPROXIMATE_LENGTH Pathing_getApproximateLength
 
 struct SGetNextWaypointPathCommand {
@@ -409,8 +408,8 @@ struct SCallLuaRulesCommand {
 	const char* inData;
 	/// If this is less than 0, the data size is calculated using strlen()
 	int inSize;
-	/// this is subject to Lua garbage collection, copy it if you wish to continue using it
-	const char* ret_outData;
+	/// Buffer for response, must be const size of MAX_RESPONSE_SIZE bytes
+	char* ret_outData;
 }; //$ COMMAND_CALL_LUA_RULES Lua_callRules
 
 struct SCallLuaUICommand {
@@ -418,8 +417,8 @@ struct SCallLuaUICommand {
 	const char* inData;
 	/// If this is less than 0, the data size is calculated using strlen()
 	int inSize;
-	/// this is subject to Lua garbage collection, copy it if you wish to continue using it
-	const char* ret_outData;
+	/// Buffer for response, must be const size of MAX_RESPONSE_SIZE bytes
+	char* ret_outData;
 }; //$ COMMAND_CALL_LUA_UI Lua_callUI
 
 struct SSendStartPosCommand {
@@ -495,13 +494,15 @@ struct SRestartPathDrawerCommand {
 
 /**
  * @brief Creates a cubic Bezier spline figure
- * Creates a cubic Bezier spline figure from pos1 to pos4, with control points pos2 and pos3.
+ * Creates a cubic Bezier spline figure from pos1 to pos4,
+ * with control points pos2 and pos3.
  *
  * - Each figure is part of a figure group
- * - When creating figures, use 0 as \<figureGroupId\> to create a new figure group.
+ * - When creating figures, use 0 as \<figureGroupId\> to create
+ *   a new figure group.
  *   The id of this figure group is returned in \<ret_newFigureGroupId\>
- * - \<lifeTime\> specifies how many frames a figure should live before being auto-removed;
- *   0 means no removal
+ * - \<lifeTime\> specifies how many frames a figure should live
+ *   before being auto-removed; 0 means no removal
  * - \<arrow\> == true means that the figure will get an arrow at the end
  */
 struct SCreateSplineFigureDrawerCommand {
@@ -1575,39 +1576,17 @@ struct SSetLabelOverlayTextureDrawerDebugCommand {
 
 
 
-/**
- * @brief Sets default values
- */
-void initSUnitCommand(void* sUnitCommand);
-
 #ifdef	__cplusplus
 }	// extern "C"
 #endif
 
 
+
 #ifdef	__cplusplus
-#ifdef    BUILDING_AI
-namespace springLegacyAI {
-	struct Command;
-}
-using namespace springLegacyAI;
-#else  // BUILDING_AI
 struct Command;
-#endif // BUILDING_AI
+
 
 // legacy support functions
-
-/**
- * @brief Allocates memory for a C Command struct
- * @param  maxUnits  should be the value returned by uh->MaxUnits()
- *                   -> max units per team for the current game
- */
-void* mallocSUnitCommand(int unitId, int groupId, const Command* c, int* sCommandId, int maxUnits);
-
-/**
- * @brief Frees memory of a C Command struct
- */
-void freeSUnitCommand(void* sCommandData, int sCommandId);
 
 /**
  * Returns the engine internal C++ unit command (topic) ID
@@ -1620,17 +1599,18 @@ int toInternalUnitCommandTopic(int aiCmdTopic, void* sUnitCommandData);
  * Returns the C AI Interface command topic ID that corresponds
  * to the engine internal C++ unit command (topic) ID specified by
  * <code>internalUnitCmdTopic</code>.
- * @param  maxUnits  should be the value returned by uh->MaxUnits()
+ * @param  maxUnits  should be the value returned by unitHandler->MaxUnits()
  *                   -> max units per team for the current game
  */
 int extractAICommandTopic(const Command* internalUnitCmd, int maxUnits);
 
 /**
- * @brief creates - with new - an engine C++ Command struct
+ * @brief fills an engine C++ Command struct
  */
-Command* newCommand(void* sUnitCommandData, int sCommandId, int maxUnits);
+bool newCommand(void* sUnitCommandData, int sCommandId, int maxUnits, Command* c);
 
 #endif	// __cplusplus
+
 
 
 #endif	// AI_S_COMMANDS_H

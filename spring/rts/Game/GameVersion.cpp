@@ -10,6 +10,7 @@
 #include <cstring>
 #include <boost/version.hpp>
 #include <boost/config.hpp>
+#include <stdio.h>
 
 /**
  * @brief Defines the current version string.
@@ -70,22 +71,10 @@ std::string GetAdditional()
 	#define GV_ADD_SPACE " "
 #endif
 
-#if defined USE_MMGR
-	GV_ADD_SPACE "mmgr"
+#if defined PROFILE
+	GV_ADD_SPACE "Profile"
 	#undef  GV_ADD_SPACE
 	#define GV_ADD_SPACE " "
-#endif
-
-#if defined USE_GML
-	GV_ADD_SPACE "MT"
-	#undef  GV_ADD_SPACE
-	#define GV_ADD_SPACE " "
-#endif
-#if defined USE_GML_SIM
-	"-Sim"
-#endif
-#if defined USE_GML_DEBUG
-	"+Debug"
 #endif
 
 #if defined TRACE_SYNC
@@ -102,6 +91,12 @@ std::string GetAdditional()
 
 #if !defined SYNCCHECK
 	GV_ADD_SPACE "Sync-Check-Disabled"
+	#undef  GV_ADD_SPACE
+	#define GV_ADD_SPACE " "
+#endif
+
+#if defined  __SUPPORT_SNAN__
+	GV_ADD_SPACE "Signal-NaNs"
 	#undef  GV_ADD_SPACE
 	#define GV_ADD_SPACE " "
 #endif
@@ -123,21 +118,9 @@ std::string GetAdditional()
 	#undef  GV_ADD_SPACE
 	#define GV_ADD_SPACE " "
 #endif
-
-#if defined _OPENMP
-	GV_ADD_SPACE "OMP"
-	#undef  GV_ADD_SPACE
-	#define GV_ADD_SPACE " "
-#endif
 	;
 
 	return additional;
-}
-
-const std::string& GetBuildTime()
-{
-	static const std::string buildTime = __DATE__ " " __TIME__;
-	return buildTime;
 }
 
 #define QUOTEME_(x) #x
@@ -184,6 +167,24 @@ bool IsRelease()
 {
 	static const bool release = SPRING_VERSION_ENGINE_RELEASE;
 	return release;
+}
+
+bool IsHeadless()
+{
+#ifdef HEADLESS
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool IsUnitsync()
+{
+#ifdef UNITSYNC
+	return true;
+#else
+	return false;
+#endif
 }
 
 const std::string& Get()

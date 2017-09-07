@@ -7,15 +7,15 @@
 #include "System/Platform/CrashHandler.h"
 #include "System/maindefines.h"
 
-CR_BIND_TEMPLATE(safe_vector<float>, );
-
 template <> const float& safe_vector<float>::safe_element(size_type idx) const {
 	static const float def = 0.0f;
 
 	if (showError) {
 		showError = false;
-		LOG_L(L_ERROR, "[%s const] index "_STPF_" out of bounds! (size "_STPF_")", __FUNCTION__, idx, size());
+		LOG_L(L_ERROR, "[%s const] index " _STPF_ " out of bounds! (size " _STPF_ ")", __FUNCTION__, idx, size());
+#ifndef UNITSYNC
 		CrashHandler::OutputStacktrace();
+#endif
 	}
 
 	return def;
@@ -26,8 +26,10 @@ template <> float& safe_vector<float>::safe_element(size_type idx) {
 
 	if (showError) {
 		showError = false;
-		LOG_L(L_ERROR, "[%s] index "_STPF_" out of bounds! (size "_STPF_")", __FUNCTION__, idx, size());
+		LOG_L(L_ERROR, "[%s] index " _STPF_ " out of bounds! (size " _STPF_ ")", __FUNCTION__, idx, size());
+#ifndef UNITSYNC
 		CrashHandler::OutputStacktrace();
+#endif
 	}
 
 	return def;

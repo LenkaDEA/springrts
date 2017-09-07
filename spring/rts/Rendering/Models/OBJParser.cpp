@@ -5,12 +5,12 @@
 #include "OBJParser.h"
 
 #include "Lua/LuaParser.h"
-#include "Rendering/GL/VertexArray.h"
 #include "Rendering/Textures/S3OTextureHandler.h"
 #include "Sim/Misc/CollisionVolume.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
 #include "System/FileSystem/FileHandler.h"
+#include "System/Util.h"
 
 #include <cassert>
 #include <sstream>
@@ -24,10 +24,6 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_OBJ_PARSER)
 #endif
 #define LOG_SECTION_CURRENT LOG_SECTION_OBJ_PARSER
 
-
-static const float3 DEF_MIN_SIZE( 10000.0f,  10000.0f,  10000.0f);
-static const float3 DEF_MAX_SIZE(-10000.0f, -10000.0f, -10000.0f);
-
 S3DModel* COBJParser::Load(const std::string& modelFileName)
 {
 	std::string metaFileName = modelFileName.substr(0, modelFileName.find_last_of('.')) + ".lua";
@@ -35,20 +31,19 @@ S3DModel* COBJParser::Load(const std::string& modelFileName)
 	CFileHandler modelFile(modelFileName);
 	CFileHandler metaFile(metaFileName);
 
-	if (!modelFile.FileExists()) {
+	if (!modelFile.FileExists())
 		throw content_error("[OBJParser] could not find model-file \"" + modelFileName + "\"");
-	}
-	if (!metaFile.FileExists()) {
+
+	if (!metaFile.FileExists())
 		throw content_error("[OBJParser] could not find meta-file \"" + metaFileName + "\"");
-	}
 
 
 	LuaParser metaFileParser(metaFileName, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
 	metaFileParser.Execute();
 
-	if (!metaFileParser.IsValid()) {
+	if (!metaFileParser.IsValid())
 		throw content_error("[OBJParser] failed to parse meta-file \"" + metaFileName + "\"");
-	}
+
 
 	// get the (root-level) model table
 	const LuaTable& modelTable = metaFileParser.GetRoot();
@@ -58,21 +53,23 @@ S3DModel* COBJParser::Load(const std::string& modelFileName)
 		model->type = MODELTYPE_OBJ;
 		model->textureType = 0;
 		model->numPieces = 0;
-		model->radius = modelTable.GetFloat("radius", 0.0f);
-		model->height = modelTable.GetFloat("height", 0.0f);
-		model->relMidPos = modelTable.GetFloat3("midpos", ZeroVector);
-		model->tex1 = modelTable.GetString("tex1", "");
-		model->tex2 = modelTable.GetString("tex2", "");
 		model->mins = DEF_MIN_SIZE;
 		model->maxs = DEF_MAX_SIZE;
+		model->texs[0] = modelTable.GetString("tex1", "");
+		model->texs[1] = modelTable.GetString("tex2", "");
 
 	// basic S3O-style texturing
-	texturehandlerS3O->LoadS3OTexture(model);
+	texturehandlerS3O->PreloadTexture(model);
 
 	std::string modelData;
 	modelFile.LoadStringData(modelData);
 
 	if (ParseModelData(model, modelData, modelTable)) {
+		// set after the extrema are known
+		model->radius = modelTable.GetFloat("radius", (model->maxs   - model->mins  ).Length() * 0.5f);
+		model->height = modelTable.GetFloat("height", (model->maxs.y - model->mins.y)                );
+		model->relMidPos = modelTable.GetFloat3("midpos", (model->maxs + model->mins) * 0.5f);
+
 		assert(model->numPieces == modelTable.GetInt("numpieces", 0));
 		return model;
 	} else {
@@ -80,7 +77,7 @@ S3DModel* COBJParser::Load(const std::string& modelFileName)
 		throw content_error("[OBJParser] failed to parse model-data \"" + modelFileName + "\"");
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, const LuaTable& metaData)
@@ -124,7 +121,7 @@ bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, c
 
 
 	PieceMap pieceMap;
-	SOBJPiece* piece = NULL;
+	SOBJPiece* piece = nullptr;
 
 	std::vector<float3> vertices; vertices.reserve(2048);
 	std::vector<float2> texcoors; texcoors.reserve(2048);
@@ -154,8 +151,7 @@ bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, c
 				// ignore groups ('g'), smoothing groups ('s'),
 				// and materials ("mtllib", "usemtl") for now
 				// (s-groups are obsolete with vertex normals)
-				LOG_L(L_WARNING, "Failed to parse line \"%s\" for model \"%s\"",
-						line.c_str(), model->name.c_str());
+				LOG_L(L_WARNING, "Failed to parse line \"%s\" for model \"%s\"", line.c_str(), model->name.c_str());
 
 				prevReadIdx = currReadIdx + 1;
 				continue;
@@ -185,7 +181,7 @@ bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, c
 
 				case 'v': {
 					// position, normal, or texture-coordinates
-					assert(piece != NULL);
+					assert(piece != nullptr);
 
 					float3 f3;
 						lineStream >> f3.x;
@@ -200,7 +196,7 @@ bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, c
 
 				case 'f': {
 					// face definition
-					assert(piece != NULL);
+					assert(piece != nullptr);
 
 					int
 						vIdx = 0,
@@ -285,9 +281,7 @@ bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, c
 
 						piece->AddTriangle(triangle);
 					} else {
-						LOG_L(L_WARNING,
-								"Illegal face-element indices on line \"%s\" for model \"%s\"",
-								line.c_str(), model->name.c_str());
+						LOG_L(L_WARNING, "Illegal face-element indices on line \"%s\" for model \"%s\"", line.c_str(), model->name.c_str());
 					}
 				} break;
 
@@ -307,13 +301,11 @@ bool COBJParser::ParseModelData(S3DModel* model, const std::string& modelData, c
 	const bool globalVertexOffsets = metaData.GetBool("globalvertexoffsets", false);
 	const bool localPieceOffsets = metaData.GetBool("localpieceoffsets", false);
 
-	if (BuildModelPieceTree(model, pieceMap, piecesTable, globalVertexOffsets, localPieceOffsets)) {
+	if (BuildModelPieceTree(model, pieceMap, piecesTable, globalVertexOffsets, localPieceOffsets))
 		return true;
-	}
 
-	for (PieceMap::iterator it = pieceMap.begin(); it != pieceMap.end(); ++it) {
+	for (PieceMap::iterator it = pieceMap.begin(); it != pieceMap.end(); ++it)
 		delete (it->second);
-	}
 
 	throw content_error("[OBJParser] model " + model->name + " has no uniquely defined root-piece");
 	return false;
@@ -333,12 +325,11 @@ bool COBJParser::BuildModelPieceTree(
 	piecesTable.GetKeys(rootPieceNames);
 	piecesTable.GetKeys(rootPieceNumbers);
 
-	SOBJPiece* rootPiece = NULL;
+	SOBJPiece* rootPiece = nullptr;
 
 	// there must be exactly one root-piece defined by name or number
-	if ((rootPieceNames.size() + rootPieceNumbers.size()) != 1) {
+	if ((rootPieceNames.size() + rootPieceNumbers.size()) != 1)
 		return false;
-	}
 
 	if (!rootPieceNames.empty()) {
 		const std::string& rootPieceName = rootPieceNames[0];
@@ -381,75 +372,26 @@ void COBJParser::BuildModelPieceTreeRec(
 ) {
 	const S3DModelPiece* parentPiece = piece->parent;
 
-	piece->isEmpty = (piece->GetVertexCount() == 0);
+	// first read user-set extrema; trust that mins < maxs (for SMME)
 	piece->mins = pieceTable.GetFloat3("mins", DEF_MIN_SIZE);
 	piece->maxs = pieceTable.GetFloat3("maxs", DEF_MAX_SIZE);
 
 	// always convert <offset> to local coordinates
 	piece->offset = pieceTable.GetFloat3("offset", ZeroVector);
 	piece->goffset = (localPieceOffsets)?
-		(piece->offset + ((parentPiece != NULL)? parentPiece->goffset: ZeroVector)):
+		(piece->offset + ((parentPiece != nullptr)? parentPiece->goffset: ZeroVector)):
 		(piece->offset);
 	piece->offset = (localPieceOffsets)?
 		(piece->offset):
-		(piece->offset - ((parentPiece != NULL)? parentPiece->offset: ZeroVector));
+		(piece->offset - ((parentPiece != nullptr)? parentPiece->offset: ZeroVector));
 
 	piece->SetVertexTangents();
-	piece->SetMinMaxExtends(); // no-op
+	piece->SetMinMaxExtends(globalVertexOffsets);
 
-	const bool overrideMins = (piece->mins == DEF_MIN_SIZE);
-	const bool overrideMaxs = (piece->maxs == DEF_MAX_SIZE);
+	model->mins = float3::min(piece->goffset + piece->mins, model->mins);
+	model->maxs = float3::max(piece->goffset + piece->maxs, model->maxs);
 
-	for (int i = piece->GetVertexCount() - 1; i >= 0; i--) {
-		float3 vertexGlobalPos;
-		float3 vertexLocalPos;
-
-		if (globalVertexOffsets) {
-			// metadata indicates vertices are defined in model-space
-			//
-			// for converted S3O's, the piece offsets are defined wrt.
-			// the parent piece, *not* wrt. the root piece (<goffset>
-			// stores the concatenated transform)
-			vertexGlobalPos = piece->GetVertex(i);
-			vertexLocalPos = vertexGlobalPos - piece->goffset;
-		} else {
-			vertexLocalPos = piece->GetVertex(i);
-			vertexGlobalPos = vertexLocalPos + piece->goffset;
-		}
-
-		// NOTE: the min- and max-extends of a piece are not calculated
-		// recursively over its children since this makes little sense
-		// for (per-piece) coldet purposes; the model extends do bound
-		// all pieces
-		if (overrideMins) {
-			piece->mins.x = std::min(piece->mins.x, vertexGlobalPos.x);
-			piece->mins.y = std::min(piece->mins.y, vertexGlobalPos.y);
-			piece->mins.z = std::min(piece->mins.z, vertexGlobalPos.z);
-		}
-		if (overrideMaxs) {
-			piece->maxs.x = std::max(piece->maxs.x, vertexGlobalPos.x);
-			piece->maxs.y = std::max(piece->maxs.y, vertexGlobalPos.y);
-			piece->maxs.z = std::max(piece->maxs.z, vertexGlobalPos.z);
-		}
-
-		// we want vertices in piece-space
-		piece->SetVertex(i, vertexLocalPos);
-	}
-
-	model->mins.x = std::min(piece->mins.x, model->mins.x);
-	model->mins.y = std::min(piece->mins.y, model->mins.y);
-	model->mins.z = std::min(piece->mins.z, model->mins.z);
-	model->maxs.x = std::max(piece->maxs.x, model->maxs.x);
-	model->maxs.y = std::max(piece->maxs.y, model->maxs.y);
-	model->maxs.z = std::max(piece->maxs.z, model->maxs.z);
-
-	const float3 cvScales = piece->maxs - piece->mins;
-	const float3 cvOffset =
-		(piece->maxs - (localPieceOffsets? piece->goffset: piece->offset)) +
-		(piece->mins - (localPieceOffsets? piece->goffset: piece->offset));
-
-	piece->SetCollisionVolume(new CollisionVolume("box", cvScales, cvOffset * 0.5f, CollisionVolume::COLVOL_HITTEST_CONT));
-
+	piece->SetCollisionVolume(CollisionVolume("box", piece->maxs - piece->mins, (piece->maxs + piece->mins) * 0.5f));
 
 	std::vector<int> childPieceNumbers;
 	std::vector<std::string> childPieceNames;
@@ -477,7 +419,7 @@ void COBJParser::BuildModelPieceTreeRec(
 				assert(childPieceName == childPiece->name);
 
 				childPiece->parent = piece;
-				piece->childs.push_back(childPiece);
+				piece->children.push_back(childPiece);
 
 				BuildModelPieceTreeRec(model, childPiece, pieceMap, childPieceTable, globalVertexOffsets, localPieceOffsets);
 			}
@@ -499,7 +441,7 @@ void COBJParser::BuildModelPieceTreeRec(
 				assert(childPieceName == childPiece->name);
 
 				childPiece->parent = piece;
-				piece->childs.push_back(childPiece);
+				piece->children.push_back(childPiece);
 
 				BuildModelPieceTreeRec(model, childPiece, pieceMap, childPieceTable, globalVertexOffsets, localPieceOffsets);
 			}
@@ -512,55 +454,169 @@ void COBJParser::BuildModelPieceTreeRec(
 
 
 
-void SOBJPiece::DrawForList() const
+void SOBJPiece::UploadGeometryVBOs()
 {
-	if (isEmpty) {
+	// cannot use HasGeometryData because indices is still empty
+	if (triangles.empty())
 		return;
-	}
 
-	CVertexArray* va = GetVertexArray();
-		va->Initialize();
-		va->EnlargeArrays(GetTriangleCount() * 3, 0, VA_SIZE_TNT);
+	indices.reserve(GetTriangleCount() * 3);
 
-	for (int i = GetTriangleCount() - 1; i >= 0; i--) {
+	// generate the index-list; only needed when using VBO's
+	for (unsigned int i = 0; i < GetTriangleCount(); i++) {
 		const SOBJTriangle& tri = GetTriangle(i);
-		const float3&
-			v0p = GetVertex(tri.vIndices[0]),
-			v1p = GetVertex(tri.vIndices[1]),
-			v2p = GetVertex(tri.vIndices[2]);
-		const float3&
-			v0n = GetNormal(tri.nIndices[0]),
-			v1n = GetNormal(tri.nIndices[1]),
-			v2n = GetNormal(tri.nIndices[2]);
-		const float3&
-			v0st = GetSTangent(tri.vIndices[0]),
-			v1st = GetSTangent(tri.vIndices[1]),
-			v2st = GetSTangent(tri.vIndices[2]),
-			v0tt = GetTTangent(tri.vIndices[0]),
-			v1tt = GetTTangent(tri.vIndices[1]),
-			v2tt = GetTTangent(tri.vIndices[2]);
-		const float2&
-			v0tc = GetTxCoor(tri.tIndices[0]),
-			v1tc = GetTxCoor(tri.tIndices[1]),
-			v2tc = GetTxCoor(tri.tIndices[2]);
-
-		va->AddVertexQTNT(v0p,  v0tc.x, v0tc.y,  v0n,  v0st, v0tt);
-		va->AddVertexQTNT(v1p,  v1tc.x, v1tc.y,  v1n,  v1st, v1tt);
-		va->AddVertexQTNT(v2p,  v2tc.x, v2tc.y,  v2n,  v2st, v2tt);
+		indices.push_back(tri.vIndices[0]);
+		indices.push_back(tri.vIndices[1]);
+		indices.push_back(tri.vIndices[2]);
 	}
 
-	va->DrawArrayTNT(GL_TRIANGLES);
+	vboPositions.Bind(GL_ARRAY_BUFFER);
+	vboPositions.New(vertices.size() * sizeof(float3), GL_STATIC_DRAW, &vertices[0]);
+	vboPositions.Unbind();
+
+	vboNormals.Bind(GL_ARRAY_BUFFER);
+	vboNormals.New(vnormals.size() * sizeof(float3), GL_STATIC_DRAW, &vnormals[0]);
+	vboNormals.Unbind();
+
+	vboTexcoords.Bind(GL_ARRAY_BUFFER);
+	vboTexcoords.New(texcoors.size() * sizeof(float2), GL_STATIC_DRAW, &texcoors[0]);
+	vboTexcoords.Unbind();
+
+	vbosTangents.Bind(GL_ARRAY_BUFFER);
+	vbosTangents.New(sTangents.size() * sizeof(float3), GL_STATIC_DRAW, &sTangents[0]);
+	vbosTangents.Unbind();
+
+	vbotTangents.Bind(GL_ARRAY_BUFFER);
+	vbotTangents.New(tTangents.size() * sizeof(float3), GL_STATIC_DRAW, &tTangents[0]);
+	vbotTangents.Unbind();
+
+	vboIndices.Bind(GL_ELEMENT_ARRAY_BUFFER);
+	vboIndices.New(indices.size() * sizeof(unsigned int), GL_STATIC_DRAW, &indices[0]);
+	vboIndices.Unbind();
+
+	// FIXME:
+	//   assumes vIndices, nIndices and tIndices are identical in layout for all vertices
+	//   (not a big problem because OBJ models must have a normal and texcoord per vertex)
+
+
+	// NOTE: wasteful to keep these around, but still needed (eg. for Shatter())
+	// vertices.clear();
+	// indices.clear();
+	// vnormals.clear();
+	// texcoors.clear();
+	sTangents.clear();
+	tTangents.clear();
+	triangles.clear();
 }
 
-void SOBJPiece::SetMinMaxExtends()
+
+void SOBJPiece::BindVertexAttribVBOs() const
 {
+	vbosTangents.Bind(GL_ARRAY_BUFFER);
+		glClientActiveTexture(GL_TEXTURE5);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(3, GL_FLOAT, sizeof(float3), vbosTangents.GetPtr());
+	vbosTangents.Unbind();
+
+	vbotTangents.Bind(GL_ARRAY_BUFFER);
+		glClientActiveTexture(GL_TEXTURE6);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(3, GL_FLOAT, sizeof(float3), vbotTangents.GetPtr());
+	vbotTangents.Unbind();
+
+	vboTexcoords.Bind(GL_ARRAY_BUFFER);
+		glClientActiveTexture(GL_TEXTURE0);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(2, GL_FLOAT, sizeof(float2), vboTexcoords.GetPtr());
+
+		glClientActiveTexture(GL_TEXTURE1);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(2, GL_FLOAT, sizeof(float2), vboTexcoords.GetPtr());
+	vboTexcoords.Unbind();
+
+	vboPositions.Bind(GL_ARRAY_BUFFER);
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glVertexPointer(3, GL_FLOAT, sizeof(float3), vboPositions.GetPtr());
+	vboPositions.Unbind();
+
+	vboNormals.Bind(GL_ARRAY_BUFFER);
+		glEnableClientState(GL_NORMAL_ARRAY);
+		glNormalPointer(GL_FLOAT, sizeof(float3), vboNormals.GetPtr());
+	vboNormals.Unbind();
+}
+
+
+void SOBJPiece::UnbindVertexAttribVBOs() const
+{
+	glClientActiveTexture(GL_TEXTURE6);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glClientActiveTexture(GL_TEXTURE5);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glClientActiveTexture(GL_TEXTURE1);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glClientActiveTexture(GL_TEXTURE0);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_NORMAL_ARRAY);
+}
+
+
+void SOBJPiece::DrawForList() const
+{
+	if (!HasGeometryData())
+		return;
+
+	BindVertexAttribVBOs();
+	vboIndices.Bind(GL_ELEMENT_ARRAY_BUFFER);
+		glDrawRangeElements(GL_TRIANGLES, 0, vertices.size() - 1, indices.size(), GL_UNSIGNED_INT, vboIndices.GetPtr());
+	vboIndices.Unbind();
+	UnbindVertexAttribVBOs();
+}
+
+void SOBJPiece::SetMinMaxExtends(bool globalVertexOffsets)
+{
+	// if no user-set extrema, calculate them
+	const bool overrideMins = (mins == DEF_MIN_SIZE);
+	const bool overrideMaxs = (maxs == DEF_MAX_SIZE);
+
+	for (int i = GetVertexCount() - 1; i >= 0; i--) {
+		float3 vertexGlobalPos;
+		float3 vertexLocalPos;
+
+		if (globalVertexOffsets) {
+			// metadata indicates vertices are defined in model-space
+			//
+			// for converted S3O's, the piece offsets are defined wrt.
+			// the parent piece, *not* wrt. the root piece (<goffset>
+			// stores the concatenated transform)
+			vertexGlobalPos = GetVertexPos(i);
+			vertexLocalPos = vertexGlobalPos - goffset;
+		} else {
+			vertexLocalPos = GetVertexPos(i);
+			vertexGlobalPos = vertexLocalPos + goffset;
+		}
+
+		// NOTE: the min- and max-extends of a piece are not calculated
+		// recursively over its children since this makes little sense
+		// for (per-piece) coldet purposes; the model extends do bound
+		// all pieces
+		if (overrideMins) { mins = float3::min(mins, vertexLocalPos); }
+		if (overrideMaxs) { maxs = float3::max(maxs, vertexLocalPos); }
+
+		// we want vertices in piece-space
+		SetVertex(i, vertexLocalPos);
+	}
 }
 
 void SOBJPiece::SetVertexTangents()
 {
-	if (isEmpty) {
+	// cannot use HasGeometryData because indices is still empty
+	if (triangles.empty())
 		return;
-	}
 
 	sTangents.resize(GetVertexCount(), ZeroVector);
 	tTangents.resize(GetVertexCount(), ZeroVector);
@@ -570,9 +626,9 @@ void SOBJPiece::SetVertexTangents()
 		const SOBJTriangle& tri = GetTriangle(i);
 
 		const float3&
-			p0 = GetVertex(tri.vIndices[0]),
-			p1 = GetVertex(tri.vIndices[1]),
-			p2 = GetVertex(tri.vIndices[2]);
+			p0 = GetVertexPos(tri.vIndices[0]),
+			p1 = GetVertexPos(tri.vIndices[1]),
+			p2 = GetVertexPos(tri.vIndices[2]);
 		const float2&
 			tc0 = GetTxCoor(tri.tIndices[0]),
 			tc1 = GetTxCoor(tri.tIndices[1]),
@@ -611,8 +667,8 @@ void SOBJPiece::SetVertexTangents()
 		float3& t = tTangents[vrtIdx];
 		int h = 1;
 
-		if (s == ZeroVector) { s = float3(1.0f, 0.0f, 0.0f); }
-		if (t == ZeroVector) { t = float3(0.0f, 1.0f, 0.0f); }
+		if (s == ZeroVector) { s = RgtVector; }
+		if (t == ZeroVector) { t =  UpVector; }
 
 		h = ((n.cross(s)).dot(t) < 0.0f)? -1: 1;
 		s = (s - n * n.dot(s));
@@ -620,3 +676,4 @@ void SOBJPiece::SetVertexTangents()
 		t = (s.cross(n)) * h;
 	}
 }
+

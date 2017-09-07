@@ -1,12 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "FlareProjectile.h"
 #include "Game/Camera.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/ProjectileDrawer.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/Env/Particles/ProjectileDrawer.h"
 #include "Rendering/GL/VertexArray.h"
 #include "Rendering/Textures/TextureAtlas.h"
 #include "Sim/Misc/GlobalSynced.h"
@@ -14,20 +12,19 @@
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/Unit.h"
 
-CR_BIND_DERIVED(CFlareProjectile, CProjectile, (ZeroVector, ZeroVector, 0, 0));
+CR_BIND_DERIVED(CFlareProjectile, CProjectile, )
 
 CR_REG_METADATA(CFlareProjectile,(
-				CR_SETFLAG(CF_Synced),
-				CR_MEMBER(activateFrame),
-				CR_MEMBER(deathFrame),
+	CR_SETFLAG(CF_Synced),
+	CR_MEMBER(activateFrame),
+	CR_MEMBER(deathFrame),
 
-				CR_MEMBER(numSub),
-				CR_MEMBER(lastSub),
-				CR_MEMBER(subPos),
-				CR_MEMBER(subSpeed),
-				CR_MEMBER(alphaFalloff),
-				CR_RESERVED(8)
-				));
+	CR_MEMBER(numSub),
+	CR_MEMBER(lastSub),
+	CR_MEMBER(subPos),
+	CR_MEMBER(subSpeed),
+	CR_MEMBER(alphaFalloff)
+))
 
 CFlareProjectile::CFlareProjectile(const float3& pos, const float3& speed, CUnit* owner, int activateFrame):
 	//! these are synced, but neither weapon nor piece
@@ -56,21 +53,22 @@ CFlareProjectile::~CFlareProjectile()
 void CFlareProjectile::Update()
 {
 	CUnit* owner = CProjectile::owner();
+
 	if (gs->frameNum == activateFrame) {
-		if (owner) {
-			pos    = owner->pos;
-			speed  = owner->speed;
-			speed += owner->rightdir * owner->unitDef->flareDropVector.x;
-			speed += owner->updir    * owner->unitDef->flareDropVector.y;
-			speed += owner->frontdir * owner->unitDef->flareDropVector.z;
+		if (owner != NULL) {
+			SetPosition(owner->pos);
+			CWorldObject::SetVelocity(owner->speed);
+			CWorldObject::SetVelocity(speed + (owner->rightdir * owner->unitDef->flareDropVector.x));
+			CWorldObject::SetVelocity(speed + (owner->updir    * owner->unitDef->flareDropVector.y));
+			CWorldObject::SetVelocity(speed + (owner->frontdir * owner->unitDef->flareDropVector.z));
+			SetVelocityAndSpeed(speed);
 		} else {
 			deleteMe = true;
 		}
 	}
 	if (gs->frameNum >= activateFrame) {
-		pos += speed;
-		speed *= 0.95f;
-		speed.y += mygravity;
+		SetPosition(pos + speed);
+		SetVelocityAndSpeed((speed * 0.95f) + (UpVector * mygravity));
 
 		//FIXME: just spawn new flares, if new missiles incoming?
 		if(owner && lastSub < (gs->frameNum - owner->unitDef->flareSalvoDelay) && numSub<owner->unitDef->flareSalvoSize) {
@@ -83,10 +81,9 @@ void CFlareProjectile::Update()
 			++numSub;
 			lastSub = gs->frameNum;
 
-			for (std::list<CMissileProjectile*>::iterator mi = owner->incomingMissiles.begin(); mi != owner->incomingMissiles.end(); ++mi) {
+			for (CMissileProjectile* missile: owner->incomingMissiles) {
 				if (gs->randFloat() < owner->unitDef->flareEfficiency) {
-					CMissileProjectile* missile = *mi;
-					missile->decoyTarget = this;
+					missile->SetTargetObject(this);
 					missile->AddDeathDependence(this, DEPENDENCE_DECOYTARGET);
 				}
 			}
@@ -124,10 +121,16 @@ void CFlareProjectile::Draw()
 		const float3 interPos = subPos[a] + subSpeed[a] * globalRendering->timeOffset;
 
 		#define fpt projectileDrawer->flareprojectiletex
-		va->AddVertexQTC(interPos - camera->right * rad - camera->up * rad, fpt->xstart, fpt->ystart, col);
-		va->AddVertexQTC(interPos + camera->right * rad - camera->up * rad, fpt->xend,   fpt->ystart, col);
-		va->AddVertexQTC(interPos + camera->right * rad + camera->up * rad, fpt->xend,   fpt->yend,   col);
-		va->AddVertexQTC(interPos - camera->right * rad + camera->up * rad, fpt->xstart, fpt->yend,   col);
+		va->AddVertexQTC(interPos - camera->GetRight() * rad - camera->GetUp() * rad, fpt->xstart, fpt->ystart, col);
+		va->AddVertexQTC(interPos + camera->GetRight() * rad - camera->GetUp() * rad, fpt->xend,   fpt->ystart, col);
+		va->AddVertexQTC(interPos + camera->GetRight() * rad + camera->GetUp() * rad, fpt->xend,   fpt->yend,   col);
+		va->AddVertexQTC(interPos - camera->GetRight() * rad + camera->GetUp() * rad, fpt->xstart, fpt->yend,   col);
 		#undef fpt
 	}
+}
+
+
+int CFlareProjectile::GetProjectilesCount() const
+{
+	return subPos.size();
 }

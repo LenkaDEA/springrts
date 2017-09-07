@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include <cstring>
 
@@ -137,7 +136,7 @@ bool CMouseCursor::BuildFromSpecFile(const string& name)
 				}
 			}
 		}
-		else if ((command == "hotspot") && (words.size() >= 1)) {
+		else if ((command == "hotspot") && (!words.empty())) {
 			if (words[1] == "topleft") {
 				hotSpot = TopLeft;
 				hwCursor->hotSpot = TopLeft;
@@ -151,7 +150,7 @@ bool CMouseCursor::BuildFromSpecFile(const string& name)
 						specFile.c_str(), words[1].c_str());
 			}
 		}
-		else if ((command == "lastframe") && (words.size() >= 1)) {
+		else if ((command == "lastframe") && (!words.empty())) {
 			lastFrame = atoi(words[1].c_str());
 		}
 		else {
@@ -226,10 +225,10 @@ bool CMouseCursor::LoadCursorImage(const string& name, ImageData& image)
 	if (hwCursor->NeedsYFlip()) {
 		//WINDOWS
 		b.ReverseYAxis();
-		hwCursor->PushImage(b.xsize,b.ysize,b.mem);
+		hwCursor->PushImage(b.xsize,b.ysize,&b.mem[0]);
 	}else{
 		//X11
-		hwCursor->PushImage(b.xsize,b.ysize,b.mem);
+		hwCursor->PushImage(b.xsize,b.ysize,&b.mem[0]);
 		b.ReverseYAxis();
 	}
 
@@ -242,13 +241,13 @@ bool CMouseCursor::LoadCursorImage(const string& name, ImageData& image)
 		bn.Alloc(nx, ny);
 		bn.CopySubImage(b, 0, ny - b.ysize);
 
-		image.texture = bn.CreateTexture(false);
+		image.texture = bn.CreateTexture();
 		image.xOrigSize = b.xsize;
 		image.yOrigSize = b.ysize;
 		image.xAlignedSize = bn.xsize;
 		image.yAlignedSize = bn.ysize;
 	} else {
-		image.texture = b.CreateTexture(false);
+		image.texture = b.CreateTexture();
 		image.xOrigSize = b.xsize;
 		image.yOrigSize = b.ysize;
 		image.xAlignedSize = b.xsize;
@@ -355,7 +354,7 @@ void CMouseCursor::Update()
 		return;
 	}
 
-	animTime = math::fmod(animTime + globalRendering->lastFrameTime, animPeriod);
+	animTime = math::fmod(animTime + globalRendering->lastFrameTime * 0.001f, animPeriod);
 
 	if (animTime < frames[currentFrame].startTime) {
 		currentFrame = 0;

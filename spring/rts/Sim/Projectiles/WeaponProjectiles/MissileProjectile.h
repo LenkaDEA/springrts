@@ -6,59 +6,58 @@
 #include "WeaponProjectile.h"
 
 class CUnit;
+class CSmokeTrailProjectile;
+
 
 class CMissileProjectile : public CWeaponProjectile
 {
-	CR_DECLARE(CMissileProjectile);
+	CR_DECLARE_DERIVED(CMissileProjectile)
 protected:
-	void UpdateGroundBounce();
+	void UpdateGroundBounce() override;
 public:
-	CMissileProjectile(const float3& pos, const float3& speed, CUnit* owner,
-			float areaOfEffect, float maxSpeed, int ttl, CUnit* target,
-			const WeaponDef* weaponDef, float3 targetPos);
-	~CMissileProjectile();
-	void DependentDied(CObject* o);
-	void Collision(CUnit* unit);
-	void Collision();
+	CMissileProjectile() { }
+	CMissileProjectile(const ProjectileParams& params);
 
-	void Update();
-	void Draw();
+	void Collision(CUnit* unit) override;
+	void Collision(CFeature* feature) override;
+	void Collision() override;
 
-	int ShieldRepulse(CPlasmaRepulser* shield, float3 shieldPos,
-			float shieldForce, float shieldMaxSpeed);
+	void Update() override;
+	void Draw() override;
 
+	virtual int GetProjectilesCount() const override;
+
+	int ShieldRepulse(const float3& shieldPos, float shieldForce, float shieldMaxSpeed) override;
+
+	void SetIgnoreError(bool b) { ignoreError = b; }
 private:
+	void UpdateWobble();
+	void UpdateDance();
+
+	bool ignoreError;
+
 	float maxSpeed;
-	float curSpeed;
-	float areaOfEffect;
-	int age;
-	float3 oldSmoke;
-	float3 oldDir;
-	CUnit* target;
-public:
-	CProjectile* decoyTarget;
-private:
-	bool drawTrail;
-	int numParts;
-	float3 targPos;
-
-	bool isWobbling;
-	float3 wobbleDir;
-	int wobbleTime;
-	float3 wobbleDif;
-	
-	bool isDancing;
-	int danceTime;
-	float3 danceMove;
-	/**
-	 * Vector that points towards the center of the dance
-	 * to keep the movement "coherent"
-	 */
-	float3 danceCenter;
-
 	float extraHeight;
 	float extraHeightDecay;
+
+	int age;
+	int numParts;
 	int extraHeightTime;
+
+	bool isDancing;
+	bool isWobbling;
+
+	int danceTime;
+	int wobbleTime;
+
+	float3 danceMove; // points towards center of the dance to keep the movement "coherent"
+	float3 danceCenter;
+	float3 wobbleDir;
+	float3 wobbleDif;
+
+	float3 oldSmoke;
+	float3 oldDir;
+	CSmokeTrailProjectile* smokeTrail;
 
 	/// the smokes life-time in frames
 	static const float SMOKE_TIME;

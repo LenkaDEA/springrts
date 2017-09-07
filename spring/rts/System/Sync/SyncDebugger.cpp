@@ -4,13 +4,13 @@
 #ifdef SYNCDEBUG
 
 #include "SyncDebugger.h"
-
 #include "Game/GlobalUnsynced.h"
-#include "Game/PlayerHandler.h"
+#include "Game/Players/PlayerHandler.h"
+#include "Game/Players/Player.h"
+#include "Net/Protocol/BaseNetProtocol.h"
 #include "Sim/Misc/GlobalSynced.h"
-#include "System/BaseNetProtocol.h"
 #include "System/Log/ILog.h"
-#include "System/NetProtocol.h"
+#include "Net/Protocol/NetProtocol.h"
 
 #include "HsiehHash.h"
 #include "Logger.h"
@@ -23,7 +23,7 @@
 	/* for backtrace() function */
 	#include <execinfo.h>
 	#define HAVE_BACKTRACE
-#elif defined __MINGW32__
+#elif defined __MINGW32__ || defined _MSC_VER
 	/* from backtrace.c: */
 	extern "C" int backtrace(void** array, int size);
 	#define HAVE_BACKTRACE
@@ -164,14 +164,9 @@ void CSyncDebugger::Backtrace(int index, const char* prefix) const
 		for (unsigned i = 0; i < historybt[index].bt_size; ++i) {
 			// the "{%p}" part is resolved to "functionname [filename:lineno]"
 			// by the CLogger class.
-#ifndef _WIN32
-			logger.AddLine("%s#%u {%p}", prefix, i, historybt[index].bt[i]);
-#else
-			if (sizeof(void*) == 8)
-				logger.AddLine("%s#%u {%llx}", prefix, i, (boost::uint64_t)historybt[index].bt[i]);
-			else
-				logger.AddLine("%s#%u {%x}", prefix, i, (boost::uint32_t)historybt[index].bt[i]);
-#endif
+			if (historybt[index].bt[i] != 0) { //%p prints (nul), ignore it
+				logger.AddLine("%s#%u {%p}", prefix, i, historybt[index].bt[i]);
+			}
 		}
 	}
 }
@@ -203,7 +198,9 @@ bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
 					players[player].remoteFlop = *(boost::uint64_t*)&inbuf[4];
 					assert(!players[player].checksumResponses.empty());
 					int i = 0;
-					while (i < playerHandler->ActivePlayers() && !players[i].checksumResponses.empty()) ++i;
+					while (i < playerHandler->ActivePlayers() && 
+						(!players[i].checksumResponses.empty() ||
+						!playerHandler->Player(i)->active)) ++i;
 					if (i == playerHandler->ActivePlayers()) {
 						ServerQueueBlockRequests();
 						logger.AddLine("Server: checksum responses received; %d block requests queued", pendingBlocksToRequest.size());
@@ -226,8 +223,10 @@ bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
 					players[player].remoteHistory.resize(size + BLOCK_SIZE);
 					std::copy(begin, end, players[player].remoteHistory.begin() + size);
 					int i = 0;
-					size += BLOCK_SIZE;
-					while (i < playerHandler->ActivePlayers() && size == players[i].remoteHistory.size()) ++i;
+					size += BLOCK_SIZE; 
+					while (i < playerHandler->ActivePlayers() &&
+						(size == players[i].remoteHistory.size() ||
+						!playerHandler->Player(i)->active)) ++i;
 					if (i == playerHandler->ActivePlayers()) {
 						logger.AddLine("Server: block responses received");
 						ServerReceivedBlockResponses();
@@ -306,7 +305,7 @@ void CSyncDebugger::ClientSendChecksumResponse()
 		}
 		checksums.push_back(checksum);
 	}
-	net->Send(CBaseNetProtocol::Get().SendSdCheckresponse(gu->myPlayerNum, flop, checksums));
+	clientNet->Send(CBaseNetProtocol::Get().SendSdCheckresponse(gu->myPlayerNum, flop, checksums));
 }
 
 
@@ -317,7 +316,13 @@ void CSyncDebugger::ServerQueueBlockRequests()
 	for (int j = 0; j < playerHandler->ActivePlayers(); ++j) {
 		if (correctFlop) {
 			if (players[j].remoteFlop != correctFlop)
-				logger.AddLine("Server: bad flop# %llu instead of %llu for player %d", players[j].remoteFlop, correctFlop, j);
+				logger.AddLine(
+#ifdef _WIN32
+			"Server: bad flop# %I64u instead of %I64u for player %d",
+#else
+			"Server: bad flop# %llu instead of %llu for player %d",
+#endif
+				players[j].remoteFlop, correctFlop, j);
 		} else {
 			correctFlop = players[j].remoteFlop;
 		}
@@ -327,6 +332,8 @@ void CSyncDebugger::ServerQueueBlockRequests()
 		unsigned correctChecksum = 0;
 		if (i == HISTORY_SIZE) i = 0;
 		for (int j = 0; j < playerHandler->ActivePlayers(); ++j) {
+			if (players[j].checksumResponses.empty())
+				continue;
 			if (correctChecksum && players[j].checksumResponses[i] != correctChecksum) {
 				pendingBlocksToRequest.push_back(i);
 				break;
@@ -341,7 +348,7 @@ void CSyncDebugger::ServerQueueBlockRequests()
 // 		serverNet->SendData<unsigned> (NETMSG_SD_BLKREQUEST, ii);
 	} else {
 		logger.AddLine("Server: huh, all blocks equal?!?");
-		net->Send(CBaseNetProtocol::Get().SendSdReset());
+		clientNet->Send(CBaseNetProtocol::Get().SendSdReset());
 	}
 	//cleanup
 	for (PlayerVec::iterator it = players.begin(); it != players.end(); ++it)
@@ -354,7 +361,7 @@ void CSyncDebugger::ServerHandlePendingBlockRequests()
 {
 	if (!pendingBlocksToRequest.empty() && !waitingForBlockResponse) {
 		// last two shorts are for progress indication
-		net->Send(CBaseNetProtocol::Get().SendSdBlockrequest(pendingBlocksToRequest.front(), requestedBlocks.size() - pendingBlocksToRequest.size() + 1, requestedBlocks.size()));
+		clientNet->Send(CBaseNetProtocol::Get().SendSdBlockrequest(pendingBlocksToRequest.front(), requestedBlocks.size() - pendingBlocksToRequest.size() + 1, requestedBlocks.size()));
 		waitingForBlockResponse = true;
 	}
 }
@@ -385,7 +392,7 @@ void CSyncDebugger::ClientSendBlockResponse(int block)
 #ifdef TRACE_SYNC
 	tracefile << "done\n";
 #endif
-	net->Send(CBaseNetProtocol::Get().SendSdBlockresponse(gu->myPlayerNum, checksums));
+	clientNet->Send(CBaseNetProtocol::Get().SendSdBlockresponse(gu->myPlayerNum, checksums));
 }
 
 
@@ -425,6 +432,8 @@ void CSyncDebugger::ServerDumpStack()
 		if (i == virtualHistorySize) i = 0;
 		bool err = false;
 		for (int j = 0; j < playerHandler->ActivePlayers(); ++j) {
+			if (!playerHandler->Player(j)->active) 
+				continue;
 			if (correctChecksum && players[j].remoteHistory[i] != correctChecksum) {
 				if (historybt) {
 					virtualBlockNr = i / BLOCK_SIZE;
@@ -476,7 +485,7 @@ void CSyncDebugger::ServerDumpStack()
 	}
 
 	// and reset
-	net->Send(CBaseNetProtocol::Get().SendSdReset());
+	clientNet->Send(CBaseNetProtocol::Get().SendSdReset());
 	logger.AddLine("Server: Done!");
 	logger.CloseSession();
 	LOG("Server: Done!");

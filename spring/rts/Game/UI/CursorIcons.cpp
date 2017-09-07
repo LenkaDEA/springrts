@@ -2,7 +2,6 @@
 
 #include <algorithm>
 
-#include "System/mmgr.h"
 
 #include "CursorIcons.h"
 #include "CommandColors.h"
@@ -11,7 +10,7 @@
 #include "Sim/Units/CommandAI/Command.h"
 #include "Game/Camera.h"
 #include "Game/GameHelper.h"
-#include "Rendering/glFont.h"
+#include "Rendering/Fonts/glFont.h"
 #include "Rendering/UnitDrawer.h"
 #include "Rendering/GL/myGL.h"
 #include "Sim/Units/UnitDef.h"
@@ -58,6 +57,7 @@ void CCursorIcons::SetCustomType(int cmdID, const string& cursor)
 
 void CCursorIcons::Draw()
 {
+	glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT);
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -65,21 +65,20 @@ void CCursorIcons::Draw()
 	glDepthMask(GL_FALSE);
 
 	DrawCursors();
-
 	DrawBuilds();
 
-	glDepthMask(GL_TRUE);
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
+	glPopAttrib();
+
+	Clear();
 }
 
 
 void CCursorIcons::DrawCursors()
 {
-	if (icons.empty() || !cmdColors.UseQueueIcons()) {
+	if (icons.empty() || !cmdColors.UseQueueIcons())
 		return;
-	}
-	
+
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
 	glLoadIdentity();
@@ -87,14 +86,13 @@ void CCursorIcons::DrawCursors()
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
- 
+
 	glColor4f(1.0f, 1.0f, 1.0f, cmdColors.QueueIconAlpha());
-	
+
 	int currentCmd = (icons.begin()->cmd + 1); // force the first binding
 	const CMouseCursor* currentCursor = NULL;
-	
-	std::set<Icon>::iterator it;
-	for (it = icons.begin(); it != icons.end(); ++it) {
+
+	for (auto it = icons.cbegin(); it != icons.cend(); ++it) {
 		const int command = it->cmd;
 		if (command != currentCmd) {
 			currentCmd = command;
@@ -110,7 +108,7 @@ void CCursorIcons::DrawCursors()
 			}
 		}
 	}
-	
+
 	DrawTexts(); // use the same transformation
 
 	glMatrixMode(GL_PROJECTION);
@@ -122,8 +120,11 @@ void CCursorIcons::DrawCursors()
 
 void CCursorIcons::DrawTexts()
 {
+	if (texts.empty())
+		return;
+
 	glViewport(globalRendering->viewPosX, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
-	glColor4f(1.0f,  1.0f, 1.0f, 1.0f);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
 	const float fontScale = 1.0f;
 	const float yOffset = 50.0f * globalRendering->pixelY;
@@ -155,11 +156,16 @@ void CCursorIcons::DrawBuilds()
 
 	glEnable(GL_DEPTH_TEST);
 	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
-	
-	std::set<BuildIcon>::iterator it;
-	for (it = buildIcons.begin() ; it != buildIcons.end(); ++it) {
-		const UnitDef* unitDef = unitDefHandler->GetUnitDefByID(-(it->cmd));
-		unitDrawer->DrawBuildingSample(unitDef, it->team, it->pos, it->facing);
+
+	for (auto it = buildIcons.begin() ; it != buildIcons.end(); ++it) {
+		glPushMatrix();
+		glLoadIdentity();
+		glTranslatef3(it->pos);
+		glRotatef(it->facing * 90.0f, 0.0f, 1.0f, 0.0f);
+
+		CUnitDrawer::DrawIndividualDefAlpha(unitDefHandler->GetUnitDefByID(-(it->cmd)), it->team, false);
+
+		glPopMatrix();
 	}
 
 	glDisable(GL_DEPTH_TEST);
@@ -182,7 +188,6 @@ const CMouseCursor* CCursorIcons::GetCursor(int cmd) const
 		case CMD_FIGHT:           cursorName = "Fight";        break;
 		case CMD_ATTACK:          cursorName = "Attack";       break;
 		case CMD_AREA_ATTACK:     cursorName = "Area attack";  break;
-		case CMD_LOOPBACKATTACK:  cursorName = "Attack";       break;
 		case CMD_GUARD:           cursorName = "Guard";        break;
 		case CMD_REPAIR:          cursorName = "Repair";       break;
 		case CMD_LOAD_ONTO:       cursorName = "Load units";   break;

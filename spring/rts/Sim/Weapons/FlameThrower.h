@@ -5,20 +5,17 @@
 
 #include "Weapon.h"
 
-class CFlameThrower : public CWeapon
+class CFlameThrower: public CWeapon
 {
-	CR_DECLARE(CFlameThrower);
+	CR_DECLARE_DERIVED(CFlameThrower)
 public:
-	CFlameThrower(CUnit* owner);
-	~CFlameThrower();
-	bool TryTarget(const float3& pos, bool userTarget, CUnit* unit);
-	void Update();
+	CFlameThrower(CUnit* owner, const WeaponDef* def);
 
 	float3 color;
 	float3 color2;
 
 private:
-	virtual void FireImpl();
+	void FireImpl(const bool scriptCall) override final;
 };
 
 #endif // _FLAME_THROWER_H

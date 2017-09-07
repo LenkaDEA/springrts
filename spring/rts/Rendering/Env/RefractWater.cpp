@@ -1,6 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
@@ -48,14 +47,13 @@ CRefractWater::~CRefractWater()
 
 void CRefractWater::Draw()
 {
-	if (!mapInfo->water.forceRendering && (readmap->currMinHeight > 1.0f)) {
+	if (!mapInfo->water.forceRendering && !readMap->HasVisibleWater())
 		return;
-	}
 
 	glActiveTextureARB(GL_TEXTURE2_ARB);
 	glBindTexture(target, subSurfaceTex);
 	glEnable(target);
-	glCopyTexSubImage2D(target, 0, 0, 0, 0, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
+	glCopyTexSubImage2D(target, 0, 0, 0, globalRendering->viewPosX, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
 
 	SetupWaterDepthTex();
 
@@ -88,14 +86,14 @@ void CRefractWater::SetupWaterDepthTex()
 {
 	glActiveTextureARB(GL_TEXTURE3_ARB);
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, readmap->GetShadingTexture()); // the shading texture has water depth encoded in alpha
+	glBindTexture(GL_TEXTURE_2D, readMap->GetShadingTexture()); // the shading texture has water depth encoded in alpha
 	glEnable(GL_TEXTURE_GEN_S);
-	float splane[] = { 1.0f / (gs->pwr2mapx * SQUARE_SIZE), 0.0f, 0.0f, 0.0f }; 
+	float splane[] = { 1.0f / (mapDims.pwr2mapx * SQUARE_SIZE), 0.0f, 0.0f, 0.0f }; 
 	glTexGeni(GL_S,GL_TEXTURE_GEN_MODE,GL_OBJECT_LINEAR);
 	glTexGenfv(GL_S,GL_OBJECT_PLANE,splane);
 
 	glEnable(GL_TEXTURE_GEN_T);
-	float tplane[] = { 0.0f, 0.0f, 1.0f / (gs->pwr2mapy * SQUARE_SIZE), 0.0f};
+	float tplane[] = { 0.0f, 0.0f, 1.0f / (mapDims.pwr2mapy * SQUARE_SIZE), 0.0f};
 	glTexGeni(GL_T,GL_TEXTURE_GEN_MODE,GL_OBJECT_LINEAR);
 	glTexGenfv(GL_T,GL_OBJECT_PLANE,tplane);
 }

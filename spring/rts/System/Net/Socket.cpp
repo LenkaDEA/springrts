@@ -6,14 +6,12 @@
 #include "lib/streflop/streflop_cond.h"
 
 #include "System/Log/ILog.h"
+#include "System/Util.h"
+
 
 namespace netcode
 {
-#if BOOST_VERSION < 103600
-using namespace boost::system::posix_error;
-#else
 using namespace boost::system::errc;
-#endif
 
 boost::asio::io_service netservice;
 
@@ -31,33 +29,28 @@ bool CheckErrorCode(boost::system::error_code& err)
 	}
 }
 
-boost::asio::ip::udp::endpoint ResolveAddr(const std::string& host, int port)
+boost::asio::ip::udp::endpoint ResolveAddr(const std::string& host, int port, boost::system::error_code* err)
 {
+	assert(err);
 	using namespace boost::asio;
-	boost::system::error_code err;
-	ip::address tempAddr = WrapIP(host, &err);
-	if (err) {
-		// error, maybe a hostname?
-		ip::udp::resolver resolver(netcode::netservice);
-		std::ostringstream portbuf;
-		portbuf << port;
-		ip::udp::resolver::query query(host, portbuf.str());
-		// TODO: check if unsync problem exists here too (see WrapResolve below)
-		ip::udp::resolver::iterator iter = resolver.resolve(query);
-		tempAddr = iter->endpoint().address();
+	ip::address tempAddr = WrapIP(host, err);
+	if (!*err)
+		return ip::udp::endpoint(tempAddr, port);
+
+	auto errBuf = *err; // WrapResolve() might clear err
+	boost::asio::io_service io_service;
+	ip::udp::resolver resolver(io_service);
+	ip::udp::resolver::query query(host, IntToString(port));
+	auto iter = WrapResolve(resolver, query, err);
+	ip::udp::resolver::iterator end;
+	if (!*err && iter != end) {
+		return *iter;
 	}
 
-	return ip::udp::endpoint(tempAddr, port);
+	if (!*err) *err = errBuf;
+	return ip::udp::endpoint(tempAddr, 0);
 }
 
-bool IsLoopbackAddress(const boost::asio::ip::address& addr) {
-
-	if (addr.is_v6()) {
-		return addr.to_v6().is_loopback();
-	} else {
-		return (addr.to_v4() == boost::asio::ip::address_v4::loopback());
-	}
-}
 
 boost::asio::ip::address WrapIP(const std::string& ip,
 		boost::system::error_code* err)
@@ -69,36 +62,46 @@ boost::asio::ip::address WrapIP(const std::string& ip,
 	} else {
 		addr = boost::asio::ip::address::from_string(ip, *err);
 	}
-#ifdef STREFLOP_H
-	//! (date of note: 08/05/10)
-	//! something in from_string() is invalidating the FPU flags
-	//! tested on win2k and linux (not happening there)
+//#ifdef STREFLOP_H
+	// (date of note: 08/05/10)
+	// something in from_string() is invalidating the FPU flags
+	// tested on win2k and linux (not happening there)
 	streflop::streflop_init<streflop::Simple>();
-#endif
+//#endif
 
 	return addr;
 }
 
-boost::asio::ip::tcp::resolver::iterator WrapResolve(
-		boost::asio::ip::tcp::resolver& resolver,
-		boost::asio::ip::tcp::resolver::query& query,
+boost::asio::ip::udp::resolver::iterator WrapResolve(
+		boost::asio::ip::udp::resolver& resolver,
+		boost::asio::ip::udp::resolver::query& query,
 		boost::system::error_code* err)
 {
-	boost::asio::ip::tcp::resolver::iterator resolveIt;
+	boost::asio::ip::udp::resolver::iterator resolveIt;
 
 	if (err == NULL) {
 		resolveIt = resolver.resolve(query);
 	} else {
 		resolveIt = resolver.resolve(query, *err);
 	}
-#ifdef STREFLOP_H
-	//! (date of note: 08/22/10)
-	//! something in resolve() is invalidating the FPU flags
+//#ifdef STREFLOP_H
+	// (date of note: 08/22/10)
+	// something in resolve() is invalidating the FPU flags
 	streflop::streflop_init<streflop::Simple>();
-#endif
+//#endif
 
 	return resolveIt;
 }
+
+
+boost::asio::ip::address GetAnyAddress(const bool IPv6)
+{
+	if (IPv6) {
+		return boost::asio::ip::address_v6::any();
+	}
+	return boost::asio::ip::address_v4::any();
+}
+
 
 } // namespace netcode
 

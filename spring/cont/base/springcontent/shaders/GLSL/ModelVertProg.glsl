@@ -1,10 +1,7 @@
+#version 120
+
 // note: gl_ModelViewMatrix actually only contains the
 // model matrix, view matrix is on the projection stack
-//
-// todo: clip gl_Position against gl_ClipPlane[3] if advFade
-// note: many gfx will fallback to software rendering when
-// gl_ClipDistance or gl_ClipPosition are used, so it might
-// be better to use may a `discard` in the fragment shader
 //
 // note: shadow-map texture coordinates should be generated
 // per fragment (the non-linear projection used can produce
@@ -13,14 +10,13 @@
 // of acne itself
 
 
-//#define use_normalmapping
-//#define flip_normalmap
-#define use_shadows
+// #define use_normalmapping
+// #define flip_normalmap
 
   //uniform mat4 cameraMat;
   //uniform mat4 cameraInv;
   uniform vec3 cameraPos;
-#ifdef use_shadows
+#if (USE_SHADOWS == 1)
   uniform mat4 shadowMatrix;
   uniform vec4 shadowParams;
 #endif
@@ -48,18 +44,22 @@ void main(void)
 	normalv = gl_NormalMatrix * gl_Normal;
 #endif
 
-	vertexWorldPos = gl_ModelViewMatrix * gl_Vertex;
-	gl_Position    = gl_ProjectionMatrix * vertexWorldPos;
+	gl_ClipVertex  = gl_ModelViewMatrix * gl_Vertex; // M (!)
+	gl_Position    = gl_ProjectionMatrix * gl_ClipVertex;
+
+	vertexWorldPos = gl_ClipVertex;
 	cameraDir      = vertexWorldPos.xyz - cameraPos;
 
-#ifdef use_shadows
+#if (USE_SHADOWS == 1)
 	gl_TexCoord[1] = shadowMatrix * vertexWorldPos;
 	gl_TexCoord[1].st = gl_TexCoord[1].st * (inversesqrt( abs(gl_TexCoord[1].st) + shadowParams.z) + shadowParams.w) + shadowParams.xy;
 #endif
 
 	gl_TexCoord[0].st = gl_MultiTexCoord0.st;
 
+	#if (DEFERRED_MODE == 0)
 	float fogCoord = length(cameraDir.xyz);
 	fogFactor = (gl_Fog.end - fogCoord) * gl_Fog.scale; //gl_Fog.scale := 1.0 / (gl_Fog.end - gl_Fog.start)
 	fogFactor = clamp(fogFactor, 0.0, 1.0);
+	#endif
 }

@@ -14,12 +14,12 @@ At max 100.000 Bytes are downloaded!<br>
 <b>Note: only windows-versions can be translated.</b>
 </p>
 
-<form method="post" action="%ACTION%"><p>Url of <b>raw</b> infolog.txt
+<form method="post" action="%ACTION%"><p>Url of <b>unformatted raw plaintext</b> infolog.txt
 <input type="text" name="url" size="40">
 or copy and paste here:
 <br>
 <textarea cols="100" rows="20" name="request">%TEXTAREA%</textarea><br>
-Post to <a target="_blank" href="http://paste.springfiles.com">paste.springfiles.com</a><input type="checkbox" name="pastebin" checked>
+Post to <a target="_blank" href="http://paste.springfiles.com">paste.springfiles.com</a><input type="checkbox" name="pastebin">
 <input type="submit">
 </p>
 </form>

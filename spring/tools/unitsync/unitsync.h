@@ -13,6 +13,7 @@
  * @{
 */
 
+#ifdef ENABLE_DEPRECATED_FUNCTIONS
 /**
  * @brief 2d vector storing a map defined starting position
  * @sa MapInfo
@@ -50,7 +51,7 @@ struct MapInfo
 	char* author;   ///< Creator of the map (max 200 chars)
 };
 
-
+#endif //ENABLE_DEPRECATED_FUNCTIONS
 /**
  * @brief Available bitmap typeHints
  * @sa GetInfoMap
@@ -66,3 +67,4 @@ enum BitmapType {
 const char* GetStr(std::string str);
 
 #endif // _UNITSYNC_H
+

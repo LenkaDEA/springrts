@@ -4,7 +4,6 @@
 #include <string>
 #include <set>
 
-#include "System/mmgr.h"
 
 #include "SideParser.h"
 #include "Lua/LuaParser.h"
@@ -20,16 +19,6 @@ const std::string SideParser::emptyStr = "";
 
 
 /******************************************************************************/
-
-SideParser::SideParser()
-{
-}
-
-
-SideParser::~SideParser()
-{
-}
-
 
 bool SideParser::Load()
 {

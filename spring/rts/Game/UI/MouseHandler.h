@@ -8,14 +8,14 @@
 #include <map>
 
 #include "System/float3.h"
-#include "System/Vec2.h"
+#include "System/type2.h"
 #include "MouseCursor.h"
 
 static const int NUM_BUTTONS = 10;
 
 class CInputReceiver;
 class CCameraController;
-
+class CUnit;
 
 class CMouseHandler
 {
@@ -127,6 +127,8 @@ private:
 
 	float scrollx;
 	float scrolly;
+
+	const CUnit* lastClicked;
 
 	std::map<std::string, CMouseCursor*> cursorFileMap;
 	std::map<std::string, CMouseCursor*> cursorCommandMap;

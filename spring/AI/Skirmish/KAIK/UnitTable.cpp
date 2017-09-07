@@ -1,7 +1,7 @@
 #include <sstream>
 
 #include "Sim/Misc/GlobalConstants.h"
-#include "System/StringUtil.h"
+#include "System/Util.h"
 
 #include "IncCREG.h"
 #include "IncEngine.h"
@@ -351,7 +351,7 @@ float CUnitTable::GetDPSvsUnit(const UnitDef* unitDef, const UnitDef* victim) {
 						firingangle = asin(sinoid) / 2;
 
 						if (unitDef->highTrajectoryType == 1) {
-							firingangle = (3.14159265358979323846f * 0.5f) - firingangle;
+							firingangle = (PI / 2) - firingangle;
 						}
 
 						float heightreached = pow(u * sin(firingangle), 2) / (2 * gravity);

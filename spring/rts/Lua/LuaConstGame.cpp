@@ -1,11 +1,11 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#include "System/mmgr.h"
 
 #include "LuaConstGame.h"
 
 #include "LuaInclude.h"
 
+#include "LuaHandle.h"
 #include "LuaUtils.h"
 #include "Game/Game.h"
 #include "Game/GameSetup.h"
@@ -42,42 +42,44 @@ bool LuaConstGame::PushEntries(lua_State* L)
 {
 	assert(mapInfo);
 	assert(gameSetup);
-	
+
 	// FIXME  --  this is getting silly, convert to userdata?
+	LuaPushNamedString(L, "version", SpringVersion::GetSync());
+	LuaPushNamedString(L, "versionFull", (!CLuaHandle::GetHandleSynced(L))? SpringVersion::GetFull(): "");
+	LuaPushNamedString(L, "versionPatchSet", (!CLuaHandle::GetHandleSynced(L))? SpringVersion::GetPatchSet(): "");
+	LuaPushNamedString(L, "buildFlags", (!CLuaHandle::GetHandleSynced(L))? SpringVersion::GetAdditional(): "");
 
-	const float gravity = -(mapInfo->map.gravity * GAME_SPEED * GAME_SPEED);
-	const bool ghostedBuildings = gameSetup->ghostedBuildings;
-	const int  startPosType     = gameSetup->startPosType;
-
-	LuaPushNamedString(L, "version",       SpringVersion::GetFull());
-
-	if (uh) {
-		LuaPushNamedNumber(L, "maxUnits",      uh->MaxUnits());
+	if (unitHandler != NULL) {
+		LuaPushNamedNumber(L, "maxUnits",      unitHandler->MaxUnits());
 	}
 	LuaPushNamedNumber(L, "maxTeams",      MAX_TEAMS);
 	LuaPushNamedNumber(L, "maxPlayers",    MAX_PLAYERS);
 	LuaPushNamedNumber(L, "gameSpeed",     GAME_SPEED);
 	LuaPushNamedNumber(L, "squareSize",    SQUARE_SIZE);
 
-	LuaPushNamedNumber(L, "startPosType",  startPosType);
+	LuaPushNamedNumber(L, "startPosType",  gameSetup->startPosType);
+	LuaPushNamedBool(L,   "ghostedBuildings", gameSetup->ghostedBuildings);
 
-	LuaPushNamedBool(L,   "ghostedBuildings", ghostedBuildings);
-
-	if (mapDamage) {
-		LuaPushNamedBool(L,   "mapDamage",           !mapDamage->disabled);
-	}
-	LuaPushNamedNumber(L, "gravity",             gravity);
+	LuaPushNamedNumber(L, "gravity",             -mapInfo->map.gravity * GAME_SPEED * GAME_SPEED);
 	LuaPushNamedNumber(L, "windMin",             wind.GetMinWind());
 	LuaPushNamedNumber(L, "windMax",             wind.GetMaxWind());
 	LuaPushNamedString(L, "mapName",             mapInfo->map.name);
 	LuaPushNamedString(L, "mapHumanName",        mapInfo->map.description); //! deprecated
 	LuaPushNamedString(L, "mapDescription",      mapInfo->map.description);
-	if (readmap) {
+	LuaPushNamedNumber(L, "mapHardness",         mapInfo->map.hardness);
+
+	if (mapDamage) {
+		// damage is enabled iff !mapInfo->map.notDeformable
+		LuaPushNamedBool(L, "mapDamage", !mapDamage->disabled);
+	}
+
+
+	if (readMap) {
 		//FIXME make this available in LoadScreen already!
-		LuaPushNamedNumber(L, "mapX",                readmap->width  / 64);
-		LuaPushNamedNumber(L, "mapY",                readmap->height / 64);
-		LuaPushNamedNumber(L, "mapSizeX",            readmap->width  * SQUARE_SIZE);
-		LuaPushNamedNumber(L, "mapSizeZ",            readmap->height * SQUARE_SIZE);
+		LuaPushNamedNumber(L, "mapX",            mapDims.mapx / 64);
+		LuaPushNamedNumber(L, "mapY",            mapDims.mapy / 64);
+		LuaPushNamedNumber(L, "mapSizeX",        mapDims.mapx * SQUARE_SIZE);
+		LuaPushNamedNumber(L, "mapSizeZ",        mapDims.mapy * SQUARE_SIZE);
 	}
 	LuaPushNamedNumber(L, "extractorRadius",     mapInfo->map.extractorRadius);
 	LuaPushNamedNumber(L, "tidal",               mapInfo->map.tidalStrength);
@@ -89,7 +91,8 @@ bool LuaConstGame::PushEntries(lua_State* L)
 	LuaPushNamedString(L, "waterFoamTexture",    mapInfo->water.foamTexture);
 	LuaPushNamedString(L, "waterNormalTexture",  mapInfo->water.normalTexture);
 	LuaPushNamedNumber(L, "waterNumTiles",       mapInfo->water.numTiles);
-	LuaPushNamedBool(L,   "waterVoid",           mapInfo->map.voidWater);
+	LuaPushNamedBool(L,   "voidWater",           mapInfo->map.voidWater);
+	LuaPushNamedBool(L,   "voidGround",          mapInfo->map.voidGround);
 	LuaPushNamedBool(L,   "waterHasWaterPlane",  mapInfo->water.hasWaterPlane);
 	LuaPushNamedBool(L,   "waterForceRendering", mapInfo->water.forceRendering);
 	LuaPushNamedColor(L,  "waterAbsorb",         mapInfo->water.absorb);
@@ -108,24 +111,24 @@ bool LuaConstGame::PushEntries(lua_State* L)
 	LuaPushNamedNumber(L, "waterFresnelPower",   mapInfo->water.fresnelPower);
 	LuaPushNamedNumber(L, "waterReflectionDistortion", mapInfo->water.reflDistortion);
 
-	LuaPushNamedColor(L,  "fogColor",            mapInfo->atmosphere.fogColor);
-	LuaPushNamedColor(L,  "groundAmbientColor",  mapInfo->light.groundAmbientColor);
-	LuaPushNamedColor(L,  "groundSpecularColor", mapInfo->light.groundSpecularColor);
-	LuaPushNamedColor(L,  "groundSunColor",      mapInfo->light.groundSunColor);
-
 	const vector<string>& causticTexs = mapInfo->water.causticTextures;
 	lua_pushliteral(L, "waterCausticTextures");
 	lua_newtable(L);
 	for (int i = 0; i < (int)causticTexs.size(); i++) {
-		lua_pushnumber(L, i + 1);
 		lua_pushsstring(L, causticTexs[i]);
-		lua_rawset(L, -3);
+		lua_rawseti(L, -2, i + 1);
 	}
 	lua_rawset(L, -3);
 
 	LuaPushNamedBool(L,   "allowTeamColors", true);
 
-	LuaPushNamedString(L, "modName",         modInfo.humanName);
+	LuaPushNamedString(L, "gameName",         modInfo.humanName);
+	LuaPushNamedString(L, "gameShortName",    modInfo.shortName);
+	LuaPushNamedString(L, "gameVersion",      modInfo.version);
+	LuaPushNamedString(L, "gameMutator",      modInfo.mutator);
+	LuaPushNamedString(L, "gameDesc",         modInfo.description);
+
+	LuaPushNamedString(L, "modName",         modInfo.humanNameVersioned);
 	LuaPushNamedString(L, "modShortName",    modInfo.shortName);
 	LuaPushNamedString(L, "modVersion",      modInfo.version);
 	LuaPushNamedString(L, "modMutator",      modInfo.mutator);
@@ -164,18 +167,27 @@ bool LuaConstGame::PushEntries(lua_State* L)
 	         archiveScanner->GetArchiveCompleteChecksum(modInfo.filename));
 	LuaPushNamedString(L, "modChecksum", buf);
 
-	const vector<string> &cats =
-		CCategoryHandler::Instance()->GetCategoryNames(~0);
-	lua_pushliteral(L, "springCategories");
-	lua_newtable(L);
-	for (int i = 0; i < (int)cats.size(); i++) {
-		LuaPushNamedNumber(L, StringToLower(cats[i]), i);
-	}
-	lua_rawset(L, -3);
+	// needed for LuaIntro which also pushes ConstGame entries
+	// (but it probably doesn't need to know about categories)
+	if (CCategoryHandler::Instance() != NULL) {
+		const vector<string>& cats = CCategoryHandler::Instance()->GetCategoryNames(~0);
 
-	lua_pushliteral(L, "armorTypes");
-	lua_newtable(L);
-	if (damageArrayHandler) {
+		lua_pushliteral(L, "springCategories");
+		lua_newtable(L);
+
+		for (unsigned int i = 0; i < cats.size(); i++) {
+			LuaPushNamedNumber(L, StringToLower(cats[i]), i);
+		}
+
+		lua_rawset(L, -3);
+	}
+
+	// needed for LuaIntro which also pushes ConstGame entries
+	// (but it probably doesn't need to know about armor-types)
+	if (damageArrayHandler != NULL) {
+		lua_pushliteral(L, "armorTypes");
+		lua_newtable(L);
+
 		const std::vector<std::string>& typeList = damageArrayHandler->GetTypeList();
 		const int typeCount = (int)typeList.size();
 		for (int i = 0; i < typeCount; i++) {
@@ -183,12 +195,12 @@ bool LuaConstGame::PushEntries(lua_State* L)
 			lua_pushsstring(L, typeList[i]);
 			lua_pushnumber(L, i);
 			lua_rawset(L, -3);
-			lua_pushnumber(L, i);
 			lua_pushsstring(L, typeList[i]);
-			lua_rawset(L, -3);
+			lua_rawseti(L, -2, i);
 		}
+
+		lua_rawset(L, -3);
 	}
-	lua_rawset(L, -3);
 
 	return true;
 }

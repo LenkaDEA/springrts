@@ -1,0 +1,13 @@
+diff --git a/spring/AI/Interfaces/C/CMakeLists.txt b/spring/AI/Interfaces/C/CMakeLists.txt
+index 8b0b0cf..8ff779d 100644
+--- a/spring/AI/Interfaces/C/CMakeLists.txt
++++ b/spring/AI/Interfaces/C/CMakeLists.txt
+@@ -110,7 +110,7 @@ if    (BUILD_${myName}_AIINTERFACE)
+ 			"${mySourceDir}/SSkirmishAISpecifier.cpp"
+ 		)
+ 	add_library(${myTarget} MODULE ${mySources} ${ai_common_SRC} ${myVersionDepFile})
+-	target_link_libraries(${myTarget} CUtils)
++	target_link_libraries(${myTarget} CUtils dl)
+ 	FixLibName(${myTarget})
+ 
+ 	Add_Dependencies(${myTarget} generateVersionFiles)

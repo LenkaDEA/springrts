@@ -66,7 +66,8 @@ public class StartPosition extends GameAdapter
 	   if( frameController.getFrame() <= 1 ) {
 //		if (aicallback.getGame().getCurrentFrame() <= 1)
 //		{
-			if (unit.getDef().isCommander())
+			// UnitDef.isCommander no longer exists, and returned false when it still did
+			if (/*unit.getDef().isCommander()*/ false)
 			{
 				startposition = unitController.getPos( unit );
 				//aicallback.get

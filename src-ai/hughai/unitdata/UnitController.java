@@ -248,7 +248,8 @@ public class UnitController
 	public void killAllFriendly(){
        for( Unit unit : units )
        {
-           if( !unit.getDef().isCommander() )
+           // UnitDef.isCommander no longer exists; before that it always returned false
+           if( /*!unit.getDef().isCommander()*/ true )
            {
                giveOrderWrapper.SelfDestruct(unit);
            }

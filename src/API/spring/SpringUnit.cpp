@@ -187,7 +187,8 @@ bool CSpringUnit::Build(IUnitType* t){
 	CSpringUnitType* type = static_cast<CSpringUnitType*>(t);
 	springai::UnitDef* ud = type->GetUnitDef();
 	if(ud){
-		if((!ud->IsAbleToMove())&&(ud->GetType() == std::string("factory"))){
+		// UnitDef::GetType no longer exists; before that it always returned "$$deprecated$$"
+		if((!ud->IsAbleToMove())&&(/*ud->GetType() == std::string("factory")*/false)){
 			return Build(t,p);
 		}else{
 			int ms = std::max(ud->GetXSize(),ud->GetZSize());

@@ -61,7 +61,8 @@ public class UnitDefHelp
 
    public boolean IsFactory(UnitDef ud){
       if (ud.getBuildOptions().size() == 0) return false;
-      if(ud.getType().toLowerCase() == "factory" ) return true;
+      // ud.GetType no longer exists; before that it always returned "$$deprecated$$"
+      if(/*ud.getType().toLowerCase() == "factory"*/ false) return true;
       return ud.isBuilder() && !IsMobile(ud);
    }
 
@@ -81,8 +82,9 @@ public class UnitDefHelp
    }
 
    public boolean IsAirCraft(UnitDef ud){
-      if(ud.getType().toLowerCase() == "fighter")	return true;
-      if(ud.getType().toLowerCase() == "bomber")	return true;
+      // ud.GetType no longer exists; before that it always returned "$$deprecated$$"
+      if(/*ud.getType().toLowerCase() == "fighter"*/ false)	return true;
+      if(/*ud.getType().toLowerCase() == "bomber"*/ false)	return true;
       if(ud.isAbleToFly()&&(ud.getMoveData() == null)) return true;
       return false;
    }
@@ -98,7 +100,8 @@ public class UnitDefHelp
    }
 
    public boolean IsBomber(UnitDef ud){
-      if(IsAirCraft(ud)&&(ud.getType().toLowerCase() == "bomber" )) return true;
+      // ud.GetType no longer exists; before that it always returned "$$deprecated$$"
+      if(IsAirCraft(ud)&&(/*ud.getType().toLowerCase() == "bomber"*/ false)) return true;
       return false;
    }        
 }

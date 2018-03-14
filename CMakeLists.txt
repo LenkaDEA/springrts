@@ -1,5 +1,5 @@
 project(SpringMapConvNG)
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.0)
 
 macro(use_cxx11)
   if (CMAKE_VERSION VERSION_LESS "3.1")
@@ -30,8 +30,17 @@ set(MAPCONV_FILES
 add_executable(springMapConvNG src/main.cpp ${MAPCONV_FILES})
 add_executable(smfdecompiler src/decompiler.cpp ${MAPCONV_FILES})
 
-target_link_libraries(springMapConvNG ${IL_LIBRARIES})
-target_link_libraries(smfdecompiler ${IL_LIBRARIES})
+if(FALSE) # change to TRUE when compiling with statix mxe
+	add_definitions(-DIL_STATIC_LIB)
+	set(LINKLIBS png tiff lzma Half IlmImf IlmThread Iex jasper jpeg z)
+	set_target_properties(springMapConvNG PROPERTIES LINK_FLAGS "-static" )
+	set_target_properties(smfdecompiler PROPERTIES LINK_FLAGS "-static" )
+endif()
+
+target_link_libraries(springMapConvNG ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
+target_link_libraries(smfdecompiler ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
+
+
 
 install(TARGETS springMapConvNG smfdecompiler RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin )
 

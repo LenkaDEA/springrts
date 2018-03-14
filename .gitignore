@@ -6,6 +6,7 @@
 *.swp
 *.so
 *.a
+*.exe
 /smfdecompiler
 /springMapConvNG
 /.ninja_deps

@@ -1,6 +1,7 @@
-require "common"
+shard_include "common"
 
 local DebugEnabled = false
+
 
 local function EchoDebug(inStr)
 	if DebugEnabled then
@@ -36,6 +37,8 @@ function CountHandler:Init()
 	ai.breakthroughCount = 0
 	ai.siegeCount = 0
 	ai.reclaimerCount = 0
+	ai.bigEnergyCount = 0
+	ai.cleanable = {}
 	ai.assistCount = 0
 	
 	self:InitializeNameCounts()

@@ -45,6 +45,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include <algorithm>
+
 #include "MicroPather.h"
 
 #define USE_NODEATINDEX100

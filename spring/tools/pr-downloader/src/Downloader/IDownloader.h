@@ -18,43 +18,55 @@ public:
 	static IDownloader* GetRapidInstance();
 
 	/**
-		Initialize all Downloaders
-	*/
+	 *Initialize all Downloaders
+	 */
 	static void Initialize();
 
 	/**
-		Shutdown all Downloaders
-	*/
+	 * Shutdown all Downloaders
+	 */
 	static void Shutdown();
-	virtual ~IDownloader() {}
+	virtual ~IDownloader()
+	{
+	}
+	/**
+	 * Aborts all ongoing downloads
+	 */
+	static void SetAbortDownloads(bool value);
+	static bool AbortDownloads();
 
 	/**
-		download specificed download
-		@return returns true, when download was successfull
-	*/
-	virtual bool download(IDownload* dl, int max_parallel=10);
+          download specificed download
+          @return returns true, when download was successfull
+  */
+	virtual bool download(IDownload* dl, int max_parallel = 10);
 	/**
-		download all downloads in list
-		NOTE: either download(IDownload* dl) or download(std::list<IDownload*>& download) has to be implemented!
-		@return returns true, when all downloads were successfull
-	*/
-	virtual bool download(std::list<IDownload*>& download, int max_parallel=10);
-
-
-	/**
-	*	search for a string at the downloader
-	*	NOTE: the caller has to free the list, IDownload is allocated for each result!
-	*	@see freeResult
-	*/
-	virtual bool search(std::list<IDownload*>& result, const std::string& name="", const DownloadEnum::Category=DownloadEnum::CAT_NONE)=0;
+          download all downloads in list
+          NOTE: either download(IDownload* dl) or
+     download(std::list<IDownload*>& download) has to be implemented!
+          @return returns true, when all downloads were successfull
+  */
+	virtual bool download(std::list<IDownload*>& download,
+			      int max_parallel = 10);
 
 	/**
-	*	free's a result list
-	*/
+  *	search for a string at the downloader
+  *	NOTE: the caller has to free the list, IDownload is allocated for each
+  *result!
+  *	@see freeResult
+  */
+	virtual bool
+	search(std::list<IDownload*>& result, const std::string& name = "",
+	       const DownloadEnum::Category = DownloadEnum::CAT_NONE) = 0;
+
+	/**
+  *	free's a result list
+  */
 	static void freeResult(std::list<IDownload*>& list);
 
 	virtual bool setOption(const std::string& key, const std::string& value);
 	static void setProcessUpdateListener(IDownloaderProcessUpdateListener l);
+
 private:
 	static IDownloader* httpdl;
 	static IDownloader* rapiddl;
@@ -65,6 +77,5 @@ public:
 
 #define httpDownload IDownloader::GetHttpInstance()
 #define rapidDownload IDownloader::GetRapidInstance()
-
 
 #endif

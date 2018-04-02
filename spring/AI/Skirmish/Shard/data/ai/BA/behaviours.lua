@@ -1,32 +1,32 @@
-require "taskqueues"
-require "taskqueuebehaviour"
-require "attackerbehaviour"
-require "raiderbehaviour"
-require "bomberbehaviour"
-require "wardbehaviour"
-require "mexupgradebehaviour"
-require "assistbehaviour"
-require "reclaimbehaviour"
-require "defendbehaviour"
-require "factoryregisterbehaviour"
-require "scoutbehaviour"
-require "antinukebehaviour"
-require "nukebehaviour"
-require "bombardbehaviour"
-require "bootbehaviour"
-require "countbehaviour"
-require "common"
-
+shard_include "taskqueuebehaviour"
+shard_include "attackerbehaviour"
+shard_include "raiderbehaviour"
+shard_include "bomberbehaviour"
+shard_include "wardbehaviour"
+shard_include "mexupgradebehaviour"
+shard_include "assistbehaviour"
+shard_include "reclaimbehaviour"
+shard_include "cleanerbehaviour"
+shard_include "defendbehaviour"
+shard_include "factoryregisterbehaviour"
+shard_include "scoutbehaviour"
+shard_include "antinukebehaviour"
+shard_include "nukebehaviour"
+shard_include "bombardbehaviour"
+shard_include "bootbehaviour"
+shard_include "countbehaviour"
+shard_include "common"
 
 behaviours = {
 
 }
 
 
-function defaultBehaviours(unit)
+function defaultBehaviours(unit, ai)
 	local b = {}
 	local u = unit:Internal()
 	local un = u:Name()
+	-- game:SendToConsole(un, "getting default behaviours")
 
 	-- keep track of how many of each kind of unit we have
 	table.insert(b, CountBehaviour)
@@ -35,6 +35,7 @@ function defaultBehaviours(unit)
 	if nanoTurretList[un] then
 		table.insert(b, AssistBehaviour)
 		table.insert(b, WardBehaviour)
+		table.insert(b, CleanerBehaviour)
 	end
 
 	if unitTable[un].isBuilding then
@@ -71,6 +72,7 @@ function defaultBehaviours(unit)
 			else
 				table.insert(b, AssistBehaviour)
 				table.insert(b, ReclaimBehaviour)
+				table.insert(b, CleanerBehaviour)
 			end
 		end
 		table.insert(b, WardBehaviour)
@@ -102,6 +104,18 @@ function defaultBehaviours(unit)
 			table.insert(b, DefendBehaviour)
 		end
 	end
+
+	local alreadyHave = {}
+	for i = #b, 1, -1 do
+		local behaviour = b[i]
+		if alreadyHave[behaviour] then
+			-- game:SendToConsole(ai.id, "duplicate behaviour", u:ID(), u:Name())
+			table.remove(b, i)
+		else
+			alreadyHave[behaviour] = true
+		end
+	end
+	-- game:SendToConsole(ai.id, #b, "behaviours", u:ID(), u:Name())
 	
 	return b
 end

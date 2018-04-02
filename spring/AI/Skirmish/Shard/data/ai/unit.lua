@@ -11,7 +11,7 @@ end
 
 function Unit:Init()
 	if self.engineUnit == nil then
-		game:SendToConsole("nil engineUnit?!")
+		game:SendToConsole("Warning: Shard Unit:Init nil engineUnit?!")
 	end
 	self.behaviours = {}
 	self.behaviourvalues = {}
@@ -51,6 +51,7 @@ function Unit:UnitDead(unit)
 	end
 	if unit.engineID == self.engineID then
 		if self.behaviours then
+			-- game:SendToConsole("unit died, removing behaviours", self.engineID, self:Internal():Name())
 			for k,v in pairs(self.behaviours) do
 				self.behaviours[k]:OwnerDied()
 				self.behaviours[k] = nil

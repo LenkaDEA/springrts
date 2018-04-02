@@ -85,6 +85,8 @@ function widget:Initialize()
 		utable.jammerRadius = unitDef["jammerRadius"]
 		utable.stealth = tostring(unitDef["stealth"])
 		utable.metalCost = unitDef["metalCost"]
+		utable.energyCost = unitDef["energyCost"]
+		utable.buildTime = unitDef["buildTime"]
 		utable.totalEnergyOut = unitDef["totalEnergyOut"]
 		utable.extractsMetal = unitDef["extractsMetal"]
 		if unitDef["minWaterDepth"] > 0 then
@@ -129,7 +131,7 @@ function widget:Initialize()
 		utable.wreckName = "\"" .. unitDef["wreckName"] .. "\""
 		wrecks[unitDef["wreckName"]] = unitDef["name"]
 
-		io.write("unitTable\[\"", unitDef["name"], "\"\] = { ")
+		io.write("unitTable[\"", unitDef["name"], "\"] = { ")
 		for k,v in pairs(utable) do
 			if k == "factoriesCanBuild" then
 				io.write(k .. " = { ")
@@ -161,7 +163,7 @@ function widget:Initialize()
 		if wrecks[featureDef["name"]] then
 			ftable.unitName = wrecks[featureDef["name"]]
 		end
-		io.write("featureTable\[\"", featureDef["name"], "\"\] = { ")
+		io.write("featureTable[\"", featureDef["name"], "\"] = { ")
 		for k,v in pairs(ftable) do
 			if type(v) == "boolean" then
 				v = tostring(v)

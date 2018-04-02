@@ -1,7 +1,8 @@
--- require "taskqueues"
-require "common"
+-- shard_include "taskqueues"
+shard_include "common"
 
 local DebugEnabled = false
+
 
 local function EchoDebug(inStr)
 	if DebugEnabled then
@@ -32,23 +33,9 @@ function AssistBehaviour:Init()
 	if commanderList[uname] then self.isCommander = true end
 	self.id = self.unit:Internal():ID()
 	ai.assisthandler:AssignIDByName(self)
+	-- game:SendToConsole("assistbehaviour:init", ai, ai.id, self.ai, self.ai.id)
 	EchoDebug(uname .. " " .. ai.IDByName[self.id])
-	EchoDebug("AssistBehaviour: added to unit "..uname)
-end
-
-function AssistBehaviour:UnitBuilt(unit)
-	if unit.engineID == self.unit.engineID then
-		if self.isNanoTurret then
-			-- set nano turrets to patrol
-			local upos = RandomAway(self.unit:Internal():GetPosition(), 50)
-			local floats = api.vectorFloat()
-			-- populate with x, y, z of the position
-			floats:push_back(upos.x)
-			floats:push_back(upos.y)
-			floats:push_back(upos.z)
-			self.unit:Internal():ExecuteCustomCommand(CMD_PATROL, floats)
-		end
-	end
+	EchoDebug("added to unit "..uname)
 end
 
 function AssistBehaviour:UnitIdle(unit)
@@ -64,7 +51,7 @@ function AssistBehaviour:Update()
 
 	local f = game:Frame()
 
-	if math.mod(f,180) == 0 then
+	if f % 180 == 0 then
 		local unit = self.unit:Internal()
 		local uname = self.name
 		if self.isCommander then
@@ -83,16 +70,17 @@ function AssistBehaviour:Update()
 			end
 		else
 			-- fill empty spots after con units die
-			if ai.IDByName[self.id] > ai.nameCount[uname] then
-				EchoDebug("filling empty spots with " .. uname .. " " .. ai.IDByName[self.id])
-				ai.assisthandler:AssignIDByName(self)
-				EchoDebug("ID now: " .. ai.IDByName[self.id])
+			-- if not self.ai.IDByName[self.id] or not self.ai.nameCount[uname] then game:SendToConsole(self.id, uname, self.ai.IDByName[self.id], self.ai.nameCount[uname]) end
+			if self.ai.IDByName[self.id] > self.ai.nameCount[uname] then
+				EchoDebug("filling empty spots with " .. uname .. " " .. self.ai.IDByName[self.id])
+				self.ai.assisthandler:AssignIDByName(self)
+				EchoDebug("ID now: " .. self.ai.IDByName[self.id])
 				self.unit:ElectBehaviour()
 			end
 		end
 	end
 
-	if math.mod(f,60) == 0 then
+	if f % 60 == 0 then
 		if self.active then
 			if self.target ~= nil then
 				if self.assisting ~= self.target then
@@ -119,17 +107,27 @@ function AssistBehaviour:Update()
 end
 
 function AssistBehaviour:Activate()
-	EchoDebug("AssistBehaviour: activated on unit "..self.name)
+	EchoDebug("activated on unit "..self.name)
 	if self:DoIAssist() then
 		ai.assisthandler:Release(self.unit:Internal())
 		ai.assisthandler:AddFree(self)
+	end
+	if self.isNanoTurret then
+		-- set nano turrets to patrol
+		local upos = RandomAway(self.unit:Internal():GetPosition(), 50)
+		local floats = api.vectorFloat()
+		-- populate with x, y, z of the position
+		floats:push_back(upos.x)
+		floats:push_back(upos.y)
+		floats:push_back(upos.z)
+		self.unit:Internal():ExecuteCustomCommand(CMD_PATROL, floats)
 	end
 	self.active = true
 	self.target = nil
 end
 
 function AssistBehaviour:Deactivate()
-	EchoDebug("AssistBehaviour: deactivated on unit "..self.name)
+	EchoDebug("deactivated on unit "..self.name)
 	ai.assisthandler:RemoveWorking(self)
 	ai.assisthandler:RemoveFree(self)
 	self.active = false

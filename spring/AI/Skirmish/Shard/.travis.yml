@@ -1,0 +1,17 @@
+sudo: required
+dist: trusty
+cache: ccache
+
+language: cpp
+compiler:
+  - gcc
+  - clang
+
+before_script:
+  - sudo apt-get install build-essential cmake lua5.2
+  - git clone https://github.com/spring/spring-ai-includes
+  - cmake .
+
+script:
+  - make
+  - find -name '*.lua' -print0 |xargs -0 /usr/bin/luac5.2 -p

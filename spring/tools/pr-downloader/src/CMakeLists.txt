@@ -1,4 +1,4 @@
-subdirs(lib)
+add_subdirectory(lib)
 
 if (PRD_ARCHIVE_SUPPORT)
 	set(archivessrc FileSystem/SevenZipArchive.cpp FileSystem/ZipArchive.cpp)
@@ -8,9 +8,9 @@ endif()
 
 if (PRD_JSONCPP_INTERNAL)
 	set(jsonlibcppsrc
-		lib/jsoncpp/src/lib_json/json_value.cpp
-		lib/jsoncpp/src/lib_json/json_reader.cpp
-		lib/jsoncpp/src/lib_json/json_writer.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/lib/jsoncpp/src/lib_json/json_value.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/lib/jsoncpp/src/lib_json/json_reader.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/lib/jsoncpp/src/lib_json/json_writer.cpp
 	)
 endif()
 
@@ -100,6 +100,7 @@ if (PRD_SHAREDLIB)
 			LIBRARY DESTINATION ${PRD_LIBDIR}
 			ARCHIVE DESTINATION ${PRD_LIBDIR} )
 	endif()
+	target_include_directories(${PRDOWNLOADER_SHARED} PRIVATE ${pr-downloader_SOURCE_DIR}/src)
 	target_link_libraries( ${PRDOWNLOADER_SHARED} ${PRDOWNLOADER_LIBS} )
 endif()
 
@@ -115,6 +116,7 @@ if (PRD_STATICLIB)
 			LIBRARY DESTINATION ${PRD_LIBDIR}
 			ARCHIVE DESTINATION ${PRD_LIBDIR} )
 	endif()
+	target_include_directories(${PRDOWNLOADER_STATIC} PRIVATE ${pr-downloader_SOURCE_DIR}/src)
 	target_link_libraries( ${PRDOWNLOADER_STATIC} ${PRDOWNLOADER_LIBS} ${CMAKE_DL_LIBS})
 endif()
 
@@ -169,3 +171,7 @@ if(PRD_DO_INSTALL AND PRD_DEVELOP_FILES)
 	        DESTINATION ${PRD_INCLUDE_DIR}/Downloader COMPONENT Devel )
 endif()
 
+OPTION(PRD_ENABLE_LSL "compile lsl modules" OFF)
+if (PRD_ENABLE_LSL)
+	add_subdirectory(lsl)
+endif()

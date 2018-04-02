@@ -1,6 +1,5 @@
 UnitHandler = class(Module)
 
-
 function UnitHandler:Name()
 	return "UnitHandler"
 end
@@ -12,13 +11,29 @@ end
 function UnitHandler:Init()
 	self.units = {}
 	self.myUnits = {}
+	self.reallyActuallyDead = {}
 	self.behaviourFactory = BehaviourFactory()
 	self.behaviourFactory:Init()
 end
 
 function UnitHandler:Update()
 	for k,v in pairs(self.myUnits) do
-		v:Update()
+		if ShardSpringLua then
+			local ux, uy, uz = Spring.GetUnitPosition(v:Internal():ID())
+			if not ux then
+				-- game:SendToConsole(self.ai.id, "nil unit position", v:Internal():ID(), v:Internal():Name(), k)
+				self.myUnits[k] = nil
+				v = nil
+			end
+		end
+		if v then
+			v:Update()
+		end
+	end
+	for uID, frame in pairs(self.reallyActuallyDead) do
+		if self.game:Frame() > frame + 1800 then
+			self.reallyActuallyDead[uID] = nil
+		end
 	end
 end
 
@@ -28,22 +43,15 @@ function UnitHandler:GameEnd()
 	end
 end
 
-function UnitHandler:UnitCreated(engineunit)
-	u = Unit()
-	self.units[engineunit:ID()] = u
-	u:SetEngineRepresentation(engineunit)
-	u:Init()
-	if engineunit:Team() == game:GetTeamID() then
-		self.myUnits[engineunit:ID()] = u
-		self.behaviourFactory:AddBehaviours(u)
-	end
+function UnitHandler:UnitCreated(engineUnit)
+	local u = self:AIRepresentation(engineUnit)
 	for k,v in pairs(self.myUnits) do
 		v:UnitCreated(u)
 	end
 end
 
-function UnitHandler:UnitBuilt(engineunit)
-	local u = self:AIRepresentation(engineunit)
+function UnitHandler:UnitBuilt(engineUnit)
+	local u = self:AIRepresentation(engineUnit)
 	if u ~= nil then
 		for k,v in pairs(self.myUnits) do
 			v:UnitBuilt(u)
@@ -51,20 +59,22 @@ function UnitHandler:UnitBuilt(engineunit)
 	end
 end
 
-function UnitHandler:UnitDead(engineunit)
-	local u = self:AIRepresentation(engineunit)
+function UnitHandler:UnitDead(engineUnit)
+	local u = self:AIRepresentation(engineUnit)
 	if u ~= nil then
 		for k,v in pairs(self.myUnits) do
 			v:UnitDead(u)
 		end
 	end
-	self.units[engineunit:ID()] = nil
-	self.myUnits[engineunit:ID()] = nil
+	-- game:SendToConsole(self.ai.id, "removing unit from unithandler tables", engineUnit:ID(), engineUnit:Name())
+	self.units[engineUnit:ID()] = nil
+	self.myUnits[engineUnit:ID()] = nil
+	self.reallyActuallyDead[engineUnit:ID()] = self.game:Frame()
 end
 
-function UnitHandler:UnitDamaged(engineunit,attacker,damage)
-	local u = self:AIRepresentation(engineunit)
-	local a = self:AIRepresentation(attacker)
+function UnitHandler:UnitDamaged(engineUnit,attacker,damage)
+	local u = self:AIRepresentation(engineUnit)
+	local a -- = self:AIRepresentation(attacker)
 	for k,v in pairs(self.myUnits) do
 		v:UnitDamaged(u,a,damage)
 	end
@@ -74,24 +84,35 @@ function UnitHandler:AIRepresentation(engineUnit)
 	if engineUnit == nil then
 		return nil
 	end
+	if self.reallyActuallyDead[engineUnit:ID()] then
+		-- game:SendToConsole(self.ai.id, "unit already died, not representing unit", engineUnit:ID(), engineUnit:Name())
+		return nil
+	end
+	local ux, uy, uz = engineUnit:GetPosition()
+	if not ux then
+		-- game:SendToConsole(self.ai.id, "nil engineUnit position, not representing unit", engineUnit:ID(), engineUnit:Name())
+		return nil
+	end
 	local unittable = self.units
 	local u = unittable[engineUnit:ID()]
 	if u == nil then
+		-- game:SendToConsole(self.ai.id, "adding unit to unithandler tables", engineUnit:ID(), engineUnit:Name())
 		u = Unit()
 		self.units[engineUnit:ID()] = u
 		
 		u:SetEngineRepresentation(engineUnit)
 		u:Init()
-		if engineUnit:Team() == game:GetTeamID() then
-			self.behaviourFactory:AddBehaviours(u)
+		if engineUnit:Team() == self.game:GetTeamID() then
+			-- game:SendToConsole(self.ai.id, "giving my unit behaviours", engineUnit:ID(), engineUnit:Name())
+			self.behaviourFactory:AddBehaviours(u, self.ai)
 			self.myUnits[engineUnit:ID()] = u
 		end
 	end
 	return u
 end
 
-function UnitHandler:UnitIdle(engineunit)
-	local u = self:AIRepresentation(engineunit)
+function UnitHandler:UnitIdle(engineUnit)
+	local u = self:AIRepresentation(engineUnit)
 	if u ~= nil then
 		for k,v in pairs(self.units) do
 			v:UnitIdle(u)

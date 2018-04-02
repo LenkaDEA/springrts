@@ -2,31 +2,23 @@
 -- Created by Tom J Nowell 2010
 -- Shard AI
 
-require "hooks"
-require "class"
-require "aibase"
-
-if Spring ~= nil then
-	require "spring_lua/unit"
-	require "spring_lua/game"
-	require "spring_lua/map"
+-- currently included from inside the main AI object during initialisation
+local api = {}
+if ShardSpringLua then
+	-- it's a LuaAI inside a game archive!
+	api.game = shard_include "spring_lua/game"
+	api.map = shard_include "spring_lua/map"
+elseif game_engine then
+	 -- it's a native AI!
+	api.game = shard_include "spring_native/game"
+	api.map = shard_include "spring_native/map"
 else
-	require "spring_native/unit"
-	require "spring_native/game"
-	require "spring_native/map"
+	-- who knows! Load a Null non-op API
+	api.game = shard_include "shard_null/game"
+	api.map = shard_include "shard_null/map"
 end
 
-function shard_include( file )
-	if type(file) ~= 'string' then
-		return nil
-	end
-	local ok, mod = pcall( require, game:GameName().."/"..file )
-	if ok then
-		return mod
-	else
-		require( file )
-	end
-end
+return api
 
 --}
 --[[

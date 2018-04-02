@@ -1,7 +1,7 @@
 #include <cassert>
 #include <string>
 
-#include "System/Util.h"
+#include "System/StringUtil.h"
 #include "AIClasses.hpp"
 #include "IncGlobalAI.h"
 

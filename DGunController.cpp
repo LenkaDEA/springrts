@@ -234,16 +234,13 @@ void CDGunController::Update(unsigned int currentFrame) {
 
 
 void CDGunController::Stop(void) const {
-	Command c; c.id = CMD_STOP; ai->ct->GiveOrder(commanderID, &c);
+	Command c(CMD_STOP); ai->ct->GiveOrder(commanderID, &c);
 }
 
 void CDGunController::IssueOrder(const float3& pos, int orderType, int keyMod) {
-	Command c;
-		c.id = orderType;
-		c.options |= keyMod;
-		c.params.push_back(pos.x);
-		c.params.push_back(pos.y);
-		c.params.push_back(pos.z);
+	Command c(orderType);
+	c.SetOpts(keyMod);
+	c.PushPos(pos);
 
 	ai->ct->GiveOrder(commanderID, &c);
 
@@ -253,10 +250,9 @@ void CDGunController::IssueOrder(const float3& pos, int orderType, int keyMod) {
 }
 
 void CDGunController::IssueOrder(int target, int orderType, int keyMod) {
-	Command c;
-		c.id = orderType;
-		c.options |= keyMod;
-		c.params.push_back(target);
+	Command c(orderType);
+	c.SetOpts(keyMod);
+	c.PushParam(target);
 
 	ai->ct->GiveOrder(commanderID, &c);
 

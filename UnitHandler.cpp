@@ -292,12 +292,12 @@ bool CUnitHandler::VerifyOrder(BuilderTracker* builderTracker) {
 			BuildTask* buildTask = GetBuildTask(builderTracker->buildTaskId);
 
 			commandFound =
-				((c->id        == CMD_REPAIR                 ) &&
-				 (c->params[0] == builderTracker->buildTaskId)) ||
+				((c->GetID()     == CMD_REPAIR                  ) &&
+				 (c->GetParam(0) == builderTracker->buildTaskId)) ||
 
-				((c->id       == -buildTask->def->id) &&
-				 (c->params[0] == buildTask->pos.x  ) &&
-				 (c->params[2] == buildTask->pos.z  ));
+				((c->GetID()     == -buildTask->def->id) &&
+				 (c->GetParam(0) ==  buildTask->pos.x  ) &&
+				 (c->GetParam(2) ==  buildTask->pos.z  ));
 
 			if (!commandFound) {
 				return false;
@@ -309,9 +309,9 @@ bool CUnitHandler::VerifyOrder(BuilderTracker* builderTracker) {
 			hit = true;
 			TaskPlan* taskPlan = GetTaskPlan(builderTracker->taskPlanId);
 
-			if ((c->id == -taskPlan->def->id)
-					&& (c->params[0] == taskPlan->pos.x)
-					&& (c->params[2] == taskPlan->pos.z))
+			if ((c->GetID() == -taskPlan->def->id)
+					&& (c->GetParam(0) == taskPlan->pos.x)
+					&& (c->GetParam(2) == taskPlan->pos.z))
 				commandFound = true;
 			else
 				return false;
@@ -320,7 +320,7 @@ bool CUnitHandler::VerifyOrder(BuilderTracker* builderTracker) {
 		if (builderTracker->factoryId != 0) {
 			assert(!hit);
 			hit = true;
-			if (c->id == CMD_GUARD && c->params[0] == builderTracker->factoryId)
+			if (c->GetID() == CMD_GUARD && c->GetParam(0) == builderTracker->factoryId)
 				commandFound = true;
 			else
 				return false;
@@ -328,7 +328,7 @@ bool CUnitHandler::VerifyOrder(BuilderTracker* builderTracker) {
 
 		if (!commandFound) {
 			hit = true;
-			commandFound = (c->id == CMD_RECLAIM || c->id == CMD_MOVE || c->id == CMD_REPAIR);
+			commandFound = (c->GetID() == CMD_RECLAIM || c->GetID() == CMD_MOVE || c->GetID() == CMD_REPAIR);
 		}
 
 		if (hit && commandFound) {
@@ -433,15 +433,15 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 	if (builderQ->size() > 0) {
 		// builder has orders
 		const Command* c   = &builderQ->front();
-		int n = c->params.size();
-		int cID = c->id;
+		int n = c->GetNumParams();
+		int cID = c->GetID();
 
 		if (builderQ->size() == 2 && cID == CMD_MOVE) {
 			// it might have a move order before the real order,
 			// take command nr. 2 if nr. 1 is a move order
 			c = &builderQ->back();
-			n = c->params.size();
-			cID = c->id;
+			n = c->GetNumParams();
+			cID = c->GetID();
 		}
 
 		if (reportError) {
@@ -449,7 +449,7 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 				msg << "[CUnitHandler::DecodeOrder()][frame=" << frame << "]\n";
 				msg << "\tbuilder " << builderID << " claimed idle, but has";
 				msg << " command " << cID << " with " << n << " parameters";
-				msg << " (params[0]: " << ((n > 0)? c->params[0]: -1) << ")\n";
+				msg << " (params[0]: " << ((n > 0)? c->GetParam(0): -1) << ")\n";
 			ai->GetLogger()->Log(msg.str());
 		}
 
@@ -458,9 +458,9 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 
 			// it's building a unit
 			float3 newUnitPos;
-			newUnitPos.x = c->params[0];
-			newUnitPos.y = c->params[1];
-			newUnitPos.z = c->params[2];
+			newUnitPos.x = c->GetParam(0);
+			newUnitPos.y = c->GetParam(1);
+			newUnitPos.z = c->GetParam(2);
 
 			const UnitDef* newUnitDef = ai->ut->unitTypes[-cID].def;
 			// make sure that no BuildTasks exists there
@@ -478,7 +478,7 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 			assert(n >= 1);
 
 			// it's repairing, find the unit being repaired
-			int guardingID = int(c->params[0]);
+			int guardingID = int(c->GetParam(0));
 			bool found = false;
 
 			UnitCategory cat = ai->ut->GetCategory(guardingID);
@@ -676,9 +676,9 @@ void CUnitHandler::BuildTaskCreate(int id) {
 				if (!cq->empty()) {
 					Command c = cq->front();
 
-					const bool b0 = (c.id == -newUnitDef->id && c.params[0] == pos.x && c.params[2] == pos.z); // at this pos
-					const bool b1 = (c.id == CMD_REPAIR && c.params[0] == id); // at this unit (id)
-					const bool b2 = (c.id == CMD_GUARD  && c.params[0] == id); // at this unit (id)
+					const bool b0 = (c.GetID() == -newUnitDef->id && c.GetParam(0) == pos.x && c.GetParam(2) == pos.z); // at this pos
+					const bool b1 = (c.GetID() == CMD_REPAIR && c.GetParam(0) == id); // at this unit (id)
+					const bool b2 = (c.GetID() == CMD_GUARD  && c.GetParam(0) == id); // at this unit (id)
 					const bool b3 = b0 || b1 || b2;
 
 					if (b3) {
@@ -1349,7 +1349,7 @@ void CUnitHandler::UpdateUpgradeTasks(int frame) {
 					}
 
 					// give a build order for the replacement structure
-					if (cq->size() == 0 || ((cq->front()).id != -task->newBuildingDef->id)) {
+					if (cq->size() == 0 || ((cq->front()).GetID() != -task->newBuildingDef->id)) {
 						std::stringstream msg;
 							msg << "[CUnitHandler::UpdateUpgradeTasks()][frame=" << frame << "]\n";
 							msg << "\tgiving build order for \"" << task->newBuildingDef->humanName;
@@ -1360,7 +1360,7 @@ void CUnitHandler::UpdateUpgradeTasks(int frame) {
 					}
 				} else {
 					// give a reclaim order for the original structure
-					if (cq->size() == 0 || ((cq->front()).id != CMD_RECLAIM)) {
+					if (cq->size() == 0 || ((cq->front()).GetID() != CMD_RECLAIM)) {
 						std::stringstream msg;
 							msg << "[CUnitHandler::UpdateUpgradeTasks()][frame=" << frame << "]\n";
 							msg << "\tgiving reclaim order for \"" << ai->cb->GetUnitDef(oldBuildingID)->humanName;

@@ -101,9 +101,8 @@ bool CMetalMaker::Add(int unit) {
 	if (counter < listIndex) {
 		// make sure it's on and increase index
 		if (!myUnits[counter].turnedOn) {
-			Command c;
-			c.id = CMD_ONOFF;
-			c.params.push_back(1);
+			Command c(CMD_ONOFF);
+			c.PushParam(1);
 			ai->ct->GiveOrder(myUnits[counter].id, &c);
 			myUnits[counter].turnedOn = true;
 		}
@@ -112,9 +111,8 @@ bool CMetalMaker::Add(int unit) {
 	} else {
 		// make sure it's off
 		if (myUnits[counter].turnedOn) {
-			Command c;
-			c.id = CMD_ONOFF;
-			c.params.push_back(0);
+			Command c(CMD_ONOFF);
+			c.PushParam(0);
 			ai->ct->GiveOrder(myUnits[counter].id, &c);
 			myUnits[counter].turnedOn = false;
 		}
@@ -173,9 +171,8 @@ void CMetalMaker::Update(int frameNum) {
 				listIndex--;
 
 				if (myUnits[listIndex].turnedOn) {
-					Command c;
-					c.id = CMD_ONOFF;
-					c.params.push_back(0);
+					Command c(CMD_ONOFF);
+					c.PushParam(0);
 					ai->ct->GiveOrder(myUnits[listIndex].id, &c);
 
 					myUnits[listIndex].turnedOn = false;
@@ -186,9 +183,8 @@ void CMetalMaker::Update(int frameNum) {
 		// turn something on
 		} else if (energy > estore * 0.9 && listIndex < numUnits) {
 			if (!myUnits[listIndex].turnedOn) {
-				Command c;
-				c.id = CMD_ONOFF;
-				c.params.push_back(1);
+				Command c(CMD_ONOFF);
+				c.PushParam(1);
 				ai->ct->GiveOrder(myUnits[listIndex].id, &c);
 				myUnits[listIndex].turnedOn = true;
 
@@ -214,9 +210,8 @@ void CMetalMaker::Update(int frameNum) {
 
 				if (myUnits[i].turnedOn) {
 					needed -= myUnits[i].energyUse;
-					Command c;
-					c.id = CMD_ONOFF;
-					c.params.push_back(0);
+					Command c(CMD_ONOFF);
+					c.PushParam(0);
 					ai->ct->GiveOrder(myUnits[i].id, &c);
 					myUnits[i].turnedOn = false;
 				}
@@ -233,9 +228,8 @@ void CMetalMaker::Update(int frameNum) {
 
 				if (!myUnits[i].turnedOn) {
 					needed -= myUnits[i].energyUse;
-					Command c;
-					c.id = CMD_ONOFF;
-					c.params.push_back(1);
+					Command c(CMD_ONOFF);
+					c.PushParam(1);
 					ai->ct->GiveOrder(myUnits[i].id, &c);
 					myUnits[i].turnedOn = true;
 				}
@@ -251,9 +245,8 @@ void CMetalMaker::Update(int frameNum) {
 	if ((frameNum % 1800) == 0) {
 		// HACK: once a minute, turn everything off and reset
 		for (int i = 0; i < (int) myUnits.size(); i++) {
-			Command c;
-			c.id = CMD_ONOFF;
-			c.params.push_back(0);
+			Command c(CMD_ONOFF);
+			c.PushParam(0);
 			ai->ct->GiveOrder(myUnits[i].id, &c);
 			myUnits[i].turnedOn = false;
 		}

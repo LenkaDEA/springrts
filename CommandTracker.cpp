@@ -58,7 +58,7 @@ void CCommandTracker::GiveOrder(int id, Command* c) {
 	}
 
 	totalNumCmds += 1;
-	totalCmdSize += c->params.size();
+	totalCmdSize += c->GetNumParams();
 
 	if (!ai->GetUnit(id)->isDead) {
 		ai->cb->GiveOrder(id, c);

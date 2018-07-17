@@ -457,10 +457,7 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 			assert(n >= 3);
 
 			// it's building a unit
-			float3 newUnitPos;
-			newUnitPos.x = c->GetParam(0);
-			newUnitPos.y = c->GetParam(1);
-			newUnitPos.z = c->GetParam(2);
+			const float3 newUnitPos = c->GetPos(0);
 
 			const UnitDef* newUnitDef = ai->ut->unitTypes[-cID].def;
 			// make sure that no BuildTasks exists there

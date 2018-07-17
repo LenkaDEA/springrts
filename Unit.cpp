@@ -177,6 +177,8 @@ bool CUNIT::Build_ClosestSite(const UnitDef* def, const float3& bpos, int separa
 bool CUNIT::FactoryBuild(const UnitDef* toBuild) const {
 	assert(ai->cb->GetUnitDef(uid) != NULL);
 	Command c(-(toBuild->id));
+	// avoid param-count assert in UnitHandler::DecodeOrder
+	c.PushPos(pos());
 	ai->ct->GiveOrder(uid, &c);
 	ai->uh->IdleUnitRemove(uid);
 

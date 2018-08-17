@@ -444,18 +444,18 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 			cID = c->GetID();
 		}
 
-		if (reportError) {
+		if (reportError || (cID < 0 && n < 3)) {
 			std::stringstream msg;
 				msg << "[CUnitHandler::DecodeOrder()][frame=" << frame << "]\n";
 				msg << "\tbuilder " << builderID << " claimed idle, but has";
-				msg << " command " << cID << " with " << n << " parameters";
-				msg << " (params[0]: " << ((n > 0)? c->GetParam(0): -1) << ")\n";
+				msg << " command " << cID << " with " << n << " parameters\n";
+				for (int i = 0; i < n; i++) {
+					msg << "\t\tparams[" << i << "]: " << c->GetParam(i) << "\n";
+				}
 			ai->GetLogger()->Log(msg.str());
 		}
 
 		if (cID < 0) {
-			assert(n >= 3);
-
 			// it's building a unit
 			const float3 newUnitPos = c->GetPos(0);
 

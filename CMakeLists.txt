@@ -1,15 +1,15 @@
 ### HughAI config
 #
 
-# ConfigureJavaSkirmishAI()
+# configure_java_skirmish_ai()
 
 	set(myDir                    "${CMAKE_CURRENT_SOURCE_DIR}")
-	GetLastPathPart(dirName ${myDir})
+	get_last_path_part(dirName ${myDir})
 	set(myName                   "${dirName}")
 	set(myLoaderSourceDir        "${myDir}/src-loader")
 	set(myAiSourceDir            "${myDir}/src-ai")
 	# If main Java package is "my.ai.pkg", this has to be set to "my".
-	GetFirstSubDirName(firstSrcSubDir ${myLoaderSourceDir})
+	get_first_sub_dir_name(firstSrcSubDir ${myLoaderSourceDir})
 	set(myJavaPkgFirstPart       "${firstSrcSubDir}")
 
 	# Check if the user wants to compile the AI
@@ -24,7 +24,7 @@
 	# Compile and install
 	if    (BUILD_THIS_SKIRMISHAI)
 		# Assemble meta data
-		GetVersionPlusDepFile(myVersion myVersionDepFile)
+		get_version_plus_dep_file(myVersion myVersionDepFile)
 		set(myTarget             "${myName}")
 		set(myLoaderTarget       "${myTarget}-Loader")
 		set(myAiTarget           "${myTarget}-AI")
@@ -43,11 +43,11 @@
 		set(myAiSrcJarFile       "${myAiJarFile}-src.jar")
 		set(myJLibDir            "${myDir}/data/jlib")
 
-		SkirmishAIMessage(STATUS "Found Skirmish AI: ${myName} ${myVersion}")
+		skirmish_ai_message(STATUS "Found Skirmish AI: ${myName} ${myVersion}")
 
 		# Create our full Java class-path
-		CreateClasspath(myJavaLibs ${myJLibDir})
-		ConcatClasspaths(myClassPath "${CLASSPATH_Java_AIINTERFACE}" "${myJavaLibs}" ${myAiSourceDir} ${myLoaderSourceDir} ${JavaOO_AIWRAPPER_JAR_CLASSPATH})
+		create_classpath(myJavaLibs ${myJLibDir})
+		concat_classpaths(myClassPath "${CLASSPATH_Java_AIINTERFACE}" "${myJavaLibs}" ${myAiSourceDir} ${myLoaderSourceDir} ${JavaOO_AIWRAPPER_JAR_CLASSPATH})
 
 		# Create a list of all the AIs source files (for compiling)
 		file(GLOB_RECURSE myLoaderSources RELATIVE "${myLoaderSourceDir}" FOLLOW_SYMLINKS "${myLoaderSourceDir}/*.java")
@@ -171,4 +171,3 @@
 			install(DIRECTORY "${wrapperJLibDir}/"              DESTINATION ${myDataDir}/jlib)
 		endif (EXISTS ${wrapperJLibDir})
 	endif (BUILD_THIS_SKIRMISHAI)
-

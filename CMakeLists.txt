@@ -5,7 +5,7 @@ if(NOT WIN32)
 	add_definitions(-DLUA_USE_POSIX)
 endif()
 
-GetNativeSourcesRecursive(luaSources "${CMAKE_SOURCE_DIR}/rts/lib/lua/src" "")
+get_native_sources_recursive(luaSources "${CMAKE_SOURCE_DIR}/rts/lib/lua/src" "")
 
 set(mySourceDirRel         "") # Common values are "" or "src"
 set(additionalSources      ${luaSources} ${CMAKE_SOURCE_DIR}/rts/System/StringUtil)
@@ -21,4 +21,4 @@ include_directories("${CMAKE_SOURCE_DIR}/rts/lib/lua/include/")
 include_directories("${CMAKE_SOURCE_DIR}/rts/lib/lua/src/")
 include_directories("${CMAKE_SOURCE_DIR}/rts/lib/streflop/")
 
-ConfigureNativeSkirmishAI(mySourceDirRel additionalSources additionalCompileFlags additionalLibraries)
+configure_native_skirmish_ai(mySourceDirRel additionalSources additionalCompileFlags additionalLibraries)

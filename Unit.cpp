@@ -637,15 +637,6 @@ bool CUNIT::Stop() const {
 	return true;
 }
 
-bool CUNIT::SetMaxSpeed(float speed) const {
-	assert(ai->cb->GetUnitDef(uid) != NULL);
-	Command c(CMD_SET_WANTED_MAX_SPEED);
-	c.PushParam(speed);
-	ai->ct->GiveOrder(uid, &c);
-
-	return true;
-}
-
 bool CUNIT::IsCommander(const UnitDef* udef)
 {
 	assert(udef != NULL);

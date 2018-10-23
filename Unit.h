@@ -93,7 +93,7 @@ public:
 	bool SelfDestruct() const;
 	bool SetFireState(int state) const;
 	bool Stop() const;
-	bool SetMaxSpeed(float speed) const;
+
 	static bool IsCommander(const UnitDef* udef);
 private:
 	AIClasses* ai;

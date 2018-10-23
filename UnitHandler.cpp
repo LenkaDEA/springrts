@@ -472,8 +472,6 @@ void CUnitHandler::DecodeOrder(BuilderTracker* builderTracker, bool reportError)
 		}
 
 		if (cID == CMD_REPAIR) {
-			assert(n >= 1);
-
 			// it's repairing, find the unit being repaired
 			int guardingID = int(c->GetParam(0));
 			bool found = false;

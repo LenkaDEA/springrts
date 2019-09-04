@@ -17,11 +17,9 @@ set(MAPCONV_FILES
 add_executable(springMapConvNG src/main.cpp ${MAPCONV_FILES})
 add_executable(smfdecompiler src/decompiler.cpp ${MAPCONV_FILES})
 
-option(MAPCONV_STATIC "link static" FALSE)
-
-if(MAPCONV_STATIC)
+if(PREFER_STATIC_LIBS) # inside spring build
 	add_definitions(-DIL_STATIC_LIB)
-	set(LINKLIBS png tiff lzma Half IlmImf IlmThread Iex jasper jpeg z)
+	set(LINKLIBS ${PNG_LIBRARY_RELEASE} ${TIFF_LIBRARY_RELEASE} ${JPEG_LIBRARY} ${ZLIB_LIBRARY_RELEASE})
 	set_target_properties(springMapConvNG PROPERTIES LINK_FLAGS "-static" )
 	set_target_properties(smfdecompiler PROPERTIES LINK_FLAGS "-static" )
 endif()

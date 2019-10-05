@@ -29,5 +29,5 @@ target_link_libraries(smfdecompiler ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS}
 
 
 
-install(TARGETS springMapConvNG smfdecompiler RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin )
+install(TARGETS springMapConvNG smfdecompiler RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
 

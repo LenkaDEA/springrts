@@ -14,20 +14,23 @@ set(MAPCONV_FILES
 	src/TileStorage.cpp
 )
 
-add_executable(springMapConvNG src/main.cpp ${MAPCONV_FILES})
-add_executable(smfdecompiler src/decompiler.cpp ${MAPCONV_FILES})
+add_executable(mapcompile src/mapcompile.cpp ${MAPCONV_FILES})
+add_executable(mapdecompile src/mapdecompile.cpp ${MAPCONV_FILES})
 
 if(PREFER_STATIC_LIBS) # inside spring build
 	add_definitions(-DIL_STATIC_LIB)
 	set(LINKLIBS ${PNG_LIBRARY_RELEASE} ${TIFF_LIBRARY_RELEASE} ${JPEG_LIBRARY} ${ZLIB_LIBRARY_RELEASE})
-	set_target_properties(springMapConvNG PROPERTIES LINK_FLAGS "-static" )
-	set_target_properties(smfdecompiler PROPERTIES LINK_FLAGS "-static" )
+	set_target_properties(mapcompile PROPERTIES LINK_FLAGS "-static" )
+	set_target_properties(mapdecompile PROPERTIES LINK_FLAGS "-static" )
 endif()
 
-target_link_libraries(springMapConvNG ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
-target_link_libraries(smfdecompiler ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
+target_link_libraries(mapcompile ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
+target_link_libraries(mapdecompile ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
 
 
-
-install(TARGETS springMapConvNG smfdecompiler RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
+if (${BINDIR})
+	install(TARGETS mapcompile mapdecompile RUNTIME DESTINATION ${BINDIR})
+else()
+	install(TARGETS mapcompile mapcompile RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
+endif()
 

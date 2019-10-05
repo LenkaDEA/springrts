@@ -7,8 +7,8 @@
 *.so
 *.a
 *.exe
-/smfdecompiler
-/springMapConvNG
+/mapcompile
+/mapdecompile
 /.ninja_deps
 /.ninja_log
 /build.ninja

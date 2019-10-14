@@ -28,7 +28,7 @@ target_link_libraries(mapcompile ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
 target_link_libraries(mapdecompile ${IL_LIBRARIES} ${ILU_LIBRARIES} ${LINKLIBS})
 
 
-if (${BINDIR})
+if (DEFINED BINDIR)
 	install(TARGETS mapcompile mapdecompile RUNTIME DESTINATION ${BINDIR})
 else()
 	install(TARGETS mapcompile mapcompile RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)

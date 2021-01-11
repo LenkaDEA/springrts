@@ -1,0 +1,12 @@
+diff --git a/spring/rts/System/Sync/SHA512.cpp b/spring/rts/System/Sync/SHA512.cpp
+index d124e7ca0..9277d7309 100644
+--- a/spring/rts/System/Sync/SHA512.cpp
++++ b/spring/rts/System/Sync/SHA512.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <cassert>
+ #include <cstring>
++#include <cstdio>
+ 
+ #include "SHA512.hpp"
+ 

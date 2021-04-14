@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8b41a40..ed78153 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,8 +32,8 @@ option(PRD_ARCHIVE_SUPPORT "enable archive support" ON)
+ option(PRD_CLEAR_COMPILER_FLAGS "clear all compiler flags" OFF)
+ option(PRD_DEFAULT_LOGGER "use default logger" ON)
+ 
+-find_package(Jsoncpp)
+-if (${Jsoncpp_FOUND})
++find_package(jsoncpp)
++if (${jsoncpp_FOUND})
+ 	option(PRD_JSONCPP_INTERNAL "use bundled JsonCpp" FALSE)
+ else()
+ 	option(PRD_JSONCPP_INTERNAL "use bundled JsonCpp" TRUE)

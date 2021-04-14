@@ -1,0 +1,11 @@
+e52b11587c12a61a2fe005b39fee84c3b5c8f23f 105.0
+3bb68379372a1a7ccfdc1e3d5930a16da325867a AI/Interfaces/Python-105.0
+a15f45c8855f6e891ec76b8dacbde61cda421cc6 AI/Skirmish/AAI-105.0
+91fd31e366057b53f4971fe8efce361cda3584d5 AI/Skirmish/CircuitAI-105.0
+1a11f5aba15b1bc6b9bd825e9e58cf801fbb1958 AI/Skirmish/HughAI-105.0
+f6bdd3e6572194866a0fb6fa3e903b87b15774f3 AI/Skirmish/KAIK-105.0
+75339ae73fa093c8fbc72445eb013240f21aa896 AI/Skirmish/Shard-105.0
+76429b4a64d7312c79aa95ef3f73e8c89478e63d tools/mapcompile-105.0
+67423a3c39bf518c4adc0b856d7eedaa902ef383 tools/pr-downloader-105.0
+2a51679005285e4e5f8642dd86dc35b46de772c1 tools/pr-downloader/src/lib/libgit2-105.0
+6e1b3fd1890b2afef55afc74b10999fc593eb608 tools/unitsync/python-105.0

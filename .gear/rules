@@ -1,3 +1,14 @@
-spec: springrts.spec
-copy?: *.patch
-tar: spring name=@name@-@version@
+spec: .gear/springrts.spec
+tar: @version@:.
+copy?: .gear/*.patch
+
+tar: AI/Interfaces/Python-@version@:. name=@name@-@version@-AI-Interfaces-Python base=AI/Interfaces/Python
+tar: AI/Skirmish/AAI-@version@:. name=@name@-@version@-AI-Skirmish-AAI base=AI/Skirmish/AAI
+tar: AI/Skirmish/CircuitAI-@version@:. name=@name@-@version@-AI-Skirmish-CircuitAI base=AI/Skirmish/CircuitAI
+tar: AI/Skirmish/HughAI-@version@:. name=@name@-@version@-AI-Skirmish-HughAI base=AI/Skirmish/HughAI
+tar: AI/Skirmish/KAIK-@version@:. name=@name@-@version@-AI-Skirmish-KAIK base=AI/Skirmish/KAIK
+tar: AI/Skirmish/Shard-@version@:. name=@name@-@version@-AI-Skirmish-Shard base=AI/Skirmish/Shard
+tar: tools/mapcompile-@version@:. name=@name@-@version@-tools-mapcompile base=tools/mapcompile
+tar: tools/pr-downloader-@version@:. name=@name@-@version@-tools-pr-downloader base=tools/pr-downloader
+tar: tools/pr-downloader/src/lib/libgit2-@version@:. name=@name@-@version@-tools-pr-downloader-src-lib-libgit2 base=tools/pr-downloader/src/lib/libgit2
+tar: tools/unitsync/python-@version@:. name=@name@-@version@-tools-unitsync-python base=tools/unitsync/python

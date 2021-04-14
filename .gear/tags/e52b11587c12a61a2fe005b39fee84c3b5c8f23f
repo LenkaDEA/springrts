@@ -1,0 +1,6 @@
+object 575e223c8484399dc6a2f8556646a1220261c492
+type commit
+tag 105.0
+tagger abma <spring@abma.de> 1609517584 +0100
+
+105.0 release [changed APIs: Lua, unitsync, AI]

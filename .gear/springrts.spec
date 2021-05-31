@@ -106,10 +106,10 @@ echo %version > VERSION
 	-DAI_TYPES=NATIVE \
 	%nil
 
-%cmake_build VERBOSE=1
+%cmake_build
 
 %install
-%cmakeinstall_std VERBOSE=1
+%cmake_install
 
 # Move icons into proper Freedesktop hicolor theme
 mkdir -p %buildroot%_liconsdir

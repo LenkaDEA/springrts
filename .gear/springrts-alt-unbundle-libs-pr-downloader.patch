@@ -13,3 +13,16 @@ index 8b41a40..ed78153 100644
  	option(PRD_JSONCPP_INTERNAL "use bundled JsonCpp" FALSE)
  else()
  	option(PRD_JSONCPP_INTERNAL "use bundled JsonCpp" TRUE)
+diff --git a/cmake/FindJsoncpp.cmake b/cmake/FindJsoncpp.cmake
+index 2478751..f63ab2a 100644
+--- a/cmake/FindJsoncpp.cmake
++++ b/cmake/FindJsoncpp.cmake
+@@ -14,7 +14,7 @@ if(PKG_CONFIG_FOUND)
+ endif()
+ # Include dir
+ find_path(Jsoncpp_INCLUDE_DIR
+-  NAMES json/features.h
++  NAMES json/json.h
+   PATH_SUFFIXES jsoncpp
+   PATHS ${Jsoncpp_PKGCONF_INCLUDE_DIRS} # /usr/include/jsoncpp/json
+ )

@@ -3,6 +3,7 @@
 
 #include "creg_cond.h"
 #include <utility>
+#include <tuple>
 
 #ifdef USING_CREG
 

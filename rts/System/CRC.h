@@ -4,6 +4,7 @@
 #define CRC_H
 
 #include <string>
+#include <cstdint>
 
 /** @brief An updateable CRC-32 checksum. */
 class CRC

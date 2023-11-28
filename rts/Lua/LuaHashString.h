@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <string>
+#include <cstdint>
 
 #include "LuaInclude.h"
 #include "System/StringHash.h"

@@ -8,6 +8,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <cstdint>
 
 #include "System/MainDefines.h"
 

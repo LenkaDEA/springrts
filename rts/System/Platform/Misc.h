@@ -5,6 +5,7 @@
 
 #include <string>
 #include <array>
+#include <cstdint>
 
 namespace Platform
 {

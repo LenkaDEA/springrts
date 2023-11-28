@@ -3,11 +3,11 @@
 #include "restrictions.h"
 
 #include <string>
+#include <cstdint>
 
 #include "System/SafeUtil.h"
 #include "System/Log/ILog.h"
 #include "System/Config/ConfigHandler.h"
-
 
 #define WILDCARD_HOST "*"
 #define WILDCARD_PORT -1

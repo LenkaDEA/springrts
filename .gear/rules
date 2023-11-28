@@ -1,5 +1,6 @@
 spec: .gear/springrts.spec
 tar: @version@:.
+diff: @version@:. .
 copy?: .gear/*.patch
 
 tar: AI/Interfaces/Python-@version@:. name=@name@-@version@-AI-Interfaces-Python base=AI/Interfaces/Python
